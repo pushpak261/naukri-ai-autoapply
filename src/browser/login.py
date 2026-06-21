@@ -156,8 +156,12 @@ class LoginHandler:
                 return False
 
         except Exception as e:
-            log_error(f"Login failed with error: {e}")
-            logger.exception("Login exception details")
+            error_msg = str(e)
+            if "Target page, context or browser has been closed" in error_msg:
+                log_error("Browser was closed by the user. Aborting login.")
+            else:
+                log_error(f"Login failed with error: {e}")
+                logger.exception("Login exception details")
             return False
 
     async def _handle_otp(self) -> None:

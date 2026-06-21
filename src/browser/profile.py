@@ -82,6 +82,10 @@ class ProfileRefresher:
             return True
 
         except Exception as e:
-            log_error(f"Error during profile refresh: {e}")
-            logger.exception("Profile refresh failure details:")
+            error_msg = str(e)
+            if "Target page, context or browser has been closed" in error_msg:
+                log_error("Browser was closed by the user. Aborting profile refresh.")
+            else:
+                log_error(f"Error during profile refresh: {e}")
+                logger.exception("Profile refresh failure details:")
             return False
