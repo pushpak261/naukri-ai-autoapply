@@ -3,6 +3,7 @@ Profile refresh automation for Naukri Agent.
 """
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 from src.core.interfaces import IBrowserEngine, IBrowserInteractions
@@ -164,8 +165,6 @@ class ProfileRefresher:
             else:
                 log_error(f"Error during profile refresh: {e}")
                 logger.exception("Profile refresh failure details:")
-                try:
+                with contextlib.suppress(Exception):
                     await self._capture_debug_artifacts(page)
-                except Exception:
-                    pass
             return False
