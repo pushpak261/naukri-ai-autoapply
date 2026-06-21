@@ -24,7 +24,6 @@ from src.core.exceptions import BrowserAutomationError
 from src.browser.stealth import apply_stealth_scripts
 from src.config.constants import (
     DEFAULT_TIMEOUT,
-    DEFAULT_VIEWPORT,
     DEFAULT_USER_AGENT,
     DEFAULT_LOCALE,
     DEFAULT_TIMEZONE,

@@ -146,7 +146,8 @@ class JobApplier:
         # Strategy 3: JavaScript click (bypasses overlays)
         page = self._engine.page
         try:
-            result = await page.evaluate("""
+            result = await page.evaluate(
+                """
                 () => {
                     const buttons = [...document.querySelectorAll('button, a')];
                     const applyBtn = buttons.find(btn => {
@@ -159,7 +160,8 @@ class JobApplier:
                     }
                     return false;
                 }
-            """)
+            """
+            )
             if result:
                 return True
         except Exception as e:
@@ -469,7 +471,8 @@ class JobApplier:
         # JavaScript fallback
         page = self._engine.page
         with contextlib.suppress(Exception):
-            await page.evaluate("""
+            await page.evaluate(
+                """
                 () => {
                     const buttons = [...document.querySelectorAll('button')];
                     const submitBtn = buttons.find(btn => {
@@ -478,7 +481,8 @@ class JobApplier:
                     });
                     if (submitBtn) submitBtn.click();
                 }
-            """)
+            """
+            )
 
     async def _check_application_success(self) -> bool:
         """Check if the application was submitted successfully."""
