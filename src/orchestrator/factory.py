@@ -28,6 +28,7 @@ from src.browser.interactions import HumanInteractions
 from src.browser.login import LoginHandler
 from src.browser.search import JobSearcher
 from src.browser.apply import JobApplier
+from src.browser.profile import ProfileRefresher
 from src.database.repository import SQLAlchemyRepository
 
 
@@ -127,4 +128,10 @@ class DependencyFactory:
             interactions=self.get_browser_interactions(),
             settings=self._settings,
             question_answerer=question_answerer,
+        )
+
+    def create_profile_refresher(self) -> ProfileRefresher:
+        return ProfileRefresher(
+            engine=self.get_browser_engine(),
+            interactions=self.get_browser_interactions(),
         )

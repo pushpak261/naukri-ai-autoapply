@@ -684,3 +684,42 @@ class NaukriAgent:
                     run["status"],
                 )
             console.print(runs_table)
+
+    async def refresh_profile(self) -> None:
+        """Automated task to log in and refresh the profile headline."""
+        setup_logging(
+            level=self._settings.logging.level,
+            log_to_file=self._settings.logging.log_to_file,
+            log_dir=str(self._settings.project_root / self._settings.logging.log_dir),
+        )
+        self._settings.ensure_dirs()
+        self._register_signal_handlers()
+
+        try:
+            log_info("Starting Profile Refresh task...")
+
+            # Launch browser & login
+            await self._engine.launch()
+
+            login_handler = self._factory.create_login_handler()
+            login_success = await login_handler.login()
+            if not login_success:
+                log_error("Login failed. Cannot proceed with profile refresh.")
+                return
+
+            # Execute profile refresh
+            refresher = self._factory.create_profile_refresher()
+            await refresher.refresh()
+
+        except KeyboardInterrupt:
+            log_warning("Task interrupted by user (Ctrl+C)")
+            self._interrupted = True
+        except Exception as e:
+            log_error(f"Error during profile refresh task: {e}")
+            logger.exception("Profile refresh fatal error")
+        finally:
+            if self._engine:
+                try:
+                    await self._engine.close()
+                except Exception as e:
+                    logger.debug(f"Browser close error: {e}")

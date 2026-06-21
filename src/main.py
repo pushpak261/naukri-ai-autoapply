@@ -130,6 +130,24 @@ async def _test_match(job_url: str):
     await agent.test_match(job_url)
 
 
+@cli.command("refresh-profile")
+def refresh_profile():
+    """Automated task to refresh the user profile."""
+    asyncio.run(_refresh_profile())
+
+
+async def _refresh_profile():
+    from src.orchestrator.agent import NaukriAgent
+    from src.orchestrator.factory import DependencyFactory
+    from src.database.models import init_db
+
+    settings = get_settings()
+    session_factory = await init_db(settings.db_path)
+    factory = DependencyFactory(settings, session_factory=session_factory)
+    agent = NaukriAgent(factory)
+    await agent.refresh_profile()
+
+
 @cli.command()
 def init():
     """Initialize configuration files and data directories."""
