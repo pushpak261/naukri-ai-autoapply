@@ -9,6 +9,8 @@ Results are cached in the database by file hash to avoid redundant API calls.
 from __future__ import annotations
 
 import json
+import os
+import shutil
 from pathlib import Path
 
 from src.core.interfaces import ILLMProvider, IRepository, IResumeParser
@@ -73,6 +75,41 @@ _MIN_CHARS_PER_PAGE = 10
 
 # DPI used when rasterizing pages for OCR. Higher = more accurate but slower.
 _OCR_RENDER_DPI = 300
+
+# Common Tesseract install locations on Windows, checked if it's not on PATH.
+# Covers both the official UB Mannheim installer's default paths.
+_WINDOWS_TESSERACT_PATHS = [
+    r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+    r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+]
+
+
+def _resolve_tesseract_cmd() -> str | None:
+    """
+    Locate the Tesseract OCR binary even if it's not on the system PATH.
+
+    Checks, in order:
+    1. The TESSERACT_CMD environment variable (explicit override).
+    2. Whether `tesseract` is already resolvable on PATH.
+    3. Common Windows install locations (since the Windows installer
+       doesn't always add Tesseract to PATH, even when asked to).
+
+    Returns:
+        Path to the tesseract executable, or None if not found anywhere.
+    """
+    env_path = os.environ.get("TESSERACT_CMD")
+    if env_path and Path(env_path).exists():
+        return env_path
+
+    on_path = shutil.which("tesseract")
+    if on_path:
+        return on_path
+
+    for candidate in _WINDOWS_TESSERACT_PATHS:
+        if Path(candidate).exists():
+            return candidate
+
+    return None
 
 
 class ResumeParser(IResumeParser):
@@ -162,6 +199,25 @@ class ResumeParser(IResumeParser):
                 "them with: pip install pytesseract pillow --break-system-packages "
                 "(and ensure the 'tesseract-ocr' system package is installed)."
             ) from e
+
+        tesseract_cmd = _resolve_tesseract_cmd()
+        if not tesseract_cmd:
+            raise ValueError(
+                f"No text could be extracted from: {path}. The PDF appears to be "
+                "scanned/image-based, but the Tesseract OCR engine binary could not "
+                "be found on this machine (the `pytesseract` Python package alone "
+                "isn't enough — it needs the actual OCR program installed separately).\n\n"
+                "To fix this:\n"
+                "  Windows: download and run the installer from "
+                "https://github.com/UB-Mannheim/tesseract/wiki, then either let it "
+                "add itself to PATH, or set an environment variable:\n"
+                '      setx TESSERACT_CMD "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"\n'
+                "  Linux/CI: sudo apt-get update && sudo apt-get install -y tesseract-ocr\n"
+                "  macOS: brew install tesseract"
+            )
+
+        pytesseract.pytesseract.tesseract_cmd = tesseract_cmd
+        logger.debug(f"Using Tesseract OCR binary at: {tesseract_cmd}")
 
         zoom = _OCR_RENDER_DPI / 72  # fitz default is 72 DPI
         matrix = fitz.Matrix(zoom, zoom)
