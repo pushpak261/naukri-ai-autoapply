@@ -167,19 +167,19 @@ All data is stored locally in the `data/` directory:
 - `data/sessions/` — Browser session state for login persistence
 - `data/logs/` — Daily log files
 
-## ☁️ Cloud Deployment (Render)
+## ☁️ Cloud Deployment (GitHub Actions)
 
-This project can be deployed as a scheduled Cron Job on [Render](https://render.com) using the included `render.yaml` configuration.
+This project is fully configured to run automatically and completely for free using **GitHub Actions**.
 
-1. Create a [Render Account](https://render.com).
-2. Connect your GitHub repository in the Render Dashboard via **Blueprints**.
-3. The Blueprint will automatically provision a Cron Job named `naukri-auto-apply-bot`.
-4. In the Render Dashboard, navigate to the newly created Cron Job's **Environment** tab and securely add your keys:
-   - `GEMINI_API_KEY`
-   - `NAUKRI_USERNAME`
-   - `NAUKRI_PASSWORD`
+1. Navigate to your repository on GitHub.
+2. Go to **Settings** > **Secrets and variables** > **Actions**.
+3. Click **New repository secret** and add the following 3 secrets:
+   - `GEMINI_API_KEY`: Your Gemini API key.
+   - `NAUKRI_EMAIL`: Your Naukri account email.
+   - `NAUKRI_PASSWORD`: Your Naukri password.
 
-By default, the job is scheduled to run daily at `30 2 * * *` UTC (8:00 AM IST) on a `starter` instance to ensure enough RAM for headless Chromium. Since the container is ephemeral, any state tracked in the SQLite DB will be lost between runs unless you configure an external database (e.g., PostgreSQL) or attach a persistent disk.
+By default, the GitHub Actions workflow (`.github/workflows/auto-apply.yml`) is scheduled to run daily at `30 2 * * *` UTC (8:00 AM IST) on an Ubuntu runner.
+*Note: Since GitHub Actions runners are ephemeral, any state tracked in the local SQLite DB will be lost between runs unless you configure an external database.*
 
 ## 🔧 Troubleshooting
 
