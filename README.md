@@ -91,25 +91,37 @@ python -m src.main status
 
 ## 🏗️ Architecture
 
+### Flowise Application Logic
+```mermaid
+flowchart TD
+    A[GitHub Actions Cron Job] -->|Triggers at 8:00 AM IST| B(Decrypt Resume)
+    B -->|RESUME_KEY| C[Restore SQLite Cache]
+    C --> D{Initialize Playwright}
+    D -->|Restore Session / OTP Login| E[Naukri Dashboard]
+    E --> F[Search Jobs based on config.yaml]
+    F --> G{For each Job}
+    G -->|Already in SQLite / UI says Applied| H[Skip Job]
+    G -->|New Job| I[Gemini API Evaluation]
+    I --> J{Match Score >= Threshold?}
+    J -->|No| K[Log & Skip]
+    J -->|Yes| L[Auto-fill Questionnaire via AI]
+    L --> M[Submit Application]
+    M --> N[Save to SQLite DB]
+    N -->|Next Job| G
+    N -->|Finished / Reached Daily Cap| O[Save SQLite Cache to GitHub]
 ```
+
+### Code Structure
+```text
 src/
 ├── config/          # Settings, constants, selectors
 ├── ai/              # Gemini-powered resume parsing, job matching, Q&A
 ├── browser/         # Playwright engine, stealth, login, search, apply
-├── database/        # SQLite models and repository
-├── orchestrator/    # Main agent loop
+├── database/        # SQLite models and repository (Cached in Cloud)
+├── orchestrator/    # Main agent loop connecting UI and AI
 ├── utils/           # Logger, helpers
 └── main.py          # CLI entry point
 ```
-
-### How It Works
-
-1. **Parse Resume** → Extracts your PDF and creates a structured profile via Gemini AI
-2. **Login** → Restores saved session or performs fresh login (with OTP support)
-3. **Search** → Searches Naukri across all keyword × location combinations
-4. **Score** → Each job is scored 0-100 by Gemini against your resume
-5. **Apply** → Jobs above the threshold are auto-applied with AI-filled screening questions
-6. **Log** → Every action is recorded in SQLite for tracking and analytics
 
 ## ⚙️ Configuration Reference
 
@@ -169,17 +181,47 @@ All data is stored locally in the `data/` directory:
 
 ## ☁️ Cloud Deployment (GitHub Actions)
 
-This project is fully configured to run automatically and completely for free using **GitHub Actions**.
+This project is fully configured to run automatically and completely for free using **GitHub Actions**. 
 
+To protect your privacy, your `resume.pdf` is strictly ignored by Git. Instead, we use military-grade AES encryption to securely upload it, allowing the cloud bot to decrypt it on the fly.
+
+### 1. Encrypt Your Resume
+Before deploying to the cloud, you must securely encrypt your resume so GitHub Actions can read it.
+1. Place your `resume.pdf` in the root folder of this project.
+2. Run the encryption helper script:
+   ```bash
+   python update_resume.py
+   ```
+3. This will create a `resume.pdf.enc` file (which is safe to push to GitHub) and a `resume_key.txt` file (which contains your secret decryption key).
+
+### 2. Configure GitHub Secrets
 1. Navigate to your repository on GitHub.
 2. Go to **Settings** > **Secrets and variables** > **Actions**.
-3. Click **New repository secret** and add the following 3 secrets:
-   - `GEMINI_API_KEY`: Your Gemini API key.
+3. Click **New repository secret** and add the following 4 secrets:
+   - `GEMINI_API_KEY`: Your Google Gemini API key.
    - `NAUKRI_EMAIL`: Your Naukri account email.
    - `NAUKRI_PASSWORD`: Your Naukri password.
+   - `RESUME_KEY`: The exact string found inside your local `resume_key.txt` file.
 
-By default, the GitHub Actions workflow (`.github/workflows/auto-apply.yml`) is scheduled to run daily at `30 2 * * *` UTC (8:00 AM IST) on an Ubuntu runner.
-*Note: Since GitHub Actions runners are ephemeral, any state tracked in the local SQLite DB will be lost between runs unless you configure an external database.*
+### 3. Execution & Memory
+By default, the GitHub Actions workflow (`.github/workflows/auto-apply.yml`) is scheduled to run daily at `8:00 AM IST` (`30 2 * * *` UTC).
+
+**🧠 Persistent Memory:** The bot uses a local SQLite database (`data/`) to track which jobs it has already applied to. To ensure this memory survives between ephemeral cloud runs, the workflow automatically uses **GitHub Actions Cache** to save and restore the database daily.
+
+## 📄 Updating Your Resume
+
+When you want to update your resume in the future, you do **not** need to touch GitHub Secrets again. 
+1. Replace the local `resume.pdf` file with your updated version.
+2. Run the update script:
+   ```bash
+   python update_resume.py
+   ```
+3. Commit and push the updated `.enc` file to GitHub:
+   ```bash
+   git add resume.pdf.enc
+   git commit -m "Update resume"
+   git push
+   ```
 
 ## 🔧 Troubleshooting
 
