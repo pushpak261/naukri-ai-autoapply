@@ -2,8 +2,8 @@ name: Naukri Auto Apply Cron
 
 on:
   schedule:
-    # Runs at 02:30 UTC every day (8:00 AM IST)
-    - cron: '30 2 * * *'
+    # Runs at 8:00 AM, 10:00 AM, 12:00 PM, 6:00 PM, and 8:00 PM IST
+    - cron: '30 2,4,6,12,14 * * *'
   workflow_dispatch: # Allows you to run it manually from the GitHub UI
 
 jobs:
