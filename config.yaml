@@ -77,7 +77,15 @@ profile:
 # ---------------------------------------------------------------------------
 exclusions:
   companies: []            # Companies to skip (e.g., ["Company A", "Company B"])
-  title_keywords: []       # Skip jobs with these words in title (e.g., ["intern", "junior"])
+  title_keywords:          # Skip jobs with these words in title (e.g., ["intern", "junior"])
+    - "support"
+    - "testing"
+    - "qa"
+    - "sales"
+    - "marketing"
+    - "bpo"
+    - "customer"
+    - "tech support"
   description_keywords: [] # Skip jobs with these words in description
 
 # ---------------------------------------------------------------------------
