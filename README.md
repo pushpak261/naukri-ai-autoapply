@@ -208,20 +208,36 @@ By default, the GitHub Actions workflow (`.github/workflows/auto-apply.yml`) is 
 
 **🧠 Persistent Memory:** The bot uses a local SQLite database (`data/`) to track which jobs it has already applied to. To ensure this memory survives between ephemeral cloud runs, the workflow automatically uses **GitHub Actions Cache** to save and restore the database daily.
 
-## 📄 Updating Your Resume
+## 📄 Updating Your Resume or Session
 
-When you want to update your resume in the future, you do **not** need to touch GitHub Secrets again. 
+Because your session cookies and resume are securely encrypted, you do **not** need to touch GitHub Secrets again when updating them!
+
+### To Update Your Resume:
 1. Replace the local `resume.pdf` file with your updated version.
 2. Run the update script:
    ```bash
    python update_resume.py
    ```
-3. Commit and push the updated `.enc` file to GitHub:
+3. Commit and push the updated `resume.pdf.enc` file.
+
+### To Bypass Naukri OTP / Cloud Login Issues:
+If Naukri is asking for an OTP on your cloud bot or login is failing, you can bypass the login screen entirely by grabbing the session cookies from your own laptop:
+1. Run the bot locally so it opens a visible window:
    ```bash
-   git add resume.pdf.enc
-   git commit -m "Update resume"
+   python -m src.main run --dry-run
+   ```
+2. Log into Naukri manually. Once the bot starts scanning jobs, you can press `Ctrl+C` to stop it.
+3. Your login cookies are now saved locally. Encrypt them for the cloud:
+   ```bash
+   python sync_session.py
+   ```
+4. Commit and push the new `session.enc` file:
+   ```bash
+   git add session.enc
+   git commit -m "Sync Naukri session to cloud"
    git push
    ```
+The cloud bot will now automatically inherit your login session and skip the login page entirely!
 
 ## 🔧 Troubleshooting
 
