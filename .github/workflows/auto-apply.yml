@@ -28,11 +28,13 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
           
-      - name: Create Resume PDF
+      - name: Decrypt Resume
         env:
-          RESUME_B64: ${{ secrets.RESUME_PDF_BASE64 }}
+          RESUME_KEY: ${{ secrets.RESUME_DECRYPTION_KEY }}
         run: |
-          echo "$RESUME_B64" | base64 -d > resume.pdf
+          pip install cryptography
+          python -c "import os; from cryptography.fernet import Fernet; cipher = Fernet(os.environ['RESUME_KEY'].encode('utf-8')); decrypted = cipher.decrypt(open('resume.pdf.enc', 'rb').read()); open('resume.pdf', 'wb').write(decrypted)"
+          
           
       - name: Run Naukri Agent
         env:
