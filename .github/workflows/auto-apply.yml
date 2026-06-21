@@ -20,6 +20,14 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
+      - name: Cache Bot Database (State)
+        uses: actions/cache@v4
+        with:
+          path: data/
+          key: bot-state-${{ github.run_id }}
+          restore-keys: |
+            bot-state-
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
