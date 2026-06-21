@@ -35,12 +35,24 @@ jobs:
           pip install cryptography
           python -c "
           from cryptography.fernet import Fernet
-          import os
+          import os, json
           from pathlib import Path
           cipher = Fernet(os.environ['RESUME_KEY'].encode())
           if Path('session.enc').exists():
+              print('session.enc found, size:', Path('session.enc').stat().st_size)
               Path('data/sessions').mkdir(parents=True, exist_ok=True)
-              Path('data/sessions/naukri_session.json').write_bytes(cipher.decrypt(Path('session.enc').read_bytes()))
+              try:
+                  decrypted = cipher.decrypt(Path('session.enc').read_bytes())
+                  print('Decryption succeeded, size:', len(decrypted))
+                  json.loads(decrypted)
+                  print('Decrypted content is valid JSON')
+                  Path('data/sessions/naukri_session.json').write_bytes(decrypted)
+                  print('Session file written successfully')
+              except Exception as e:
+                  print('DECRYPT/VALIDATION FAILED:', repr(e))
+                  raise
+          else:
+              print('session.enc NOT FOUND in checkout')
           "
           
       - name: Run Naukri Profile Refresh
