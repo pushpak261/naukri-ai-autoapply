@@ -28,6 +28,12 @@ jobs:
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
           
+      - name: Create Resume PDF
+        env:
+          RESUME_B64: ${{ secrets.RESUME_PDF_BASE64 }}
+        run: |
+          echo "$RESUME_B64" | base64 -d > resume.pdf
+          
       - name: Run Naukri Agent
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
