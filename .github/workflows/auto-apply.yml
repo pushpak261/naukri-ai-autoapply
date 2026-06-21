@@ -35,6 +35,9 @@ jobs:
           
       - name: Install Playwright browsers
         run: playwright install --with-deps chromium
+
+      - name: Install OCR dependencies
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
           
       - name: Decrypt Secrets (Resume & Session)
         env:

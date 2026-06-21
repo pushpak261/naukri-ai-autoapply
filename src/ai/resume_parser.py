@@ -15,7 +15,7 @@ from src.core.interfaces import ILLMProvider, IRepository, IResumeParser
 from src.core.exceptions import LLMAPIError, LLMQuotaExceededError
 from src.config.settings import Settings
 from src.utils.helpers import hash_file, truncate_text
-from src.utils.logger import get_logger, log_info, log_success, log_error
+from src.utils.logger import get_logger, log_info, log_success, log_error, log_warning
 
 logger = get_logger(__name__)
 
@@ -66,6 +66,14 @@ IMPORTANT RULES:
 RESUME TEXT:
 {resume_text}"""
 
+# Minimum characters per page below which we treat the text layer as
+# effectively empty and fall back to OCR (handles PDFs with a stray
+# whitespace/control character but no real extractable text).
+_MIN_CHARS_PER_PAGE = 10
+
+# DPI used when rasterizing pages for OCR. Higher = more accurate but slower.
+_OCR_RENDER_DPI = 300
+
 
 class ResumeParser(IResumeParser):
     """
@@ -85,7 +93,9 @@ class ResumeParser(IResumeParser):
 
     def _extract_pdf_text(self, pdf_path: str | Path) -> str:
         """
-        Extract raw text from a PDF file using PyMuPDF.
+        Extract raw text from a PDF file using PyMuPDF, falling back to
+        OCR if the PDF has no usable text layer (e.g. scanned resumes or
+        image-only PDFs).
 
         Args:
             pdf_path: Path to the PDF file.
@@ -95,7 +105,7 @@ class ResumeParser(IResumeParser):
 
         Raises:
             FileNotFoundError: If the PDF file doesn't exist.
-            ValueError: If no text could be extracted.
+            ValueError: If no text could be extracted, even via OCR.
         """
         import fitz  # PyMuPDF
 
@@ -104,17 +114,80 @@ class ResumeParser(IResumeParser):
             raise FileNotFoundError(f"Resume file not found: {path}")
 
         doc = fitz.open(str(path))
-        text_parts = []
-        for page in doc:
-            text_parts.append(page.get_text("text"))
-        doc.close()
+        try:
+            text_parts = [page.get_text("text") for page in doc]
+            full_text = "\n".join(text_parts).strip()
 
-        full_text = "\n".join(text_parts).strip()
-        if not full_text:
-            raise ValueError(f"No text could be extracted from: {path}")
+            avg_chars_per_page = len(full_text) / max(doc.page_count, 1)
+            if full_text and avg_chars_per_page >= _MIN_CHARS_PER_PAGE:
+                logger.debug(f"Extracted {len(full_text)} characters from {path.name}")
+                return full_text
 
-        logger.debug(f"Extracted {len(full_text)} characters from {path.name}")
-        return full_text
+            # No usable text layer — likely a scanned/image-based PDF.
+            log_warning(
+                f"No text layer found in {path.name}, falling back to OCR "
+                "(this may take a little longer)..."
+            )
+            return self._extract_pdf_text_via_ocr(doc, path)
+        finally:
+            doc.close()
+
+    def _extract_pdf_text_via_ocr(self, doc, path: Path) -> str:
+        """
+        OCR fallback for PDFs with no extractable text layer.
+
+        Rasterizes each page with PyMuPDF and runs Tesseract OCR on the
+        resulting image. Requires the `pytesseract` Python package and the
+        `tesseract-ocr` system binary to be installed.
+
+        Args:
+            doc: An already-open fitz.Document.
+            path: Original PDF path (used for error messages/logging only).
+
+        Returns:
+            OCR-extracted text content.
+
+        Raises:
+            ValueError: If OCR also fails to extract any text, or if the
+                required OCR dependencies are missing.
+        """
+        try:
+            import fitz  # PyMuPDF
+            import pytesseract
+            from PIL import Image
+        except ImportError as e:
+            raise ValueError(
+                f"No text could be extracted from: {path}. The PDF appears to be "
+                "scanned/image-based and OCR dependencies are missing. Install "
+                "them with: pip install pytesseract pillow --break-system-packages "
+                "(and ensure the 'tesseract-ocr' system package is installed)."
+            ) from e
+
+        zoom = _OCR_RENDER_DPI / 72  # fitz default is 72 DPI
+        matrix = fitz.Matrix(zoom, zoom)
+
+        ocr_text_parts = []
+        for page_num, page in enumerate(doc):
+            try:
+                pixmap = page.get_pixmap(matrix=matrix)
+                image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
+                page_text = pytesseract.image_to_string(image)
+                if page_text:
+                    ocr_text_parts.append(page_text)
+            except Exception as e:
+                logger.warning(f"OCR failed on page {page_num + 1} of {path.name}: {e}")
+
+        ocr_full_text = "\n".join(ocr_text_parts).strip()
+
+        if not ocr_full_text:
+            raise ValueError(
+                f"No text could be extracted from: {path} (no text layer, "
+                "and OCR also returned no text — check that the scan is "
+                "legible and tesseract-ocr is installed correctly)."
+            )
+
+        logger.debug(f"Extracted {len(ocr_full_text)} characters via OCR from {path.name}")
+        return ocr_full_text
 
     async def parse(self, pdf_path: str | Path) -> dict:
         """

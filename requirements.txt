@@ -5,6 +5,10 @@ google-genai>=1.0.0,<2.0.0
 # PDF Parsing
 PyMuPDF>=1.25.0,<2.0.0
 
+# OCR (fallback for scanned/image-based resumes)
+pytesseract>=0.3.10,<1.0.0
+pillow>=10.0.0,<12.0.0
+
 # Database
 sqlalchemy>=2.0.0,<3.0.0
 aiosqlite>=0.20.0,<1.0.0
