@@ -152,10 +152,10 @@ class ProfileSelectors:
     """Selectors for the Naukri profile page."""
 
     PROFILE_URL = "https://www.naukri.com/mnjuser/profile"
-    
+
     # Locate the span containing 'Resume headline' and find the following sibling with class 'edit'
     RESUME_HEADLINE_EDIT_ICON = '//span[contains(text(), "Resume headline")]/following-sibling::span[contains(@class, "edit")]'
-    
+
     # Save button in the modal (exact text match to avoid hidden 'Save photo' button)
     SAVE_BUTTON = '//button[text()="Save" or normalize-space(text())="Save"]'
 
