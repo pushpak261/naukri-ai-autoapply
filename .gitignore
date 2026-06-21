@@ -1,0 +1,40 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Data (runtime artifacts — never commit these)
+data/sessions/
+data/resumes/
+data/*.db
+data/*.db-*
+data/naukri_agent_backup_*.db
+data/logs/
+data/match_cache.json
+data/qa_cache.json
+
+# Personal data — your resume contains PII and shouldn't be pushed to a
+# remote repo even though the agent needs a local copy to run.
+resume.pdf
+*.resume.pdf
+
+# Python
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+dist/
+build/
+htmlcov/
+.coverage
+.coverage.*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
