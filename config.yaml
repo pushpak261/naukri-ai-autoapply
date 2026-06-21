@@ -15,10 +15,8 @@ naukri:
 # Google Gemini AI Settings
 # ---------------------------------------------------------------------------
 ai:
-  gemini_api_key: ""        # Override with GEMINI_API_KEY env var
-  model: "gemini-2.5-pro"           # Primary model — most accurate, used first
-  fallback_model: "gemini-2.5-flash" # Used automatically if primary hits rate/quota limits
-  max_fallback_retries: 2           # Retries on fallback model before giving up
+  gemini_api_key: "" # Override with GEMINI_API_KEY env var
+  model: "gemini-2.5-flash"
   temperature: 0.3
   max_output_tokens: 4096
 
