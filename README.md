@@ -88,6 +88,7 @@ python -m src.main status
 | `python -m src.main parse-resume <path>` | Test resume parsing |
 | `python -m src.main test-match <url>` | Test matching against a job |
 | `python -m src.main init` | Initialize config files |
+| `python -m src.main refresh-profile` | Refresh Naukri profile to keep it active |
 
 ## 🏗️ Architecture
 
