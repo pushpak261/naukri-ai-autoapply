@@ -220,7 +220,7 @@ class LoginHandler:
 
         # Explicitly check for Login buttons which mean NOT logged in
         try:
-            not_logged_in = await page.query_selector('a#login_Layer, a:has-text("Login")')
+            not_logged_in = await page.query_selector(LoginSelectors.NOT_LOGGED_IN_INDICATORS)
             if not_logged_in and await not_logged_in.is_visible():
                 return False
         except Exception:

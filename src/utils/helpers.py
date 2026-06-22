@@ -11,8 +11,9 @@ import asyncio
 import hashlib
 import random
 import re
+import functools
 from pathlib import Path
-from typing import TypeVar
+from typing import Any, Callable, TypeVar, cast
 
 from src.utils.logger import get_logger
 
@@ -49,7 +50,7 @@ async def random_delay(min_seconds: float, max_seconds: float) -> float:
 # ---------------------------------------------------------------------------
 # Text cleaning utilities
 # ---------------------------------------------------------------------------
-def clean_text(text: str) -> str:
+def clean_text(text: str | None) -> str:
     """
     Clean raw text by removing HTML tags, normalizing whitespace, and
     stripping control characters.
@@ -72,7 +73,7 @@ def clean_text(text: str) -> str:
     return text.strip()
 
 
-def truncate_text(text: str, max_length: int = 4000) -> str:
+def truncate_text(text: str | None, max_length: int = 4000) -> str | None:
     """
     Safely truncate text to a maximum length, preserving word boundaries.
 
@@ -117,6 +118,51 @@ def hash_file(file_path: str | Path) -> str:
 # ---------------------------------------------------------------------------
 # Retry decorator
 # ---------------------------------------------------------------------------
+F = TypeVar("F", bound=Callable[..., Any])
+
+
+def async_retry(
+    max_attempts: int = 3,
+    delay_seconds: float = 1.0,
+    backoff_factor: float = 2.0,
+    exceptions: tuple[type[Exception], ...] = (Exception,),
+) -> Callable[[F], F]:
+    """
+    Decorator to retry an asynchronous function with exponential backoff.
+
+    Args:
+        max_attempts: Maximum number of execution attempts.
+        delay_seconds: Initial delay between retries in seconds.
+        backoff_factor: Multiplier applied to the delay after each failure.
+        exceptions: A tuple of exceptions that trigger a retry.
+
+    Returns:
+        The decorated asynchronous function.
+    """
+
+    def decorator(func: F) -> F:
+        @functools.wraps(func)
+        async def wrapper(*args: Any, **kwargs: Any) -> Any:
+            current_delay = delay_seconds
+            for attempt in range(1, max_attempts + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except exceptions as e:
+                    if attempt == max_attempts:
+                        logger.error(
+                            f"Function '{func.__name__}' failed after {max_attempts} attempts: {e}"
+                        )
+                        raise
+                    logger.warning(
+                        f"Attempt {attempt} of {max_attempts} for '{func.__name__}' failed: {e}. "
+                        f"Retrying in {current_delay:.2f} seconds..."
+                    )
+                    await asyncio.sleep(current_delay)
+                    current_delay *= backoff_factor
+
+        return cast(F, wrapper)
+
+    return decorator
 
 
 # ---------------------------------------------------------------------------

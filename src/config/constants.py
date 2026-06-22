@@ -72,6 +72,9 @@ class LoginSelectors:
     # Error messages
     LOGIN_ERROR = '//span[contains(@class, "err") or contains(@class, "error")]'
 
+    # Not logged in indicators
+    NOT_LOGGED_IN_INDICATORS = 'a#login_Layer, a:has-text("Login")'
+
 
 class SearchSelectors:
     """Selectors for the Naukri job search results page."""
@@ -146,6 +149,16 @@ class ApplyFlowSelectors:
 
     # Resume upload
     RESUME_UPLOAD = 'input[type="file"]'
+
+    # Fallback and inline selectors
+    FORM_FALLBACK = 'form[class*="apply"]'
+    CHATBOT_MSG_FALLBACK = '[class*="chatbot-msg"]'
+    SCREENING_FALLBACK = '[class*="screening"]'
+    GENERIC_SUBMIT = '//button[contains(text(), "Submit")]'
+    GENERIC_APPLY = '//button[contains(text(), "Apply")]'
+    GENERIC_SUBMIT_TYPE = 'button[type="submit"]'
+    SUCCESS_SUBMITTED = '//*[contains(text(), "submitted")]'
+    SUCCESS_RECEIVED = '//*[contains(text(), "received your application")]'
 
 
 class ProfileSelectors:

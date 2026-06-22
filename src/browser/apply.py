@@ -232,9 +232,9 @@ class JobApplier:
         question_indicators = [
             ApplyFlowSelectors.QUESTION_CONTAINER,
             ApplyFlowSelectors.APPLY_FORM,
-            'form[class*="apply"]',
-            '[class*="chatbot-msg"]',
-            '[class*="screening"]',
+            ApplyFlowSelectors.FORM_FALLBACK,
+            ApplyFlowSelectors.CHATBOT_MSG_FALLBACK,
+            ApplyFlowSelectors.SCREENING_FALLBACK,
         ]
 
         for selector in question_indicators:
@@ -457,9 +457,9 @@ class JobApplier:
         submit_selectors = [
             ApplyFlowSelectors.SUBMIT_BUTTON,
             ApplyFlowSelectors.NEXT_BUTTON,
-            '//button[contains(text(), "Submit")]',
-            '//button[contains(text(), "Apply")]',
-            'button[type="submit"]',
+            ApplyFlowSelectors.GENERIC_SUBMIT,
+            ApplyFlowSelectors.GENERIC_APPLY,
+            ApplyFlowSelectors.GENERIC_SUBMIT_TYPE,
         ]
 
         for selector in submit_selectors:
@@ -492,8 +492,8 @@ class JobApplier:
         success_selectors = [
             ApplyFlowSelectors.APPLICATION_SUCCESS,
             '//*[contains(text(), "successfully")]',
-            '//*[contains(text(), "submitted")]',
-            '//*[contains(text(), "received your application")]',
+            ApplyFlowSelectors.SUCCESS_SUBMITTED,
+            ApplyFlowSelectors.SUCCESS_RECEIVED,
         ]
 
         for selector in success_selectors:
