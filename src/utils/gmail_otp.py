@@ -4,6 +4,7 @@ Utility for fetching Naukri.com login OTP from Gmail using IMAP.
 
 from __future__ import annotations
 
+import contextlib
 import email
 import imaplib
 import re
@@ -147,10 +148,8 @@ def fetch_naukri_otp(
             logger.debug(f"Error checking Gmail IMAP (will retry): {e}")
         finally:
             if mail:
-                try:
+                with contextlib.suppress(Exception):
                     mail.logout()
-                except Exception:
-                    pass
 
         time.sleep(poll_interval_seconds)
 
