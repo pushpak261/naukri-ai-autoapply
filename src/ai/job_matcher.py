@@ -10,12 +10,26 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from pydantic import BaseModel
 
 from src.core.interfaces import ILLMProvider, IJobMatcher
 from src.core.exceptions import LLMQuotaExceededError
 from src.config.settings import Settings
 from src.utils.helpers import truncate_text, clean_text
 from src.utils.logger import get_logger, log_match
+
+
+class JobMatchResult(BaseModel):
+    score: int
+    should_apply: bool
+    matching_skills: list[str]
+    missing_skills: list[str]
+    experience_fit: str
+    location_fit: str
+    reasoning: str
+    strengths: list[str]
+    concerns: list[str]
+
 
 logger = get_logger(__name__)
 
@@ -177,6 +191,7 @@ class JobMatcher(IJobMatcher):
                 temperature=self._settings.ai.temperature,
                 max_output_tokens=2048,
                 response_mime_type="application/json",
+                response_schema=JobMatchResult,
             )
 
             result = json.loads(response_text)

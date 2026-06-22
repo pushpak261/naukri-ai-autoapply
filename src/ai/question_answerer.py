@@ -10,11 +10,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from pydantic import BaseModel
 
 from src.core.interfaces import ILLMProvider, IQuestionAnswerer
 from src.core.exceptions import LLMAPIError, LLMQuotaExceededError
 from src.config.settings import Settings
 from src.utils.logger import get_logger, log_info
+
+
+class ScreeningAnswer(BaseModel):
+    question: str
+    answer: str
+    confidence: str
+
 
 logger = get_logger(__name__)
 
@@ -267,6 +275,7 @@ class QuestionAnswerer(IQuestionAnswerer):
                 temperature=0.2,
                 max_output_tokens=2048,
                 response_mime_type="application/json",
+                response_schema=list[ScreeningAnswer],
             )
 
             ai_answers = json.loads(response_text)

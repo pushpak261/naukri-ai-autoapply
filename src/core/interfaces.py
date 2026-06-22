@@ -83,6 +83,7 @@ class ILLMProvider(Protocol):
         temperature: float = 0.3,
         max_output_tokens: int = 2048,
         response_mime_type: str = "text/plain",
+        response_schema: Any = None,
     ) -> str:
         """
         Generate content from a prompt.

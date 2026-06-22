@@ -84,13 +84,16 @@ jobs:
           else:
               print('No session file found or RESUME_KEY missing.')
           "
-          git config --global user.name \"github-actions[bot]\"
-          git config --global user.email \"github-actions[bot]@users.noreply.github.com\"
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
           if [ -f "session.enc" ] && ! git diff --quiet session.enc; then
+            cp session.enc temp_session.enc
+            git fetch origin main
+            git checkout --force -B main origin/main
+            mv temp_session.enc session.enc
             git add session.enc
             git commit -m "Auto-update session cookies [skip ci]"
-            git pull --rebase origin main
-            git push
+            git push origin main
           else
             echo "No session changes detected."
           fi

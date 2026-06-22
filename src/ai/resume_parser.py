@@ -12,12 +12,45 @@ import json
 import os
 import shutil
 from pathlib import Path
+from pydantic import BaseModel
 
 from src.core.interfaces import ILLMProvider, IRepository, IResumeParser
 from src.core.exceptions import LLMAPIError, LLMQuotaExceededError
 from src.config.settings import Settings
 from src.utils.helpers import hash_file, truncate_text
 from src.utils.logger import get_logger, log_info, log_success, log_error, log_warning
+
+
+class EducationEntry(BaseModel):
+    degree: str
+    institution: str
+    year: str
+
+
+class WorkExperienceEntry(BaseModel):
+    title: str
+    company: str
+    duration: str
+    highlights: list[str]
+
+
+class ResumeProfile(BaseModel):
+    name: str
+    email: str
+    phone: str
+    current_title: str
+    summary: str
+    total_experience_years: float
+    skills: list[str]
+    technical_skills: list[str]
+    soft_skills: list[str]
+    job_titles_held: list[str]
+    education: list[EducationEntry]
+    work_experience: list[WorkExperienceEntry]
+    certifications: list[str]
+    languages: list[str]
+    key_achievements: list[str]
+
 
 logger = get_logger(__name__)
 
@@ -305,6 +338,7 @@ class ResumeParser(IResumeParser):
                 temperature=0.1,
                 max_output_tokens=8192,
                 response_mime_type="application/json",
+                response_schema=ResumeProfile,
             )
 
             profile = json.loads(response_text)

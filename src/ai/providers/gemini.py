@@ -4,6 +4,7 @@ Google Gemini implementation of the ILLMProvider interface.
 
 from __future__ import annotations
 
+from typing import Any
 from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
@@ -56,6 +57,7 @@ class GeminiProvider(ILLMProvider):
         temperature: float = 0.3,
         max_output_tokens: int = 2048,
         response_mime_type: str = "text/plain",
+        response_schema: Any = None,
     ) -> str:
         """
         Generate content from a prompt using Gemini asynchronously.
@@ -75,6 +77,7 @@ class GeminiProvider(ILLMProvider):
                     temperature=temperature,
                     max_output_tokens=max_output_tokens,
                     response_mime_type=response_mime_type,
+                    response_schema=response_schema,
                 ),
             )
 
