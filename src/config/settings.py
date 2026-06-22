@@ -39,6 +39,8 @@ class AISettings(BaseModel):
 
     gemini_api_key: str = ""
     model: str = "gemini-2.5-flash"
+    fallback_model: str | None = None
+    abort_on_quota: bool = True
     temperature: float = 0.3
     max_output_tokens: int = 4096
 

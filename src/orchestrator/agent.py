@@ -303,20 +303,57 @@ class NaukriAgent:
             try:
                 match_result = await matcher.match(resume_profile, job)
             except LLMQuotaExceededError as e:
-                if e.is_daily_quota:
-                    log_error(
-                        "⚠️  Gemini's daily request quota is exhausted — stopping "
-                        "the run here instead of marking every remaining job as a "
-                        "non-match."
+                if e.is_daily_quota and self._settings.ai.fallback_model:
+                    fallback_model = self._settings.ai.fallback_model
+                    log_warning(
+                        f"⚠️  Gemini's daily request quota is exhausted for model '{self._settings.ai.model}'."
                     )
+                    log_success(
+                        f"✅ Switching to fallback model '{fallback_model}' and continuing run..."
+                    )
+
+                    # Update active model name
+                    llm_provider = self._factory.get_llm_provider()
+                    if hasattr(llm_provider, "set_model"):
+                        llm_provider.set_model(fallback_model)
+
+                    # Update settings
+                    self._settings.ai.model = fallback_model
+                    self._settings.ai.fallback_model = None  # Prevent infinite fallback loop
+
+                    # Retry current match once
+                    try:
+                        match_result = await matcher.match(resume_profile, job)
+                    except Exception as fallback_err:
+                        logger.error(f"AI Match failed on fallback model: {fallback_err}")
+                        self._jobs_failed += 1
+                        continue
                 else:
-                    log_error(
-                        "⚠️  Gemini rate limit hit repeatedly — stopping the run "
-                        "to avoid wasting further requests."
-                    )
-                log_error(str(e))
-                self._interrupted = True
-                break
+                    if e.is_daily_quota:
+                        log_error(str(e))
+                        if self._settings.ai.abort_on_quota:
+                            log_error(
+                                "⚠️  Gemini's daily request quota is exhausted — stopping "
+                                "the run here instead of marking every remaining job as a "
+                                "non-match."
+                            )
+                            self._interrupted = True
+                            break
+                        else:
+                            log_warning(
+                                f"⚠️  Gemini's daily request quota is exhausted for model '{self._settings.ai.model}', "
+                                "but continuing run (abort_on_quota is False)."
+                            )
+                            self._jobs_failed += 1
+                            continue
+                    else:
+                        log_error(
+                            "⚠️  Gemini rate limit hit repeatedly — stopping the run "
+                            "to avoid wasting further requests."
+                        )
+                        log_error(str(e))
+                        self._interrupted = True
+                        break
             except Exception as e:
                 logger.error(f"AI Match failed: {e}")
                 self._jobs_failed += 1

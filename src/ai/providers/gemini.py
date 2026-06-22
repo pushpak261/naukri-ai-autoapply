@@ -52,6 +52,12 @@ class GeminiProvider(ILLMProvider):
         self._client = genai.Client(api_key=api_key)
         self._model_name = model_name
 
+    def set_model(self, model_name: str) -> None:
+        """
+        Dynamically switch the Gemini model.
+        """
+        self._model_name = model_name
+
     @async_retry(
         max_attempts=3,
         delay_seconds=2.0,

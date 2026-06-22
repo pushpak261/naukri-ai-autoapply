@@ -138,6 +138,24 @@ class TestJobMatcher:
         assert result["should_apply"] is False
 
     @pytest.mark.asyncio
+    async def test_match_retries_on_malformed_json_and_succeeds(
+        self, mock_settings, sample_resume, high_match_job, sample_match_response
+    ):
+        """If the LLM returns invalid JSON on first call, it should retry once and succeed on valid JSON."""
+        mock_llm = AsyncMock()
+        mock_llm.generate_content.side_effect = [
+            "not valid json {{{",
+            json.dumps(sample_match_response),
+        ]
+
+        matcher = JobMatcher(mock_llm, mock_settings)
+        result = await matcher.match(sample_resume, high_match_job)
+
+        assert mock_llm.generate_content.call_count == 2
+        assert result["score"] == 85
+        assert result["should_apply"] is True
+
+    @pytest.mark.asyncio
     async def test_match_propagates_quota_exhaustion(
         self, mock_settings, sample_resume, high_match_job
     ):

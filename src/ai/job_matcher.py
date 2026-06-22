@@ -189,12 +189,32 @@ class JobMatcher(IJobMatcher):
             response_text = await self._llm.generate_content(
                 prompt=prompt,
                 temperature=self._settings.ai.temperature,
-                max_output_tokens=2048,
+                max_output_tokens=self._settings.ai.max_output_tokens,
                 response_mime_type="application/json",
                 response_schema=JobMatchResult,
             )
 
-            result = json.loads(response_text)
+            try:
+                result = json.loads(response_text)
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"⚠️ Failed to parse match response as JSON, retrying once with stricter prompt: {e}"
+                )
+
+                stricter_prompt = (
+                    f"{prompt}\n\n"
+                    "CRITICAL: The previous response was truncated or invalid. "
+                    "You MUST return a complete, valid JSON object matching the schema exactly. "
+                    "Keep all explanations (reasoning, strengths, concerns) extremely concise so the response fits within limits."
+                )
+                response_text = await self._llm.generate_content(
+                    prompt=stricter_prompt,
+                    temperature=self._settings.ai.temperature,
+                    max_output_tokens=self._settings.ai.max_output_tokens,
+                    response_mime_type="application/json",
+                    response_schema=JobMatchResult,
+                )
+                result = json.loads(response_text)
 
             # Defensive defaults — the LLM is expected to follow the schema,
             # but we never trust external output blindly.
@@ -239,7 +259,7 @@ class JobMatcher(IJobMatcher):
             raise
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse match response as JSON: {e}")
-            logger.debug(f"Raw response: {response_text[:500]}")
+            logger.error(f"Raw response: {response_text}")
             # Return a conservative default
             return {
                 "score": 0,
