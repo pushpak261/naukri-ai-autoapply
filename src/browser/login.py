@@ -23,6 +23,7 @@ from src.config.constants import (
 )
 from src.config.settings import Settings
 from src.utils.logger import get_logger, log_info, log_success, log_error, log_warning, console
+from src.utils.gmail_otp import fetch_naukri_otp
 
 logger = get_logger(__name__)
 
@@ -166,10 +167,8 @@ class LoginHandler:
 
     async def _handle_otp(self) -> None:
         """
-        Check for OTP input field and wait for user to enter it manually.
-
-        The browser is visible, so the user can see the OTP prompt
-        and enter it directly in the browser window.
+        Check for OTP input field and wait for user to enter it manually or
+        fetch it automatically from Gmail if credentials are provided.
         """
         page = self._engine.page
 
@@ -182,6 +181,42 @@ class LoginHandler:
                 otp_field = await page.query_selector(LoginSelectors.OTP_INPUT)
 
             if otp_field:
+                gmail_email = self._settings.naukri.gmail_otp_email
+                gmail_password = self._settings.naukri.gmail_app_password
+
+                # Check if automated Gmail OTP retrieval is configured
+                if gmail_email and gmail_password:
+                    log_info(
+                        "Gmail OTP credentials found. Attempting to fetch OTP automatically..."
+                    )
+
+                    # Fetch OTP in a background thread to avoid blocking the asyncio event loop
+                    otp = await asyncio.to_thread(fetch_naukri_otp, gmail_email, gmail_password)
+
+                    if otp:
+                        log_info("Filling in the automatically retrieved OTP...")
+                        # Type OTP using human_type interface
+                        await self._interactions.human_type(LoginSelectors.OTP_INPUT, otp)
+                        await self._interactions.action_delay()
+
+                        # Click verify/submit
+                        log_info("Submitting OTP...")
+                        await self._interactions.safe_click(LoginSelectors.OTP_SUBMIT, force=True)
+
+                        # Wait to see if we navigate to logged-in state successfully
+                        await asyncio.sleep(5)
+                        if await self._is_logged_in():
+                            log_success("OTP verified automatically!")
+                            return
+                        else:
+                            log_warning(
+                                "Automatic OTP verification did not succeed. Falling back to manual entry..."
+                            )
+                    else:
+                        log_warning(
+                            "Could not retrieve OTP from Gmail. Falling back to manual entry..."
+                        )
+
                 log_warning("OTP required! Please enter the OTP in the browser window.")
                 console.print(
                     "\n  🔐 [bold yellow]OTP REQUIRED[/bold yellow]\n"

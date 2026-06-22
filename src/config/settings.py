@@ -28,6 +28,8 @@ class NaukriCredentials(BaseModel):
 
     email: str = ""
     password: str = ""
+    gmail_otp_email: str = ""
+    gmail_app_password: str = ""
 
 
 class AISettings(BaseModel):
@@ -209,6 +211,8 @@ def _apply_env_overrides(config: dict) -> dict:
     env_map = {
         ("naukri", "email"): "NAUKRI_EMAIL",
         ("naukri", "password"): "NAUKRI_PASSWORD",
+        ("naukri", "gmail_otp_email"): "GMAIL_OTP_EMAIL",
+        ("naukri", "gmail_app_password"): "GMAIL_APP_PASSWORD",
         ("ai", "gemini_api_key"): "GEMINI_API_KEY",
     }
 
