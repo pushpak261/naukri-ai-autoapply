@@ -11,6 +11,7 @@ from google.genai import types
 
 from src.core.interfaces import ILLMProvider
 from src.core.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.utils.helpers import async_retry
 
 
 def _is_daily_quota_violation(error: genai_errors.APIError) -> bool:
@@ -51,6 +52,12 @@ class GeminiProvider(ILLMProvider):
         self._client = genai.Client(api_key=api_key)
         self._model_name = model_name
 
+    @async_retry(
+        max_attempts=3,
+        delay_seconds=2.0,
+        backoff_factor=2.0,
+        exceptions=(LLMAPIError,),
+    )
     async def generate_content(
         self,
         prompt: str,

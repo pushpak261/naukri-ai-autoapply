@@ -157,6 +157,9 @@ def async_retry(
                 try:
                     return await func(*args, **kwargs)
                 except exceptions as e:
+                    # Do not retry daily quota exhaustion as retrying won't help
+                    if getattr(e, "is_daily_quota", False):
+                        raise
                     if attempt == max_attempts:
                         logger.error(
                             f"Function '{func.__name__}' failed after {max_attempts} attempts: {e}"

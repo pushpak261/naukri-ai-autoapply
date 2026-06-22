@@ -81,3 +81,23 @@ async def test_retry_ignores_non_targeted_exceptions():
         await sample_func()
 
     assert call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_retry_ignores_daily_quota_exception():
+    """Verify that exceptions with is_daily_quota=True raise immediately without retry."""
+    call_count = 0
+
+    class DummyDailyQuotaError(Exception):
+        is_daily_quota = True
+
+    @async_retry(max_attempts=3, delay_seconds=0.01, exceptions=(DummyDailyQuotaError,))
+    async def sample_func():
+        nonlocal call_count
+        call_count += 1
+        raise DummyDailyQuotaError("quota exhausted")
+
+    with pytest.raises(DummyDailyQuotaError):
+        await sample_func()
+
+    assert call_count == 1
