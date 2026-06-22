@@ -86,6 +86,7 @@ jobs:
           if [ -f "session.enc" ] && ! git diff --quiet session.enc; then
             git add session.enc
             git commit -m "Auto-update session cookies [skip ci]"
+            git pull --rebase origin main
             git push
           else
             echo "No session changes detected."
