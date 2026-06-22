@@ -61,9 +61,18 @@ class LoginSelectors:
     PASSWORD_INPUT = 'input[placeholder="Enter Password"], input[placeholder*="Password"]'
     LOGIN_BUTTON = '//button[contains(text(), "Login")]'
 
+    # Direct OTP login selectors
+    USE_OTP_LOGIN_LINK = (
+        '//button[contains(text(), "Use OTP to Login")] | //*[contains(text(), "Use OTP to Login")]'
+    )
+    MOBILE_INPUT = 'input[placeholder*="mobile number" i], input[placeholder*="Mobile Number" i], input[id="mobile-input"]'
+    GET_OTP_BUTTON = '//button[contains(text(), "Get OTP")]'
+
     # OTP flow
     OTP_INPUT = 'input[placeholder*="OTP"]'
-    OTP_SUBMIT = '//button[contains(text(), "Submit") or contains(text(), "Verify")]'
+    OTP_SUBMIT = (
+        '//button[contains(text(), "Submit") or contains(text(), "Verify") or text()="Login"]'
+    )
 
     # Login success indicators
     PROFILE_ICON = '//a[contains(@href, "mnjuser") or contains(@class, "nI-gNb-drawer")]'

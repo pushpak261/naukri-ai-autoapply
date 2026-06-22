@@ -30,6 +30,8 @@ class NaukriCredentials(BaseModel):
     password: str = ""
     gmail_otp_email: str = ""
     gmail_app_password: str = ""
+    mobile_number: str = ""
+    use_otp_login: bool = False
 
 
 class AISettings(BaseModel):
@@ -157,11 +159,18 @@ class Settings(BaseModel):
                 "Naukri email is not set. Set NAUKRI_EMAIL in your .env file "
                 "or naukri.email in config.yaml."
             )
-        if not self.naukri.password:
-            problems.append(
-                "Naukri password is not set. Set NAUKRI_PASSWORD in your .env "
-                "file or naukri.password in config.yaml."
-            )
+        if self.naukri.use_otp_login:
+            if not self.naukri.mobile_number:
+                problems.append(
+                    "Naukri mobile number is not set. Set NAUKRI_MOBILE_NUMBER in your .env "
+                    "or naukri.mobile_number in config.yaml for OTP login."
+                )
+        else:
+            if not self.naukri.password:
+                problems.append(
+                    "Naukri password is not set. Set NAUKRI_PASSWORD in your .env "
+                    "or naukri.password in config.yaml."
+                )
         if not self.ai.gemini_api_key:
             problems.append(
                 "Gemini API key is not set. Set GEMINI_API_KEY in your .env "
@@ -213,6 +222,8 @@ def _apply_env_overrides(config: dict) -> dict:
         ("naukri", "password"): "NAUKRI_PASSWORD",
         ("naukri", "gmail_otp_email"): "GMAIL_OTP_EMAIL",
         ("naukri", "gmail_app_password"): "GMAIL_APP_PASSWORD",
+        ("naukri", "mobile_number"): "NAUKRI_MOBILE_NUMBER",
+        ("naukri", "use_otp_login"): "NAUKRI_USE_OTP_LOGIN",
         ("ai", "gemini_api_key"): "GEMINI_API_KEY",
     }
 

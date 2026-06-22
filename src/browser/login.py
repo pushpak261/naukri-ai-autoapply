@@ -93,54 +93,26 @@ class LoginHandler:
 
     async def _perform_login(self) -> bool:
         """
-        Perform a fresh login: navigate to login page, enter credentials,
-        handle OTP, and validate success.
+        Perform a fresh login using either direct OTP or Password authentication.
         """
-        page = self._engine.page
-
         try:
             # Navigate to login page
             log_info("Navigating to Naukri login page...")
-            await page.goto(NAUKRI_LOGIN_URL, wait_until="domcontentloaded")
+            await self._engine.page.goto(NAUKRI_LOGIN_URL, wait_until="domcontentloaded")
             await self._interactions.wait_for_navigation_complete()
             await asyncio.sleep(2)
 
             # Close any popups
             await self._interactions.close_popups()
 
-            # Enter email
-            log_info("Entering email...")
-            email = self._settings.naukri.email
-            if not email:
-                log_error("Naukri email not configured. Set NAUKRI_EMAIL in .env or config.yaml")
+            # Choose the modular login path
+            if self._settings.naukri.use_otp_login:
+                success = await self._login_with_otp()
+            else:
+                success = await self._login_with_password()
+
+            if not success:
                 return False
-
-            await self._interactions.human_type(LoginSelectors.EMAIL_INPUT, email)
-            await self._interactions.action_delay()
-
-            # Enter password
-            log_info("Entering password...")
-            password = self._settings.naukri.password
-            if not password:
-                log_error(
-                    "Naukri password not configured. Set NAUKRI_PASSWORD in .env or config.yaml"
-                )
-                return False
-
-            await self._interactions.human_type(LoginSelectors.PASSWORD_INPUT, password)
-            await self._interactions.action_delay()
-
-            # Press Enter directly inside the password field (most reliable way to submit a form)
-            await page.keyboard.press("Enter")
-
-            # Click login button as a secondary fallback
-            log_info("Clicking login...")
-            await self._interactions.safe_click(LoginSelectors.LOGIN_BUTTON, force=True)
-
-            await asyncio.sleep(3)
-
-            # Check for OTP requirement
-            await self._handle_otp()
 
             # Validate login
             if await self._is_logged_in():
@@ -164,6 +136,73 @@ class LoginHandler:
                 log_error(f"Login failed with error: {e}")
                 logger.exception("Login exception details")
             return False
+
+    async def _login_with_password(self) -> bool:
+        """Execute the standard Email + Password login flow."""
+        log_info("Executing Email & Password login flow...")
+        page = self._engine.page
+
+        # Enter email
+        log_info("Entering email...")
+        email = self._settings.naukri.email
+        if not email:
+            log_error("Naukri email not configured. Set NAUKRI_EMAIL in .env or config.yaml")
+            return False
+
+        await self._interactions.human_type(LoginSelectors.EMAIL_INPUT, email)
+        await self._interactions.action_delay()
+
+        # Enter password
+        log_info("Entering password...")
+        password = self._settings.naukri.password
+        if not password:
+            log_error("Naukri password not configured. Set NAUKRI_PASSWORD in .env or config.yaml")
+            return False
+
+        await self._interactions.human_type(LoginSelectors.PASSWORD_INPUT, password)
+        await self._interactions.action_delay()
+
+        # Press Enter directly inside the password field (most reliable way to submit a form)
+        await page.keyboard.press("Enter")
+
+        # Click login button as a secondary fallback
+        log_info("Clicking login button...")
+        await self._interactions.safe_click(LoginSelectors.LOGIN_BUTTON, force=True)
+        await asyncio.sleep(3)
+
+        # Check for OTP requirement (Naukri sometimes challenges password login with OTP)
+        await self._handle_otp()
+        return True
+
+    async def _login_with_otp(self) -> bool:
+        """Execute the direct Mobile Number + OTP login flow."""
+        log_info("Executing direct OTP login via Mobile Number...")
+
+        # Click the "Use OTP to Login" link/button
+        log_info("Switching to OTP Login form...")
+        await self._interactions.safe_click(LoginSelectors.USE_OTP_LOGIN_LINK, force=True)
+        await asyncio.sleep(2)
+
+        # Enter mobile number
+        mobile_number = self._settings.naukri.mobile_number
+        if not mobile_number:
+            log_error(
+                "Mobile number not configured. Set NAUKRI_MOBILE_NUMBER in .env or config.yaml"
+            )
+            return False
+
+        log_info(f"Entering mobile number: {mobile_number}...")
+        await self._interactions.human_type(LoginSelectors.MOBILE_INPUT, mobile_number)
+        await self._interactions.action_delay()
+
+        # Click the "Get OTP" button
+        log_info("Clicking Get OTP button...")
+        await self._interactions.safe_click(LoginSelectors.GET_OTP_BUTTON, force=True)
+        await asyncio.sleep(3)
+
+        # Handle the automatic/manual OTP entry
+        await self._handle_otp()
+        return True
 
     async def _handle_otp(self) -> None:
         """
