@@ -269,7 +269,9 @@ class ResumeParser(IResumeParser):
                 log_info(f"Using local resume profile from {profile_json_path.name}")
                 return profile
             except Exception as e:
-                log_warning(f"Failed to read local {profile_json_path.name}: {e}. Falling back to default parsing.")
+                log_warning(
+                    f"Failed to read local {profile_json_path.name}: {e}. Falling back to default parsing."
+                )
 
         file_hash = hash_file(path)
 
@@ -280,7 +282,9 @@ class ResumeParser(IResumeParser):
                 log_info(f"Using cached resume profile for {path.name}")
                 # Save to local resume_profile.json for synchronization and editability
                 try:
-                    profile_json_path.write_text(json.dumps(cached, indent=2, ensure_ascii=False), encoding="utf-8")
+                    profile_json_path.write_text(
+                        json.dumps(cached, indent=2, ensure_ascii=False), encoding="utf-8"
+                    )
                     log_info(f"Saved database cached profile to local {profile_json_path.name}")
                 except Exception as e:
                     logger.warning(f"Failed to write local resume_profile.json: {e}")
@@ -312,7 +316,9 @@ class ResumeParser(IResumeParser):
 
             # Write to local resume_profile.json
             try:
-                profile_json_path.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+                profile_json_path.write_text(
+                    json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
+                )
                 log_info(f"Saved parsed profile to local {profile_json_path.name}")
             except Exception as e:
                 logger.warning(f"Failed to write local resume_profile.json: {e}")

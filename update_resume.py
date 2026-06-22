@@ -43,7 +43,9 @@ def main():
 
     print("[SUCCESS] Your new resume.pdf has been securely encrypted into resume.pdf.enc")
     if encrypted_profile_success:
-        print("[SUCCESS] Your resume_profile.json has been securely encrypted into resume_profile.json.enc")
+        print(
+            "[SUCCESS] Your resume_profile.json has been securely encrypted into resume_profile.json.enc"
+        )
     else:
         print("[NOTE] No resume_profile.json found, skipping profile encryption.")
 
