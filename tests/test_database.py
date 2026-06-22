@@ -22,7 +22,11 @@ async def repo(tmp_path):
     session_factory = await init_db(db_path)
     repository = SQLAlchemyRepository(session_factory)
     await repository.initialize()
-    return repository
+    yield repository
+
+    # Clean up and dispose of SQLAlchemy async engine to prevent dangling connection threads
+    engine = session_factory.kw["bind"]
+    await engine.dispose()
 
 
 class TestJobOperations:
