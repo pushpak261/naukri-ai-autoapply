@@ -8,7 +8,6 @@ with built-in random delays.
 
 from __future__ import annotations
 
-from pathlib import Path
 
 from playwright.async_api import (
     async_playwright,
