@@ -14,7 +14,7 @@ import re
 import functools
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, TypeVar, cast, overload
 
 from src.utils.logger import get_logger
 
@@ -72,6 +72,14 @@ def clean_text(text: str | None) -> str:
     # Normalize whitespace
     text = re.sub(r"\s+", " ", text)
     return text.strip()
+
+
+@overload
+def truncate_text(text: None, max_length: int = 4000) -> None: ...
+
+
+@overload
+def truncate_text(text: str, max_length: int = 4000) -> str: ...
 
 
 def truncate_text(text: str | None, max_length: int = 4000) -> str | None:
