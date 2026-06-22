@@ -32,7 +32,7 @@ MODAL_URL_MARKER = "action=modalOpen"
 POPUP_CLOSE_SELECTORS = [
     "button[aria-label='Close' i]",
     "[aria-label='close' i]",
-    "div[class*='modal' i] svg",          # the X icon is often a bare svg
+    "div[class*='modal' i] svg",  # the X icon is often a bare svg
     "div[class*='modal' i] [class*='close' i]",
     "div[class*='overlay' i] [class*='close' i]",
     "[class*='cross' i]",
@@ -185,7 +185,9 @@ class ProfileRefresher:
                     if MODAL_URL_MARKER not in page.url and PROFILE_URL_FRAGMENT not in page.url:
                         await page.go_back(timeout=5000)
 
-        log_error("Could not open the Resume Headline edit modal via any text match/icon combination.")
+        log_error(
+            "Could not open the Resume Headline edit modal via any text match/icon combination."
+        )
         return False
 
     # ------------------------------------------------------------------ #
@@ -220,7 +222,9 @@ class ProfileRefresher:
             # --- Navigate to homepage if needed ---
             if PROFILE_URL_FRAGMENT not in page.url:
                 logger.info("Navigating to Naukri homepage...")
-                await page.goto(HOMEPAGE_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT)
+                await page.goto(
+                    HOMEPAGE_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT
+                )
                 await self._interactions.wait_for_navigation_complete()
 
             # --- Step 1: Click View profile, with retries ---
