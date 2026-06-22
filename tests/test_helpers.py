@@ -56,8 +56,6 @@ class TestTruncateText:
         assert truncate_text(None, 100) is None
 
 
-
-
 class TestExtractNaukriJobId:
     """Tests for Naukri job ID extraction from URLs."""
 

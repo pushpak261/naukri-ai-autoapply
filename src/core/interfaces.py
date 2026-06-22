@@ -30,7 +30,6 @@ class IRepository(Protocol):
         posted_date: str = "",
     ) -> Any: ...
 
-
     def is_already_applied(self, naukri_job_id: str) -> bool: ...
 
     async def save_application(
@@ -120,7 +119,6 @@ class IBrowserInteractions(Protocol):
 
     async def safe_click(self, selector: str, timeout: int = 3000, force: bool = False) -> bool: ...
 
-
     async def random_scroll(self, scroll_count: int = 3) -> None: ...
 
     async def close_popups(self) -> None: ...
@@ -161,6 +159,3 @@ class IResumeParser(Protocol):
     """Interface for parsing a resume PDF."""
 
     async def parse(self, pdf_path: str) -> dict: ...
-
-
-

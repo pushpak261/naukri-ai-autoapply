@@ -147,7 +147,6 @@ class PlaywrightEngine(IBrowserEngine):
                 json.dump(state, f)
             logger.debug("Session state saved")
 
-
     async def close(self) -> None:
         """Save session and close all browser resources."""
         try:

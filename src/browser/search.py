@@ -330,4 +330,3 @@ class JobSearcher:
                 "salary_detail": "",
                 "location_detail": "",
             }
-

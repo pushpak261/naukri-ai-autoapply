@@ -92,7 +92,6 @@ class SQLAlchemyRepository(IRepository):
             await session.refresh(job)
             return job
 
-
     def is_already_applied(self, naukri_job_id: str) -> bool:
         """Check if we've already applied to this job (any status) using O(1) cache."""
         return naukri_job_id in self._applied_jobs_cache

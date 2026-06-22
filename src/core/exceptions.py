@@ -36,5 +36,3 @@ class BrowserAutomationError(AgentException):
     """Raised when browser interactions (e.g., Playwright) fail."""
 
     pass
-
-

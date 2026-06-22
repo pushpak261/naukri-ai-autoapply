@@ -345,4 +345,3 @@ class ResumeParser(IResumeParser):
         except Exception as e:
             log_error(f"Failed to parse resume with AI: {e}")
             return {}
-

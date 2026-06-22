@@ -79,7 +79,6 @@ class HumanInteractions(IBrowserInteractions):
             logger.debug(f"safe_click failed for '{selector}': {e}")
             return False
 
-
     async def random_scroll(self, scroll_count: int = 3) -> None:
         """Scroll the page randomly to simulate human reading behavior."""
         for _ in range(scroll_count):

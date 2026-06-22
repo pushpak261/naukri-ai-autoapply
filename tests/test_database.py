@@ -62,7 +62,6 @@ class TestJobOperations:
         assert job1.id == job2.id
 
 
-
 class TestApplicationOperations:
     """Tests for application CRUD operations."""
 

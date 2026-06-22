@@ -46,8 +46,6 @@ async def random_delay(min_seconds: float, max_seconds: float) -> float:
     return delay
 
 
-
-
 # ---------------------------------------------------------------------------
 # Text cleaning utilities
 # ---------------------------------------------------------------------------
@@ -93,8 +91,6 @@ def truncate_text(text: str, max_length: int = 4000) -> str:
     if last_space > max_length * 0.8:
         truncated = truncated[:last_space]
     return truncated + "..."
-
-
 
 
 # ---------------------------------------------------------------------------
