@@ -249,8 +249,9 @@ class ResumeParser(IResumeParser):
         """
         Parse a resume PDF into a structured profile.
 
-        Checks the database cache first. If cached, returns immediately.
-        Otherwise, extracts text, sends to Gemini, and caches the result.
+        Checks the local resume_profile.json first. If it exists, returns it.
+        Otherwise checks the database cache. If cached, returns it and saves it locally.
+        Otherwise, extracts text, sends to Gemini, and caches/saves the result.
 
         Args:
             pdf_path: Path to the PDF resume file.
@@ -259,13 +260,30 @@ class ResumeParser(IResumeParser):
             Dict with structured resume profile.
         """
         path = Path(pdf_path)
+
+        # 1. Check if a local plaintext resume_profile.json exists
+        profile_json_path = self._settings.project_root / "resume_profile.json"
+        if isinstance(profile_json_path, Path) and profile_json_path.exists():
+            try:
+                profile = json.loads(profile_json_path.read_text(encoding="utf-8"))
+                log_info(f"Using local resume profile from {profile_json_path.name}")
+                return profile
+            except Exception as e:
+                log_warning(f"Failed to read local {profile_json_path.name}: {e}. Falling back to default parsing.")
+
         file_hash = hash_file(path)
 
-        # Check cache
+        # Check database cache
         if self._repo:
             cached = await self._repo.get_cached_profile(file_hash)
             if cached:
                 log_info(f"Using cached resume profile for {path.name}")
+                # Save to local resume_profile.json for synchronization and editability
+                try:
+                    profile_json_path.write_text(json.dumps(cached, indent=2, ensure_ascii=False), encoding="utf-8")
+                    log_info(f"Saved database cached profile to local {profile_json_path.name}")
+                except Exception as e:
+                    logger.warning(f"Failed to write local resume_profile.json: {e}")
                 return cached
 
         log_info(f"Parsing resume: {path.name}")
@@ -291,6 +309,13 @@ class ResumeParser(IResumeParser):
                 f"Found {len(profile.get('skills', []))} skills, "
                 f"{profile.get('total_experience_years', '?')} years experience"
             )
+
+            # Write to local resume_profile.json
+            try:
+                profile_json_path.write_text(json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8")
+                log_info(f"Saved parsed profile to local {profile_json_path.name}")
+            except Exception as e:
+                logger.warning(f"Failed to write local resume_profile.json: {e}")
 
             # Cache the result
             if self._repo:

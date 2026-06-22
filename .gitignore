@@ -17,6 +17,8 @@ data/qa_cache.json
 # remote repo even though the agent needs a local copy to run.
 resume.pdf
 *.resume.pdf
+resume_profile.json
+
 
 # Python
 __pycache__/

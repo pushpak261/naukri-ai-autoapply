@@ -50,6 +50,8 @@ jobs:
           from pathlib import Path
           cipher = Fernet(os.environ['RESUME_KEY'].encode())
           Path('resume.pdf').write_bytes(cipher.decrypt(Path('resume.pdf.enc').read_bytes()))
+          if Path('resume_profile.json.enc').exists():
+              Path('resume_profile.json').write_bytes(cipher.decrypt(Path('resume_profile.json.enc').read_bytes()))
           if Path('session.enc').exists():
               Path('data/sessions').mkdir(parents=True, exist_ok=True)
               Path('data/sessions/naukri_session.json').write_bytes(cipher.decrypt(Path('session.enc').read_bytes()))
