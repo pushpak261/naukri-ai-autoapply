@@ -220,6 +220,9 @@ class QuestionAnswerer(IQuestionAnswerer):
         # Second pass: use AI for remaining questions
         if ai_questions:
             ai_answers = await self._ask_ai(ai_questions, job_data)
+            # Map original index back to AI answers
+            for ans, orig_q in zip(ai_answers, ai_questions, strict=False):
+                ans["index"] = orig_q.get("index", 0)
             answers.extend(ai_answers)
 
         # Sort by original index

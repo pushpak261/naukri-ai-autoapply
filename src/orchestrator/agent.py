@@ -209,7 +209,8 @@ class NaukriAgent:
         vector_filter: VectorSimilarityFilter,
     ) -> None:
         """
-        Process jobs optimally: Rank in Max-Heap, pre-filter with TF-IDF, then AI Match via Async Queue.
+        Process jobs sequentially: Rank in Max-Heap, pre-filter with TF-IDF,
+        AI Match, and Apply. Prevents concurrency issues on the shared browser page.
         """
         log_info("Building Max-Heap Priority Queue for optimal processing order...")
         assert self._resume_profile is not None, (
@@ -232,207 +233,190 @@ class NaukriAgent:
 
         total_jobs = len(job_queue)
         self._daily_applied = await self._repo.get_today_application_count() if self._repo else 0
+        processed_count = 0
 
-        eval_queue: asyncio.Queue = asyncio.Queue()
+        while job_queue:
+            if self._interrupted:
+                break
 
-        async def producer():
-            processed_count = 0
-            while job_queue:
-                if self._interrupted:
-                    break
-                neg_score, idx, job = heapq.heappop(job_queue)
-                initial_score = -neg_score
+            neg_score, idx, job = heapq.heappop(job_queue)
+            initial_score = -neg_score
 
-                remaining = self._settings.application.daily_cap - self._daily_applied
-                if remaining <= 0:
-                    log_warning(
-                        f"Daily application cap reached ({self._settings.application.daily_cap}). Stopping."
-                    )
-                    break
-
-                processed_count += 1
-                log_step(
-                    processed_count,
-                    total_jobs,
-                    f"{job.get('title', '?')} @ {job.get('company', '?')} (Heuristic: {initial_score:.2f})",
+            remaining = self._settings.application.daily_cap - self._daily_applied
+            if remaining <= 0:
+                log_warning(
+                    f"Daily application cap reached ({self._settings.application.daily_cap}). Stopping."
                 )
+                break
 
-                if self._repo and self._repo.is_already_applied(job.get("naukri_job_id", "")):
-                    self._jobs_skipped += 1
-                    continue
+            processed_count += 1
+            log_step(
+                processed_count,
+                total_jobs,
+                f"{job.get('title', '?')} @ {job.get('company', '?')} (Heuristic: {initial_score:.2f})",
+            )
 
-                if self._is_excluded(job):
-                    self._jobs_skipped += 1
-                    continue
+            # Deduplication
+            if self._repo and self._repo.is_already_applied(job.get("naukri_job_id", "")):
+                self._jobs_skipped += 1
+                continue
 
-                if not job.get("description"):
-                    details = await searcher.get_job_description(job["url"])
-                    job["description"] = details.get("description", "")
-                    if details.get("skills"):
-                        job["skills"] = details["skills"]
-                    await self._factory.get_browser_interactions().action_delay()
+            # Exclusion filters
+            if self._is_excluded(job):
+                self._jobs_skipped += 1
+                continue
 
-                full_text = (
-                    f"{job.get('title', '')} {job.get('skills', '')} {job.get('description', '')}"
-                )
-                full_sim_score = vector_filter.get_similarity_score(full_text)
-
-                if full_sim_score < 0.03:
-                    self._jobs_skipped += 1
-                    continue
-
-                await eval_queue.put(job)
-
-            await eval_queue.put(None)
-
-        async def consumer():
-            while True:
-                if self._interrupted:
-                    break
-                job = await eval_queue.get()
-                if job is None:
-                    eval_queue.task_done()
-                    break
-
-                if not self._engine.is_alive():
-                    log_warning(
-                        "Browser disconnected during evaluation! Restarting browser engine..."
-                    )
-                    with contextlib.suppress(Exception):
-                        await self._engine.close()
-                    await self._engine.launch()
-                    # Re-login just to be absolutely sure
-                    try:
-                        login_handler = self._factory.create_login_handler()
-                        await login_handler.login()
-                    except Exception as e:
-                        logger.error(f"Failed to re-login after restart: {e}")
-                # Enforce free-tier rate limits for Gemini (15 RPM -> wait >4s per request)
-                # To be safe, wait 4.1 seconds between evaluations
-                # Pacing AI requests to avoid Google's Free Tier 429 Rate Limit
-                log_info("Pacing AI requests (waiting 6.5s) to avoid Google limits...")
-                await asyncio.sleep(6.5)
+            # Check browser status before interacting
+            if not self._engine.is_alive():
+                log_warning("Browser disconnected! Restarting browser engine...")
+                with contextlib.suppress(Exception):
+                    await self._engine.close()
+                await self._engine.launch()
                 try:
-                    match_result = await matcher.match(resume_profile, job)
-                except LLMQuotaExceededError as e:
-                    if e.is_daily_quota:
-                        log_error(
-                            "⚠️  Gemini's daily request quota is exhausted — stopping "
-                            "the run here instead of marking every remaining job as a "
-                            "non-match. See the error below for how to get more quota."
-                        )
-                    else:
-                        log_error(
-                            "⚠️  Gemini rate limit hit repeatedly — stopping the run "
-                            "to avoid wasting further requests."
-                        )
-                    log_error(str(e))
-                    self._interrupted = True
-                    eval_queue.task_done()
-                    break
+                    login_handler = self._factory.create_login_handler()
+                    await login_handler.login()
+                except Exception as e:
+                    logger.error(f"Failed to re-login after restart: {e}")
 
-                db_job = None
-                if self._repo:
-                    db_job = await self._repo.save_job(
-                        naukri_job_id=job.get("naukri_job_id", ""),
-                        title=job.get("title", ""),
-                        company=job.get("company", ""),
-                        url=job.get("url", ""),
-                        location=job.get("location", ""),
-                        experience=job.get("experience", ""),
-                        salary=job.get("salary", ""),
-                        description=job.get("description", ""),
-                        skills=job.get("skills", ""),
-                        posted_date=job.get("posted_date", ""),
+            # Get description & key skills if not already present
+            if not job.get("description"):
+                details = await searcher.get_job_description(job["url"])
+                job["description"] = details.get("description", "")
+                if details.get("skills"):
+                    job["skills"] = details["skills"]
+                await self._factory.get_browser_interactions().action_delay()
+
+            # Second similarity filter (using description)
+            full_text = (
+                f"{job.get('title', '')} {job.get('skills', '')} {job.get('description', '')}"
+            )
+            full_sim_score = vector_filter.get_similarity_score(full_text)
+
+            if full_sim_score < 0.03:
+                self._jobs_skipped += 1
+                continue
+
+            # AI Matching (pace to respect Gemini free tier limits)
+            log_info("Pacing AI requests (waiting 6.5s) to avoid Google limits...")
+            await asyncio.sleep(6.5)
+
+            try:
+                match_result = await matcher.match(resume_profile, job)
+            except LLMQuotaExceededError as e:
+                if e.is_daily_quota:
+                    log_error(
+                        "⚠️  Gemini's daily request quota is exhausted — stopping "
+                        "the run here instead of marking every remaining job as a "
+                        "non-match."
                     )
+                else:
+                    log_error(
+                        "⚠️  Gemini rate limit hit repeatedly — stopping the run "
+                        "to avoid wasting further requests."
+                    )
+                log_error(str(e))
+                self._interrupted = True
+                break
+            except Exception as e:
+                logger.error(f"AI Match failed: {e}")
+                self._jobs_failed += 1
+                continue
 
-                match_score = match_result.get("score", 0)
-                should_apply = match_result.get("should_apply", False)
+            # Save job in database
+            db_job = None
+            if self._repo:
+                db_job = await self._repo.save_job(
+                    naukri_job_id=job.get("naukri_job_id", ""),
+                    title=job.get("title", ""),
+                    company=job.get("company", ""),
+                    url=job.get("url", ""),
+                    location=job.get("location", ""),
+                    experience=job.get("experience", ""),
+                    salary=job.get("salary", ""),
+                    description=job.get("description", ""),
+                    skills=job.get("skills", ""),
+                    posted_date=job.get("posted_date", ""),
+                )
 
-                if not should_apply:
-                    if self._repo and db_job:
-                        await self._repo.save_application(
-                            job_id=db_job.id,
-                            match_score=match_score,
-                            status=ApplicationStatus.SKIPPED_LOW_SCORE,
-                            match_reasoning=match_result.get("reasoning", ""),
-                            matching_skills=", ".join(match_result.get("matching_skills", [])),
-                            missing_skills=", ".join(match_result.get("missing_skills", [])),
-                        )
-                    self._jobs_skipped += 1
-                    eval_queue.task_done()
-                    continue
+            match_score = match_result.get("score", 0)
+            should_apply = match_result.get("should_apply", False)
 
-                if self._settings.application.dry_run:
-                    log_info(f"DRY RUN — would apply (score: {match_score})")
-                    if self._repo and db_job:
-                        await self._repo.save_application(
-                            job_id=db_job.id,
-                            match_score=match_score,
-                            status=ApplicationStatus.SKIPPED_DRY_RUN,
-                            match_reasoning=match_result.get("reasoning", ""),
-                            matching_skills=", ".join(match_result.get("matching_skills", [])),
-                            missing_skills=", ".join(match_result.get("missing_skills", [])),
-                        )
-                    self._jobs_skipped += 1
-                    eval_queue.task_done()
-                    continue
-
-                page = self._engine.page
-                current_url = page.url
-                if job["url"] not in current_url:
-                    try:
-                        await page.goto(job["url"], wait_until="domcontentloaded", timeout=60000)
-                        await self._factory.get_browser_interactions().wait_for_navigation_complete()
-                        await asyncio.sleep(2)
-                    except Exception as e:
-                        logger.error(f"Failed to navigate to job page {job['url']}: {e}")
-                        if self._repo and db_job:
-                            await self._repo.save_application(
-                                job_id=db_job.id,
-                                match_score=match_score,
-                                status=ApplicationStatus.FAILED,
-                                match_reasoning=match_result.get("reasoning", ""),
-                                matching_skills=", ".join(match_result.get("matching_skills", [])),
-                                missing_skills=", ".join(match_result.get("missing_skills", [])),
-                                error_message=f"Navigation failed: {e}",
-                            )
-                        self._jobs_failed += 1
-                        eval_queue.task_done()
-                        continue
-
-                apply_result = await applier.apply_to_job(job)
-                status = apply_result.get("status", ApplicationStatus.FAILED)
-                error_msg = apply_result.get("error_message", "")
-
+            if not should_apply:
                 if self._repo and db_job:
                     await self._repo.save_application(
                         job_id=db_job.id,
                         match_score=match_score,
-                        status=status,
+                        status=ApplicationStatus.SKIPPED_LOW_SCORE,
                         match_reasoning=match_result.get("reasoning", ""),
                         matching_skills=", ".join(match_result.get("matching_skills", [])),
                         missing_skills=", ".join(match_result.get("missing_skills", [])),
-                        error_message=error_msg,
                     )
+                self._jobs_skipped += 1
+                continue
 
-                if status == ApplicationStatus.APPLIED:
-                    self._jobs_applied += 1
-                    self._daily_applied += 1
-                    await random_delay(
-                        self._settings.application.delay_between_applies_min,
-                        self._settings.application.delay_between_applies_max,
+            if self._settings.application.dry_run:
+                log_info(f"DRY RUN — would apply (score: {match_score})")
+                if self._repo and db_job:
+                    await self._repo.save_application(
+                        job_id=db_job.id,
+                        match_score=match_score,
+                        status=ApplicationStatus.SKIPPED_DRY_RUN,
+                        match_reasoning=match_result.get("reasoning", ""),
+                        matching_skills=", ".join(match_result.get("matching_skills", [])),
+                        missing_skills=", ".join(match_result.get("missing_skills", [])),
                     )
-                elif status.startswith("skipped"):
-                    self._jobs_skipped += 1
-                else:
+                self._jobs_skipped += 1
+                continue
+
+            # Navigation validation
+            page = self._engine.page
+            if job["url"] not in page.url:
+                try:
+                    await page.goto(job["url"], wait_until="domcontentloaded", timeout=60000)
+                    await self._factory.get_browser_interactions().wait_for_navigation_complete()
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.error(f"Failed to navigate to job page {job['url']}: {e}")
+                    if self._repo and db_job:
+                        await self._repo.save_application(
+                            job_id=db_job.id,
+                            match_score=match_score,
+                            status=ApplicationStatus.FAILED,
+                            match_reasoning=match_result.get("reasoning", ""),
+                            matching_skills=", ".join(match_result.get("matching_skills", [])),
+                            missing_skills=", ".join(match_result.get("missing_skills", [])),
+                            error_message=f"Navigation failed: {e}",
+                        )
                     self._jobs_failed += 1
+                    continue
 
-                eval_queue.task_done()
+            # Run apply flow
+            apply_result = await applier.apply_to_job(job)
+            status = apply_result.get("status", ApplicationStatus.FAILED)
+            error_msg = apply_result.get("error_message", "")
 
-        producer_task = asyncio.create_task(producer())
-        consumer_task = asyncio.create_task(consumer())
-        await asyncio.gather(producer_task, consumer_task)
+            if self._repo and db_job:
+                await self._repo.save_application(
+                    job_id=db_job.id,
+                    match_score=match_score,
+                    status=status,
+                    match_reasoning=match_result.get("reasoning", ""),
+                    matching_skills=", ".join(match_result.get("matching_skills", [])),
+                    missing_skills=", ".join(match_result.get("missing_skills", [])),
+                    error_message=error_msg,
+                )
+
+            if status == ApplicationStatus.APPLIED:
+                self._jobs_applied += 1
+                self._daily_applied += 1
+                await random_delay(
+                    self._settings.application.delay_between_applies_min,
+                    self._settings.application.delay_between_applies_max,
+                )
+            elif status.startswith("skipped"):
+                self._jobs_skipped += 1
+            else:
+                self._jobs_failed += 1
 
     def _compile_exclusion_dfas(self) -> None:
         """Compile exclusion keywords into DFA Regex for O(N) string matching."""

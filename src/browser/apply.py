@@ -395,6 +395,11 @@ class JobApplier:
                             input_type = await input_elem.get_attribute("type") or "text"
                             if input_type == "radio":
                                 await self._select_radio_option(label, answer)
+                            elif input_type == "checkbox":
+                                is_checked = await input_elem.is_checked()
+                                should_check = answer.lower() in ("yes", "true", "checked", "1")
+                                if should_check != is_checked:
+                                    await input_elem.click()
                             else:
                                 await input_elem.fill("")
                                 await input_elem.type(answer, delay=50)
