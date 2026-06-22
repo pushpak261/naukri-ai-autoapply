@@ -12,8 +12,9 @@ import hashlib
 import random
 import re
 import functools
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, TypeVar, cast
+from typing import Any, TypeVar, cast
 
 from src.utils.logger import get_logger
 
