@@ -240,6 +240,9 @@ If Naukri is asking for an OTP on your cloud bot or login is failing, you can by
    ```
 The cloud bot will now automatically inherit your login session and skip the login page entirely!
 
+> [!NOTE]
+> **🔄 Automatic Keep-Alive:** The GitHub Action workflow is configured to automatically re-encrypt and push updated session cookies (`session.enc`) back to your repository at the end of every run. This means the session will stay alive and refresh itself indefinitely. You only need to run the manual `sync_session.py` command as a fallback if the session is ever forced to log out by Naukri.
+
 ## 🔧 Troubleshooting
 
 | Issue | Solution |
