@@ -5,7 +5,6 @@ Tests for utility helper functions.
 from src.utils.helpers import (
     clean_text,
     truncate_text,
-    normalize_skill,
     extract_naukri_job_id,
     build_search_url,
     hash_file,
@@ -57,23 +56,6 @@ class TestTruncateText:
         assert truncate_text(None, 100) is None
 
 
-class TestNormalizeSkill:
-    """Tests for the normalize_skill function."""
-
-    def test_lowercase(self):
-        assert normalize_skill("Python") == "python"
-
-    def test_removes_dots(self):
-        assert normalize_skill("React.js") == "reactjs"
-
-    def test_removes_hyphens(self):
-        assert normalize_skill("Vue-js") == "vuejs"
-
-    def test_removes_spaces(self):
-        assert normalize_skill("Node JS") == "nodejs"
-
-    def test_strips_whitespace(self):
-        assert normalize_skill("  Python  ") == "python"
 
 
 class TestExtractNaukriJobId:

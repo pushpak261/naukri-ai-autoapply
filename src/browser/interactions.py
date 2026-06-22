@@ -79,21 +79,6 @@ class HumanInteractions(IBrowserInteractions):
             logger.debug(f"safe_click failed for '{selector}': {e}")
             return False
 
-    async def js_click(self, selector: str) -> bool:
-        """Click an element via JavaScript (bypasses overlays)."""
-        try:
-            await self._engine.page.evaluate(
-                """(selector) => {
-                    const el = document.querySelector(selector);
-                    if (el) { el.click(); return true; }
-                    return false;
-                }""",
-                selector,
-            )
-            return True
-        except Exception as e:
-            logger.debug(f"js_click failed for '{selector}': {e}")
-            return False
 
     async def random_scroll(self, scroll_count: int = 3) -> None:
         """Scroll the page randomly to simulate human reading behavior."""

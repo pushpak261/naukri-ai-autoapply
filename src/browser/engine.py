@@ -148,20 +148,6 @@ class PlaywrightEngine(IBrowserEngine):
                 json.dump(state, f)
             logger.debug("Session state saved")
 
-    async def take_screenshot(self, name: str = "error") -> None:
-        """Take a screenshot for debugging purposes."""
-        if self._page:
-            import time
-
-            timestamp = int(time.time())
-            # Ensure data/logs exists
-            path = Path(self._settings.project_root) / "data" / "logs" / f"{name}_{timestamp}.png"
-            path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                await self._page.screenshot(path=str(path), full_page=True)
-                logger.info(f"Screenshot saved to {path}")
-            except Exception as e:
-                logger.warning(f"Failed to take screenshot: {e}")
 
     async def close(self) -> None:
         """Save session and close all browser resources."""

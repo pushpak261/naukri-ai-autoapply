@@ -49,14 +49,6 @@ async def random_delay(min_seconds: float, max_seconds: float) -> float:
     return delay
 
 
-def sync_random_delay(min_seconds: float, max_seconds: float) -> float:
-    """Synchronous version of random_delay."""
-    mean = (min_seconds + max_seconds) / 2
-    std_dev = (max_seconds - min_seconds) / 4
-    delay = random.gauss(mean, std_dev)
-    delay = max(min_seconds, min(max_seconds, delay))
-    time.sleep(delay)
-    return delay
 
 
 # ---------------------------------------------------------------------------
@@ -106,19 +98,6 @@ def truncate_text(text: str, max_length: int = 4000) -> str:
     return truncated + "..."
 
 
-def normalize_skill(skill: str) -> str:
-    """
-    Normalize a skill name for consistent comparison.
-
-    Maps common variations to a canonical form:
-        "React.js" -> "react"
-        "PostgreSQL" -> "postgresql"
-        "Node JS" -> "nodejs"
-    """
-    s = skill.lower().strip()
-    s = re.sub(r"[.\-_/]", "", s)
-    s = re.sub(r"\s+", "", s)
-    return s
 
 
 # ---------------------------------------------------------------------------
@@ -145,50 +124,6 @@ def hash_file(file_path: str | Path) -> str:
 # ---------------------------------------------------------------------------
 # Retry decorator
 # ---------------------------------------------------------------------------
-def retry_async(
-    max_retries: int = 3,
-    backoff_base: float = 2.0,
-    exceptions: tuple = (Exception,),
-):
-    """
-    Async retry decorator with exponential backoff.
-
-    Args:
-        max_retries: Maximum number of retry attempts.
-        backoff_base: Base for exponential backoff in seconds.
-        exceptions: Tuple of exception types to catch and retry.
-
-    Usage:
-        @retry_async(max_retries=3)
-        async def flaky_operation():
-            ...
-    """
-
-    def decorator(func: Callable) -> Callable:
-        @wraps(func)
-        async def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception = None
-            for attempt in range(max_retries + 1):
-                try:
-                    return await func(*args, **kwargs)
-                except exceptions as e:
-                    last_exception = e
-                    if attempt < max_retries:
-                        wait = backoff_base**attempt + random.uniform(0, 1)
-                        logger.warning(
-                            f"Retry {attempt + 1}/{max_retries} for "
-                            f"{func.__name__}: {e}. Waiting {wait:.1f}s..."
-                        )
-                        await asyncio.sleep(wait)
-                    else:
-                        logger.error(
-                            f"All {max_retries} retries exhausted for " f"{func.__name__}: {e}"
-                        )
-            raise last_exception  # type: ignore
-
-        return wrapper
-
-    return decorator
 
 
 # ---------------------------------------------------------------------------

@@ -61,24 +61,6 @@ class TestJobOperations:
         )
         assert job1.id == job2.id
 
-    @pytest.mark.asyncio
-    async def test_get_job_by_naukri_id(self, repo):
-        """Test looking up a job by Naukri ID."""
-        await repo.save_job(
-            naukri_job_id="JOB456",
-            title="Django Developer",
-            company="Web Corp",
-            url="https://naukri.com/job/456",
-        )
-        job = await repo.get_job_by_naukri_id("JOB456")
-        assert job is not None
-        assert job.title == "Django Developer"
-
-    @pytest.mark.asyncio
-    async def test_get_nonexistent_job(self, repo):
-        """Test looking up a job that doesn't exist."""
-        job = await repo.get_job_by_naukri_id("NONEXISTENT")
-        assert job is None
 
 
 class TestApplicationOperations:

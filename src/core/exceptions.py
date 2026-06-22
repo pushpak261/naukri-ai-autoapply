@@ -38,7 +38,3 @@ class BrowserAutomationError(AgentException):
     pass
 
 
-class DatabaseOperationError(AgentException):
-    """Raised when a database query or operation fails."""
-
-    pass

@@ -346,8 +346,3 @@ class ResumeParser(IResumeParser):
             log_error(f"Failed to parse resume with AI: {e}")
             return {}
 
-    def parse_sync(self, pdf_path: str | Path) -> dict:
-        """Synchronous wrapper for parse()."""
-        import asyncio
-
-        return asyncio.run(self.parse(pdf_path))

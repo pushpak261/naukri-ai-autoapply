@@ -331,16 +331,3 @@ class JobSearcher:
                 "location_detail": "",
             }
 
-    async def check_already_applied(self) -> bool:
-        """
-        Check if the 'Already Applied' indicator is present on the current
-        job detail page.
-        """
-        return await self._interactions.element_exists(JobDetailSelectors.ALREADY_APPLIED)
-
-    async def check_external_apply(self) -> bool:
-        """
-        Check if this job requires external application (redirect to
-        company website).
-        """
-        return await self._interactions.element_exists(JobDetailSelectors.EXTERNAL_APPLY)
