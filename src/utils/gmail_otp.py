@@ -115,11 +115,11 @@ def fetch_naukri_otp(
                             continue
                         if content_type in ("text/plain", "text/html"):
                             payload = part.get_payload(decode=True)
-                            if payload:
+                            if isinstance(payload, bytes):
                                 body += payload.decode("utf-8", errors="ignore")
                 else:
                     payload = msg.get_payload(decode=True)
-                    if payload:
+                    if isinstance(payload, bytes):
                         body = payload.decode("utf-8", errors="ignore")
 
                 # Match exactly a 6-digit numeric pattern (typical Naukri OTP)
