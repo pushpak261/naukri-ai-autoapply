@@ -44,7 +44,7 @@ search:
     # - "Pune"
     # - "Mumbai"
     - "Bangalore"
-    - "Remote"
+    # - "Remote"
   experience_min: 0        # Minimum years of experience filter
   experience_max: 1        # Maximum years of experience filter
   salary_min: 0            # Minimum salary in LPA (0 = any)
