@@ -42,7 +42,7 @@ def _is_daily_quota_violation(error: genai_errors.APIError) -> bool:
 
 class GeminiProvider(ILLMProvider):
     """
-    LLM Provider implementation using Google Gemini with key rotation support.
+    LLM Provider implementation using Google Gemini.
     """
 
     def __init__(self, api_key: str | list[str], model_name: str = "gemini-2.5-flash") -> None:
@@ -50,27 +50,28 @@ class GeminiProvider(ILLMProvider):
         Initialize the Gemini provider.
 
         Args:
-            api_key: Comma-separated string or list of Google Gemini API keys.
+            api_key: The Google Gemini API key.
             model_name: The Gemini model to use.
         """
         if isinstance(api_key, str):
-            self._api_keys = [k.strip() for k in api_key.split(",") if k.strip()]
+            keys = [k.strip() for k in api_key.split(",") if k.strip()]
+            self._api_key = keys[0] if keys else ""
+        elif isinstance(api_key, list):
+            self._api_key = api_key[0] if api_key else ""
         else:
-            self._api_keys = list(api_key)
+            self._api_key = api_key
 
         self._model_name = model_name
-        self._current_key_idx = 0
         self._client: genai.Client | None = None
 
     def _get_client(self) -> genai.Client:
         """Lazy-initialize the genai.Client on demand."""
         if self._client is None:
-            if not self._api_keys:
+            if not self._api_key:
                 raise ValueError(
                     "No API key was provided. Please configure GEMINI_API_KEY in your environment."
                 )
-            active_key = self._api_keys[self._current_key_idx]
-            self._client = genai.Client(api_key=active_key)
+            self._client = genai.Client(api_key=self._api_key)
         return self._client
 
     def set_model(self, model_name: str) -> None:
@@ -103,25 +104,6 @@ class GeminiProvider(ILLMProvider):
                 the user rather than retry.
             LLMAPIError: for any other failure to generate content.
         """
-        return await self._generate_content_with_rotation(
-            prompt=prompt,
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
-            response_mime_type=response_mime_type,
-            response_schema=response_schema,
-            _keys_tried=0,
-        )
-
-    async def _generate_content_with_rotation(
-        self,
-        prompt: str,
-        temperature: float,
-        max_output_tokens: int,
-        response_mime_type: str,
-        response_schema: Any,
-        _keys_tried: int,
-    ) -> str:
-        """Internal helper for executing content generation with round-robin key rotation."""
         try:
             response = await self._get_client().aio.models.generate_content(
                 model=self._model_name,
@@ -158,24 +140,6 @@ class GeminiProvider(ILLMProvider):
             return response_text
 
         except genai_errors.APIError as e:
-            # Rotate API key if resource exhausted (429) or service unavailable (503)
-            # Try rotating if we haven't tried all keys yet for this call
-            if e.code in (429, 503) and _keys_tried < len(self._api_keys) - 1:
-                self._current_key_idx = (self._current_key_idx + 1) % len(self._api_keys)
-                self._client = None  # Force new client creation with rotated key
-                logger.warning(
-                    f"Gemini API error {e.code}. Rotating to API key {self._current_key_idx + 1} "
-                    f"of {len(self._api_keys)} and retrying..."
-                )
-                return await self._generate_content_with_rotation(
-                    prompt=prompt,
-                    temperature=temperature,
-                    max_output_tokens=max_output_tokens,
-                    response_mime_type=response_mime_type,
-                    response_schema=response_schema,
-                    _keys_tried=_keys_tried + 1,
-                )
-
             if e.code == 429:
                 is_daily = _is_daily_quota_violation(e)
                 if is_daily:
