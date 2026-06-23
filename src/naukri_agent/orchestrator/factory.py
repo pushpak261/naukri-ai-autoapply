@@ -29,6 +29,7 @@ from src.naukri_agent.core.interfaces import (
     IRepository,
     IResumeParser,
 )
+from src.naukri_agent.core.domain.entities import ResumeProfile
 from src.naukri_agent.database.repository import SQLAlchemyRepository
 
 
@@ -101,7 +102,7 @@ class DependencyFactory:
             settings=self._settings,
         )
 
-    def create_question_answerer(self, resume_profile: dict) -> IQuestionAnswerer:
+    def create_question_answerer(self, resume_profile: ResumeProfile) -> IQuestionAnswerer:
         return QuestionAnswerer(
             llm_provider=self.get_llm_provider(),
             settings=self._settings,

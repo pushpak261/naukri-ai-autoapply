@@ -88,6 +88,21 @@ class NaukriAgent:
         await agent.run()
     """
 
+    _factory: DependencyFactory | None
+    _settings: Settings
+    _repo: IRepository
+    _engine: IBrowserEngine
+    _interactions: IBrowserInteractions
+    _llm: ILLMProvider
+    _resume_parser: IResumeParser
+    _login_handler: LoginHandler
+    _job_searcher: JobSearcher
+    _job_matcher: IJobMatcher
+    _question_answerer_factory: Callable[[ResumeProfile], IQuestionAnswerer]
+    _job_applier_factory: Callable[[IQuestionAnswerer], JobApplier]
+    _profile_refresher: ProfileRefresher
+    _resume_profile: ResumeProfile | None
+
     def __init__(
         self,
         factory: DependencyFactory | None = None,
@@ -101,26 +116,69 @@ class NaukriAgent:
         login_handler: LoginHandler | None = None,
         job_searcher: JobSearcher | None = None,
         job_matcher: IJobMatcher | None = None,
-        question_answerer_factory: Callable[[dict], IQuestionAnswerer] | None = None,
+        question_answerer_factory: Callable[[ResumeProfile], IQuestionAnswerer] | None = None,
         job_applier_factory: Callable[[IQuestionAnswerer], JobApplier] | None = None,
         profile_refresher: ProfileRefresher | None = None,
     ) -> None:
         self._factory = factory
-        self._settings = settings or (factory.get_settings() if factory else None)
-        if not self._settings:
-            raise ValueError("Either factory or settings must be provided.")
 
-        self._repo = repository or (factory.get_repository() if factory else None)
-        self._engine = browser_engine or (factory.get_browser_engine() if factory else None)
-        self._interactions = browser_interactions or (
+        # Settings
+        _settings = settings or (factory.get_settings() if factory else None)
+        if not _settings:
+            raise ValueError("Either factory or settings must be provided.")
+        self._settings = _settings
+
+        # Repository
+        _repo = repository or (factory.get_repository() if factory else None)
+        if not _repo:
+            raise ValueError("Repository is required.")
+        self._repo = _repo
+
+        # Browser Engine
+        _engine = browser_engine or (factory.get_browser_engine() if factory else None)
+        if not _engine:
+            raise ValueError("Browser engine is required.")
+        self._engine = _engine
+
+        # Browser Interactions
+        _interactions = browser_interactions or (
             factory.get_browser_interactions() if factory else None
         )
-        self._llm = llm_provider or (factory.get_llm_provider() if factory else None)
-        self._resume_parser = resume_parser or (factory.create_resume_parser() if factory else None)
-        self._login_handler = login_handler or (factory.create_login_handler() if factory else None)
-        self._job_searcher = job_searcher or (factory.create_job_searcher() if factory else None)
-        self._job_matcher = job_matcher or (factory.create_job_matcher() if factory else None)
+        if not _interactions:
+            raise ValueError("Browser interactions are required.")
+        self._interactions = _interactions
 
+        # LLM Provider
+        _llm = llm_provider or (factory.get_llm_provider() if factory else None)
+        if not _llm:
+            raise ValueError("LLM provider is required.")
+        self._llm = _llm
+
+        # Resume Parser
+        _resume_parser = resume_parser or (factory.create_resume_parser() if factory else None)
+        if not _resume_parser:
+            raise ValueError("Resume parser is required.")
+        self._resume_parser = _resume_parser
+
+        # Login Handler
+        _login_handler = login_handler or (factory.create_login_handler() if factory else None)
+        if not _login_handler:
+            raise ValueError("Login handler is required.")
+        self._login_handler = _login_handler
+
+        # Job Searcher
+        _job_searcher = job_searcher or (factory.create_job_searcher() if factory else None)
+        if not _job_searcher:
+            raise ValueError("Job searcher is required.")
+        self._job_searcher = _job_searcher
+
+        # Job Matcher
+        _job_matcher = job_matcher or (factory.create_job_matcher() if factory else None)
+        if not _job_matcher:
+            raise ValueError("Job matcher is required.")
+        self._job_matcher = _job_matcher
+
+        # Factories & Refresher
         if question_answerer_factory:
             self._question_answerer_factory = question_answerer_factory
         elif factory:
@@ -128,20 +186,23 @@ class NaukriAgent:
                 profile
             )
         else:
-            self._question_answerer_factory = None
+            raise ValueError("Question answerer factory is required.")
 
         if job_applier_factory:
             self._job_applier_factory = job_applier_factory
         elif factory:
             self._job_applier_factory = lambda qa: factory.create_job_applier(qa)
         else:
-            self._job_applier_factory = None
+            raise ValueError("Job applier factory is required.")
 
-        self._profile_refresher = profile_refresher or (
+        _profile_refresher = profile_refresher or (
             factory.create_profile_refresher() if factory else None
         )
+        if not _profile_refresher:
+            raise ValueError("Profile refresher is required.")
+        self._profile_refresher = _profile_refresher
 
-        self._resume_profile: dict | None = None
+        self._resume_profile = None
         self._run_log_id: int | None = None
         self._interrupted = False
 
@@ -227,18 +288,21 @@ class NaukriAgent:
             matcher = self._job_matcher
             if not matcher:
                 raise RuntimeError("JobMatcher not configured.")
-            if not self._question_answerer_factory:
+            if self._question_answerer_factory is None:
                 raise RuntimeError("QuestionAnswerer factory not configured.")
-            if not self._job_applier_factory:
+            if self._job_applier_factory is None:
                 raise RuntimeError("JobApplier factory not configured.")
+
+            if self._resume_profile is None:
+                raise RuntimeError("Resume profile not loaded.")
 
             qa = self._question_answerer_factory(self._resume_profile)
             applier = self._job_applier_factory(qa)
 
             resume_text = (
-                self._resume_profile.get("skills", [])
-                + [self._resume_profile.get("current_title", "")]
-                + [self._resume_profile.get("summary", "")]
+                self._resume_profile.skills
+                + [self._resume_profile.current_title]
+                + [self._resume_profile.summary]
             )
             vector_filter = VectorSimilarityFilter(resume_text)
 
@@ -459,12 +523,14 @@ class NaukriAgent:
                     skills=job.skills,
                     posted_date=job.posted_date,
                 )
+                assert db_job.id is not None
 
             match_score = match_result.match_score
             should_apply = match_result.should_apply
 
             if not should_apply:
                 if self._repo and db_job:
+                    assert db_job.id is not None
                     await self._repo.save_application(
                         job_id=db_job.id,
                         match_score=match_score,
@@ -479,6 +545,7 @@ class NaukriAgent:
             if self._settings.application.dry_run:
                 log_info(f"DRY RUN — would apply (score: {match_score})")
                 if self._repo and db_job:
+                    assert db_job.id is not None
                     await self._repo.save_application(
                         job_id=db_job.id,
                         match_score=match_score,
@@ -502,6 +569,7 @@ class NaukriAgent:
                 except Exception as e:
                     logger.error(f"Failed to navigate to job page {job.url}: {e}")
                     if self._repo and db_job:
+                        assert db_job.id is not None
                         await self._repo.save_application(
                             job_id=db_job.id,
                             match_score=match_score,
@@ -520,6 +588,7 @@ class NaukriAgent:
             error_msg = apply_result.get("error_message", "")
 
             if self._repo and db_job:
+                assert db_job.id is not None
                 await self._repo.save_application(
                     job_id=db_job.id,
                     match_score=match_score,
