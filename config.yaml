@@ -16,8 +16,8 @@ naukri:
 # ---------------------------------------------------------------------------
 ai:
   gemini_api_key: "" # Override with GEMINI_API_KEY env var
-  model: "gemini-2.5-flash"
-  fallback_model: "gemini-2.5-flash-lite"  # Optional secondary model when primary model hits daily 429 quota
+  model: "gemini-2.0-flash"
+  fallback_model: "gemini-1.5-flash"  # Optional secondary model when primary model hits daily 429 quota
   abort_on_quota: true  # If true, stops the run on daily quota error when no fallback model is set
   temperature: 0.3
   max_output_tokens: 4096
