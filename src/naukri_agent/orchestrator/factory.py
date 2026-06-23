@@ -28,6 +28,9 @@ from src.naukri_agent.core.interfaces import (
     IQuestionAnswerer,
     IRepository,
     IResumeParser,
+    IStealthPatcher,
+    IOTPProvider,
+    ILoginStrategy,
 )
 from src.naukri_agent.core.domain.entities import ResumeProfile
 from src.naukri_agent.database.repository import SQLAlchemyRepository
@@ -55,6 +58,8 @@ class DependencyFactory:
         self._repository: IRepository | None = None
         self._browser_engine: IBrowserEngine | None = None
         self._browser_interactions: IBrowserInteractions | None = None
+        self._stealth_patcher: IStealthPatcher | None = None
+        self._otp_provider: IOTPProvider | None = None
 
     def get_settings(self) -> Settings:
         return self._settings
@@ -78,9 +83,31 @@ class DependencyFactory:
             )
         return self._llm_provider
 
+    def get_stealth_patcher(self) -> IStealthPatcher:
+        if not self._stealth_patcher:
+            from src.naukri_agent.browser.stealth import PlaywrightStealthPatcher
+
+            self._stealth_patcher = PlaywrightStealthPatcher()
+        return self._stealth_patcher
+
+    def get_otp_provider(self) -> IOTPProvider | None:
+        if not self._otp_provider:
+            gmail_email = self._settings.naukri.gmail_otp_email
+            gmail_password = self._settings.naukri.gmail_app_password
+            if gmail_email and gmail_password:
+                from src.naukri_agent.utils.gmail_otp import GmailOTPProvider
+
+                self._otp_provider = GmailOTPProvider(
+                    gmail_email=gmail_email,
+                    app_password=gmail_password,
+                )
+        return self._otp_provider
+
     def get_browser_engine(self) -> IBrowserEngine:
         if not self._browser_engine:
-            self._browser_engine = PlaywrightEngine(self._settings)
+            self._browser_engine = PlaywrightEngine(
+                self._settings, stealth_patcher=self.get_stealth_patcher()
+            )
         return self._browser_engine
 
     def get_browser_interactions(self) -> IBrowserInteractions:
@@ -114,10 +141,21 @@ class DependencyFactory:
             engine=self.get_browser_engine(),
             interactions=self.get_browser_interactions(),
         )
+
+        strategy: ILoginStrategy
+        if self._settings.naukri.use_otp_login:
+            from src.naukri_agent.browser.login import OTPLoginStrategy
+
+            strategy = OTPLoginStrategy(self._settings, self.get_otp_provider())
+        else:
+            from src.naukri_agent.browser.login import PasswordLoginStrategy
+
+            strategy = PasswordLoginStrategy(self._settings, self.get_otp_provider())
+
         return LoginHandler(
             login_page=login_page,
             engine=self.get_browser_engine(),
-            settings=self._settings,
+            strategy=strategy,
         )
 
     def create_job_searcher(self) -> JobSearcher:

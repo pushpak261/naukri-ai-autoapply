@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from playwright.async_api import Page
 
+from src.naukri_agent.core.interfaces import IStealthPatcher
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -113,18 +114,33 @@ STEALTH_SCRIPTS = [
 ]
 
 
+class PlaywrightStealthPatcher(IStealthPatcher):
+    """
+    Injects specialized anti-detection scripts into Playwright pages.
+    """
+
+    def __init__(self, scripts: list[str] | None = None) -> None:
+        self.scripts = scripts if scripts is not None else STEALTH_SCRIPTS
+
+    async def apply(self, page: Page) -> None:
+        """
+        Apply all stealth patches to a Playwright page.
+
+        These scripts are injected via add_init_script, which ensures they
+        run before any page JavaScript, on every navigation.
+
+        Args:
+            page: The Playwright Page to patch.
+        """
+        combined_script = "\n".join(self.scripts)
+        await page.add_init_script(combined_script)
+        logger.debug("Stealth scripts applied successfully")
+
+
 async def apply_stealth_scripts(page: Page) -> None:
     """
-    Apply all stealth patches to a Playwright page.
-
-    These scripts are injected via add_init_script, which ensures they
-    run before any page JavaScript, on every navigation.
-
-    Args:
-        page: The Playwright Page to patch.
+    Deprecated procedural wrapper for PlaywrightStealthPatcher.
+    Use PlaywrightStealthPatcher.apply() instead.
     """
-    combined_script = "\n".join(STEALTH_SCRIPTS)
-
-    await page.add_init_script(combined_script)
-
-    logger.debug("Stealth scripts applied successfully")
+    patcher = PlaywrightStealthPatcher()
+    await patcher.apply(page)

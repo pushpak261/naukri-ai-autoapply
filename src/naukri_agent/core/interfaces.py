@@ -160,3 +160,27 @@ class IResumeParser(Protocol):
     """Interface for parsing a resume PDF."""
 
     async def parse(self, pdf_path: str) -> ResumeProfile: ...
+
+
+class IStealthPatcher(Protocol):
+    """Interface for masking browser automation properties."""
+
+    async def apply(self, page: Any) -> None:
+        """Inject anti-detection patches into a page context."""
+        ...
+
+
+class IOTPProvider(Protocol):
+    """Interface for retrieving one-time passwords."""
+
+    async def retrieve_otp(self) -> str | None:
+        """Poll the OTP source and return the code if found."""
+        ...
+
+
+class ILoginStrategy(Protocol):
+    """Interface for login authentication methods."""
+
+    async def authenticate(self, login_page: Any) -> bool:
+        """Execute the authentication sequence on the login page."""
+        ...

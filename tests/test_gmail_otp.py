@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from src.naukri_agent.utils.gmail_otp import fetch_naukri_otp
+from src.naukri_agent.utils.gmail_otp import GmailOTPProvider, fetch_naukri_otp
 
 
 def test_fetch_naukri_otp_success():
@@ -79,3 +79,31 @@ def test_fetch_naukri_otp_ignore_non_naukri_emails():
 
         assert otp is None
         mock_imap.store.assert_not_called()
+
+
+async def test_gmail_otp_provider_success():
+    """Test GmailOTPProvider when it successfully connects and finds an OTP."""
+    mock_imap = MagicMock()
+    mock_imap.search.return_value = ("OK", [b"1 2 3"])
+
+    email_body = (
+        b"From: info@naukri.com\r\n"
+        b"Subject: OTP for Naukri Login\r\n\r\n"
+        b"Hi User, your verification code is 884723. Do not share it."
+    )
+    mock_imap.fetch.return_value = ("OK", [(b"1 (RFC822)", email_body)])
+
+    with patch("imaplib.IMAP4_SSL", return_value=mock_imap):
+        provider = GmailOTPProvider(
+            gmail_email="test@gmail.com",
+            app_password="test_password",
+            timeout_seconds=5,
+            poll_interval_seconds=1,
+        )
+        otp = await provider.retrieve_otp()
+
+        assert otp == "884723"
+        mock_imap.login.assert_called_once_with("test@gmail.com", "test_password")
+        mock_imap.select.assert_called_with("INBOX")
+        mock_imap.store.assert_called_once_with(b"3", "+FLAGS", "\\Seen")
+        mock_imap.logout.assert_called()

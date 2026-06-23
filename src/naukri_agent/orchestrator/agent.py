@@ -63,7 +63,7 @@ from src.naukri_agent.core.interfaces import (
     IResumeParser,
 )
 from src.naukri_agent.orchestrator.factory import DependencyFactory
-from src.naukri_agent.utils.helpers import random_delay
+from src.naukri_agent.utils.helpers import TimeUtility
 from src.naukri_agent.utils.logger import (
     console,
     get_logger,
@@ -602,7 +602,7 @@ class NaukriAgent:
             if status == ApplicationStatus.APPLIED:
                 self._jobs_applied += 1
                 self._daily_applied += 1
-                await random_delay(
+                await TimeUtility.random_delay(
                     self._settings.application.delay_between_applies_min,
                     self._settings.application.delay_between_applies_max,
                 )

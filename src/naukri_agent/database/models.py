@@ -150,9 +150,10 @@ async def init_db(db_path: Path) -> async_sessionmaker[AsyncSession]:
     Returns:
         A SQLAlchemy async_sessionmaker bound to the async engine.
     """
-    from src.naukri_agent.database.backup import backup_database
+    from src.naukri_agent.database.backup import DatabaseBackupService
 
-    backup_database(db_path)
+    backup_service = DatabaseBackupService(db_path)
+    backup_service.backup()
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     engine = create_async_engine(

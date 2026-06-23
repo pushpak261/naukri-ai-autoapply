@@ -13,6 +13,9 @@ from google.genai import types
 from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
 from src.naukri_agent.core.interfaces import ILLMProvider
 from src.naukri_agent.utils.helpers import async_retry
+from src.naukri_agent.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def _is_daily_quota_violation(error: genai_errors.APIError) -> bool:
@@ -39,29 +42,35 @@ def _is_daily_quota_violation(error: genai_errors.APIError) -> bool:
 
 class GeminiProvider(ILLMProvider):
     """
-    LLM Provider implementation using Google Gemini.
+    LLM Provider implementation using Google Gemini with key rotation support.
     """
 
-    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash") -> None:
+    def __init__(self, api_key: str | list[str], model_name: str = "gemini-2.5-flash") -> None:
         """
         Initialize the Gemini provider.
 
         Args:
-            api_key: The Google Gemini API key.
+            api_key: Comma-separated string or list of Google Gemini API keys.
             model_name: The Gemini model to use.
         """
-        self._api_key = api_key
+        if isinstance(api_key, str):
+            self._api_keys = [k.strip() for k in api_key.split(",") if k.strip()]
+        else:
+            self._api_keys = list(api_key)
+
         self._model_name = model_name
+        self._current_key_idx = 0
         self._client: genai.Client | None = None
 
     def _get_client(self) -> genai.Client:
         """Lazy-initialize the genai.Client on demand."""
         if self._client is None:
-            if not self._api_key:
+            if not self._api_keys:
                 raise ValueError(
                     "No API key was provided. Please configure GEMINI_API_KEY in your environment."
                 )
-            self._client = genai.Client(api_key=self._api_key)
+            active_key = self._api_keys[self._current_key_idx]
+            self._client = genai.Client(api_key=active_key)
         return self._client
 
     def set_model(self, model_name: str) -> None:
@@ -130,6 +139,18 @@ class GeminiProvider(ILLMProvider):
             return response_text
 
         except genai_errors.APIError as e:
+            # Rotate API key if resource exhausted (429) or service unavailable (503)
+            if e.code in (429, 503) and self._current_key_idx < len(self._api_keys) - 1:
+                self._current_key_idx += 1
+                self._client = None  # Force new client creation with rotated key
+                logger.warning(
+                    f"Gemini API error {e.code}. Rotating to API key {self._current_key_idx + 1} "
+                    f"of {len(self._api_keys)} and retrying..."
+                )
+                return await self.generate_content(
+                    prompt, temperature, max_output_tokens, response_mime_type, response_schema
+                )
+
             if e.code == 429:
                 is_daily = _is_daily_quota_violation(e)
                 if is_daily:

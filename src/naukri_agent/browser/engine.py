@@ -16,7 +16,6 @@ from playwright.async_api import (
     async_playwright,
 )
 
-from src.naukri_agent.browser.stealth import apply_stealth_scripts
 from src.naukri_agent.config.constants import (
     DEFAULT_LOCALE,
     DEFAULT_TIMEOUT,
@@ -25,7 +24,7 @@ from src.naukri_agent.config.constants import (
 )
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.core.exceptions import BrowserAutomationError
-from src.naukri_agent.core.interfaces import IBrowserEngine
+from src.naukri_agent.core.interfaces import IBrowserEngine, IStealthPatcher
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -46,8 +45,9 @@ class PlaywrightEngine(IBrowserEngine):
         await engine.close()
     """
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, stealth_patcher: IStealthPatcher | None = None) -> None:
         self._settings = settings
+        self._stealth_patcher = stealth_patcher
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
@@ -125,7 +125,8 @@ class PlaywrightEngine(IBrowserEngine):
             # Create page and apply stealth
             self._page = await self._context.new_page()
 
-            await apply_stealth_scripts(self._page)
+            if self._stealth_patcher:
+                await self._stealth_patcher.apply(self._page)
 
             logger.info("Browser launched successfully")
             return self._page
