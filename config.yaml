@@ -35,11 +35,11 @@ search:
   keywords:
     - "Full Stack Developer"
     - "Java Developer"
-    - "Associate Software Engineer"
-    - "Junior Software Engineer"
-    - "Backend Developer"
-    - "Software Engineer"
-    - "Software Developer"
+    # - "Associate Software Engineer"
+    # - "Junior Software Engineer"
+    # - "Backend Developer"
+    # - "Software Engineer"
+    # - "Software Developer"
   locations:
     - "Pune"
     - "Mumbai"
