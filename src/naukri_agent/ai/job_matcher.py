@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
-from src.naukri_agent.core.exceptions import LLMQuotaExceededError
+from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
 from src.naukri_agent.core.interfaces import IJobMatcher, ILLMProvider
 from src.naukri_agent.utils.helpers import clean_text, truncate_text
 from src.naukri_agent.utils.logger import get_logger, log_match
@@ -269,13 +269,9 @@ class JobMatcher(IJobMatcher):
                 should_apply=result["should_apply"],
             )
 
-        except LLMQuotaExceededError:
-            # Don't swallow this into a fake "score 0" result — every
-            # subsequent job would silently get marked as a non-match even
-            # though no actual evaluation happened. The caller (the
-            # orchestrator's job-processing loop) needs to know evaluation
-            # has stopped working so it can halt gracefully instead of
-            # burning through the remaining job list pretending to score it.
+        except (LLMQuotaExceededError, LLMAPIError):
+            # Don't swallow these — the caller (orchestrator) needs to know
+            # if API limits or errors occurred so it can switch models or halt.
             raise
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse match response as JSON: {e}")
