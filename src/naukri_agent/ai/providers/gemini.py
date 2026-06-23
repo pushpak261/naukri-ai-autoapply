@@ -103,6 +103,25 @@ class GeminiProvider(ILLMProvider):
                 the user rather than retry.
             LLMAPIError: for any other failure to generate content.
         """
+        return await self._generate_content_with_rotation(
+            prompt=prompt,
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            response_mime_type=response_mime_type,
+            response_schema=response_schema,
+            _keys_tried=0,
+        )
+
+    async def _generate_content_with_rotation(
+        self,
+        prompt: str,
+        temperature: float,
+        max_output_tokens: int,
+        response_mime_type: str,
+        response_schema: Any,
+        _keys_tried: int,
+    ) -> str:
+        """Internal helper for executing content generation with round-robin key rotation."""
         try:
             response = await self._get_client().aio.models.generate_content(
                 model=self._model_name,
@@ -140,15 +159,21 @@ class GeminiProvider(ILLMProvider):
 
         except genai_errors.APIError as e:
             # Rotate API key if resource exhausted (429) or service unavailable (503)
-            if e.code in (429, 503) and self._current_key_idx < len(self._api_keys) - 1:
-                self._current_key_idx += 1
+            # Try rotating if we haven't tried all keys yet for this call
+            if e.code in (429, 503) and _keys_tried < len(self._api_keys) - 1:
+                self._current_key_idx = (self._current_key_idx + 1) % len(self._api_keys)
                 self._client = None  # Force new client creation with rotated key
                 logger.warning(
                     f"Gemini API error {e.code}. Rotating to API key {self._current_key_idx + 1} "
                     f"of {len(self._api_keys)} and retrying..."
                 )
-                return await self.generate_content(
-                    prompt, temperature, max_output_tokens, response_mime_type, response_schema
+                return await self._generate_content_with_rotation(
+                    prompt=prompt,
+                    temperature=temperature,
+                    max_output_tokens=max_output_tokens,
+                    response_mime_type=response_mime_type,
+                    response_schema=response_schema,
+                    _keys_tried=_keys_tried + 1,
                 )
 
             if e.code == 429:
