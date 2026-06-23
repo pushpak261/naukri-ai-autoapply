@@ -245,8 +245,21 @@ def build_search_url(
     from urllib.parse import quote_plus
 
     # Build the slug (keywords hyphenated)
-    slug = keywords.lower().replace(" ", "-")
-    base_url = f"https://www.naukri.com/{slug}-jobs"
+    clean_k = re.sub(r"[^a-zA-Z0-9]+", " ", keywords)
+    slug = "-".join(clean_k.lower().split())
+
+    # Build the SEO-friendly URL path incorporating location and page
+    if location:
+        clean_l = re.sub(r"[^a-zA-Z0-9]+", " ", location)
+        loc_slug = "-".join(clean_l.lower().split())
+        path = f"{slug}-jobs-in-{loc_slug}"
+    else:
+        path = f"{slug}-jobs"
+
+    if page > 1:
+        path = f"{path}-{page}"
+
+    base_url = f"https://www.naukri.com/{path}"
 
     params = []
 
@@ -274,7 +287,7 @@ def build_search_url(
     if sort_by == "date":
         params.append("sort=r")
 
-    # Pagination
+    # Pagination query param (keep it for compatibility/redundancy)
     if page > 1:
         params.append(f"pageNo={page}")
 

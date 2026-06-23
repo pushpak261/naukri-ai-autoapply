@@ -9,7 +9,6 @@ job pages to extract full descriptions.
 from __future__ import annotations
 
 import contextlib
-import re
 
 from src.naukri_agent.browser.pages.detail import JobDetailPage
 from src.naukri_agent.browser.pages.search import SearchPage
@@ -138,38 +137,15 @@ class JobSearcher:
                     break
 
                 # Strict client-side filtering to bypass Naukri's ignored URL params
-                filtered_jobs = []
-                for job in jobs_on_page:
-                    exp_text = str(job.experience).lower()
-                    date_text = str(job.posted_date).lower()
+                from src.naukri_agent.utils.filters import JobFilter
 
-                    # 1. Filter by experience
-                    skip_exp = False
-                    match = re.search(r"(\d+)", exp_text)
-                    if match:
-                        min_req = int(match.group(1))
-                        if min_req > self._settings.search.experience_max:
-                            skip_exp = True
+                job_filter = JobFilter(
+                    max_experience=self._settings.search.experience_max,
+                    max_freshness_days=self._settings.search.freshness,
+                    sort_by=self._settings.search.sort_by,
+                )
 
-                    # 2. Filter by freshness
-                    skip_date = False
-                    max_days = self._settings.search.freshness
-                    if max_days <= 7:
-                        # If config says < 7 days, skip anything with weeks/months or 30+
-                        if "week" in date_text or "month" in date_text or "30+" in date_text:
-                            skip_date = True
-                        else:
-                            # Extract number of days
-                            day_match = re.search(r"(\d+)\s*day", date_text)
-                            if day_match and int(day_match.group(1)) > max_days:
-                                skip_date = True
-
-                    if not skip_exp and not skip_date:
-                        filtered_jobs.append(job)
-                    else:
-                        logger.debug(
-                            f"Strict filter removed: {job.title} (Exp: {exp_text}, Age: {date_text})"
-                        )
+                filtered_jobs = job_filter.filter(jobs_on_page)
 
                 all_jobs.extend(filtered_jobs)
                 logger.info(

@@ -48,16 +48,16 @@ search:
   experience_min: 0        # Minimum years of experience filter
   experience_max: 1        # Maximum years of experience filter
   salary_min: 0            # Minimum salary in LPA (0 = any)
-  freshness: 3             # Job posting age in days (1, 3, 7, 15, 30)
+  freshness: 7             # Job posting age in days (1, 3, 7, 15, 30)
   max_pages: 4             # Max search result pages to scan per keyword
-  sort_by: "date"     # "relevance" or "date"
+  sort_by: "relevance"     # "relevance" or "date"
 
 # ---------------------------------------------------------------------------
 # Application Controls
 # ---------------------------------------------------------------------------
 application:
   daily_cap: 30                   # Max applications per day
-  match_score_threshold: 40       # Minimum AI match score (0-100) to auto-apply
+  match_score_threshold: 20       # Minimum AI match score (0-100) to auto-apply
   delay_between_applies_min: 30   # Minimum delay in seconds between applications
   delay_between_applies_max: 90   # Maximum delay in seconds between applications
   delay_between_actions_min: 1.0  # Minimum delay between browser actions (seconds)
