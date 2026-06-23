@@ -52,7 +52,7 @@ from src.naukri_agent.core.domain.specifications import (
     JobSpecification,
     TitleExclusionSpecification,
 )
-from src.naukri_agent.core.exceptions import LLMQuotaExceededError
+from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
 from src.naukri_agent.core.interfaces import (
     IBrowserEngine,
     IBrowserInteractions,
@@ -449,11 +449,12 @@ class NaukriAgent:
 
             try:
                 match_result = await matcher.match(resume_profile, job)
-            except LLMQuotaExceededError as e:
-                if e.is_daily_quota and self._settings.ai.fallback_model:
+            except LLMAPIError as e:
+                is_daily = getattr(e, "is_daily_quota", False)
+                if self._settings.ai.fallback_model:
                     fallback_model = self._settings.ai.fallback_model
                     log_warning(
-                        f"⚠️  Gemini's daily request quota is exhausted for model '{self._settings.ai.model}'."
+                        f"⚠️  Gemini API error occurred on model '{self._settings.ai.model}': {e}"
                     )
                     log_success(
                         f"✅ Switching to fallback model '{fallback_model}' and continuing run..."
@@ -478,7 +479,7 @@ class NaukriAgent:
                         self._jobs_failed += 1
                         continue
                 else:
-                    if e.is_daily_quota:
+                    if is_daily:
                         log_error(str(e))
                         if self._settings.ai.abort_on_quota:
                             log_error(
@@ -496,13 +497,9 @@ class NaukriAgent:
                             self._jobs_failed += 1
                             continue
                     else:
-                        log_error(
-                            "⚠️  Gemini rate limit hit repeatedly — stopping the run "
-                            "to avoid wasting further requests."
-                        )
-                        log_error(str(e))
-                        self._interrupted = True
-                        break
+                        log_error(f"⚠️  Gemini API error: {e}")
+                        self._jobs_failed += 1
+                        continue
             except Exception as e:
                 logger.error(f"AI Match failed: {e}")
                 self._jobs_failed += 1
