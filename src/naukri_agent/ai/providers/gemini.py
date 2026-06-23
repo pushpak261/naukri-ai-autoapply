@@ -50,8 +50,19 @@ class GeminiProvider(ILLMProvider):
             api_key: The Google Gemini API key.
             model_name: The Gemini model to use.
         """
-        self._client = genai.Client(api_key=api_key)
+        self._api_key = api_key
         self._model_name = model_name
+        self._client: genai.Client | None = None
+
+    def _get_client(self) -> genai.Client:
+        """Lazy-initialize the genai.Client on demand."""
+        if self._client is None:
+            if not self._api_key:
+                raise ValueError(
+                    "No API key was provided. Please configure GEMINI_API_KEY in your environment."
+                )
+            self._client = genai.Client(api_key=self._api_key)
+        return self._client
 
     def set_model(self, model_name: str) -> None:
         """
@@ -84,7 +95,7 @@ class GeminiProvider(ILLMProvider):
             LLMAPIError: for any other failure to generate content.
         """
         try:
-            response = await self._client.aio.models.generate_content(
+            response = await self._get_client().aio.models.generate_content(
                 model=self._model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
