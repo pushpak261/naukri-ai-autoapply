@@ -10,9 +10,9 @@ import json
 import pytest
 import pytest_asyncio
 
-from src.config.constants import ApplicationStatus
-from src.database.models import init_db
-from src.database.repository import SQLAlchemyRepository
+from src.naukri_agent.config.constants import ApplicationStatus
+from src.naukri_agent.database.models import init_db
+from src.naukri_agent.database.repository import SQLAlchemyRepository
 
 
 @pytest_asyncio.fixture
@@ -172,8 +172,8 @@ class TestResumeProfileOperations:
 
         cached = await repo.get_cached_profile("abc123")
         assert cached is not None
-        assert cached["name"] == "Test User"
-        assert "Python" in cached["skills"]
+        assert cached.name == "Test User"
+        assert "Python" in cached.skills
 
     @pytest.mark.asyncio
     async def test_get_nonexistent_profile(self, repo):
@@ -199,8 +199,8 @@ class TestResumeProfileOperations:
         )
 
         cached = await repo.get_cached_profile("update_hash")
-        assert cached["name"] == "User V2"
-        assert "Django" in cached["skills"]
+        assert cached.name == "User V2"
+        assert "Django" in cached.skills
 
 
 class TestRunLogOperations:

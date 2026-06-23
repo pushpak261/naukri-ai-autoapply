@@ -1,9 +1,12 @@
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from src.orchestrator.agent import NaukriAgent
-from src.core.exceptions import LLMQuotaExceededError
-from src.config.settings import Settings
-from src.ai.similarity import VectorSimilarityFilter
+
+import pytest
+
+from src.naukri_agent.ai.similarity import VectorSimilarityFilter
+from src.naukri_agent.config.settings import Settings
+from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
+from src.naukri_agent.core.exceptions import LLMQuotaExceededError
+from src.naukri_agent.orchestrator.agent import NaukriAgent
 
 
 @pytest.fixture
@@ -39,30 +42,41 @@ async def test_process_jobs_quota_fallback_success(mock_settings):
     mock_factory.get_browser_interactions.return_value = mock_interactions
 
     agent = NaukriAgent(mock_factory)
-    agent._resume_profile = {"skills": ["Python"], "current_title": "Developer", "summary": "Dev"}
+    agent._resume_profile = ResumeProfile(
+        name="Test Developer",
+        skills=["Python"],
+        total_experience_years=3.0,
+        current_title="Developer",
+        summary="Dev",
+    )
     agent._repo = MagicMock()
     agent._repo.get_today_application_count = AsyncMock(return_value=0)
     agent._repo.is_already_applied = MagicMock(return_value=False)
-    agent._repo.save_job = AsyncMock()
+    agent._repo.save_job = AsyncMock(side_effect=lambda **kwargs: Job(id=1, **kwargs))
     agent._repo.save_application = AsyncMock()
 
     # Mock parameters
     jobs = [
-        {
-            "naukri_job_id": "job_123",
-            "title": "Python Developer",
-            "company": "Tech Corp",
-            "url": "http://example.com/job",
-            "description": "Python developer needed",
-            "skills": "Python",
-        }
+        Job(
+            naukri_job_id="job_123",
+            title="Python Developer",
+            company="Tech Corp",
+            url="http://example.com/job",
+            description="Python developer needed",
+            skills="Python",
+        )
     ]
 
     mock_matcher = AsyncMock()
     # First match call raises quota limit, second match call succeeds
     mock_matcher.match.side_effect = [
         LLMQuotaExceededError("Quota exhausted", is_daily_quota=True),
-        {"score": 80, "should_apply": True, "reasoning": "Fits perfectly"},
+        JobApplication(
+            match_score=80.0,
+            should_apply=True,
+            match_reasoning="Fits perfectly",
+            matching_skills="Python",
+        ),
     ]
 
     mock_applier = AsyncMock()
@@ -75,8 +89,8 @@ async def test_process_jobs_quota_fallback_success(mock_settings):
 
     # Call _process_jobs
     with (
-        patch("src.orchestrator.agent.log_warning"),
-        patch("src.orchestrator.agent.log_success"),
+        patch("src.naukri_agent.orchestrator.agent.log_warning"),
+        patch("src.naukri_agent.orchestrator.agent.log_success"),
         patch("asyncio.sleep", return_value=None),
     ):
         await agent._process_jobs(jobs, mock_matcher, mock_applier, mock_searcher, vector_filter)
@@ -108,30 +122,36 @@ async def test_process_jobs_quota_no_fallback_abort(mock_settings):
     mock_factory.get_browser_interactions.return_value = mock_interactions
 
     agent = NaukriAgent(mock_factory)
-    agent._resume_profile = {"skills": ["Python"], "current_title": "Developer", "summary": "Dev"}
+    agent._resume_profile = ResumeProfile(
+        name="Test Developer",
+        skills=["Python"],
+        total_experience_years=3.0,
+        current_title="Developer",
+        summary="Dev",
+    )
     agent._repo = MagicMock()
     agent._repo.get_today_application_count = AsyncMock(return_value=0)
     agent._repo.is_already_applied = MagicMock(return_value=False)
-    agent._repo.save_job = AsyncMock()
+    agent._repo.save_job = AsyncMock(side_effect=lambda **kwargs: Job(id=1, **kwargs))
     agent._repo.save_application = AsyncMock()
 
     jobs = [
-        {
-            "naukri_job_id": "job_1",
-            "title": "Python Developer",
-            "company": "Tech Corp",
-            "url": "http://example.com/job1",
-            "description": "Python developer needed",
-            "skills": "Python",
-        },
-        {
-            "naukri_job_id": "job_2",
-            "title": "Django Developer",
-            "company": "Web Corp",
-            "url": "http://example.com/job2",
-            "description": "Django developer needed",
-            "skills": "Python",
-        },
+        Job(
+            naukri_job_id="job_1",
+            title="Python Developer",
+            company="Tech Corp",
+            url="http://example.com/job1",
+            description="Python developer needed",
+            skills="Python",
+        ),
+        Job(
+            naukri_job_id="job_2",
+            title="Django Developer",
+            company="Web Corp",
+            url="http://example.com/job2",
+            description="Django developer needed",
+            skills="Python",
+        ),
     ]
 
     mock_matcher = AsyncMock()
@@ -143,7 +163,10 @@ async def test_process_jobs_quota_no_fallback_abort(mock_settings):
     vector_filter = MagicMock(spec=VectorSimilarityFilter)
     vector_filter.get_similarity_score.return_value = 0.5
 
-    with patch("src.orchestrator.agent.log_error"), patch("asyncio.sleep", return_value=None):
+    with (
+        patch("src.naukri_agent.orchestrator.agent.log_error"),
+        patch("asyncio.sleep", return_value=None),
+    ):
         await agent._process_jobs(jobs, mock_matcher, mock_applier, mock_searcher, vector_filter)
 
     # Should abort on first job and not process the second
@@ -171,36 +194,47 @@ async def test_process_jobs_quota_no_fallback_continue(mock_settings):
     mock_factory.get_browser_interactions.return_value = mock_interactions
 
     agent = NaukriAgent(mock_factory)
-    agent._resume_profile = {"skills": ["Python"], "current_title": "Developer", "summary": "Dev"}
+    agent._resume_profile = ResumeProfile(
+        name="Test Developer",
+        skills=["Python"],
+        total_experience_years=3.0,
+        current_title="Developer",
+        summary="Dev",
+    )
     agent._repo = MagicMock()
     agent._repo.get_today_application_count = AsyncMock(return_value=0)
     agent._repo.is_already_applied = MagicMock(return_value=False)
-    agent._repo.save_job = AsyncMock()
+    agent._repo.save_job = AsyncMock(side_effect=lambda **kwargs: Job(id=1, **kwargs))
     agent._repo.save_application = AsyncMock()
 
     jobs = [
-        {
-            "naukri_job_id": "job_1",
-            "title": "Python Developer",
-            "company": "Tech Corp",
-            "url": "http://example.com/job1",
-            "description": "Python developer needed",
-            "skills": "Python",
-        },
-        {
-            "naukri_job_id": "job_2",
-            "title": "Django Developer",
-            "company": "Web Corp",
-            "url": "http://example.com/job2",
-            "description": "Django developer needed",
-            "skills": "Python",
-        },
+        Job(
+            naukri_job_id="job_1",
+            title="Python Developer",
+            company="Tech Corp",
+            url="http://example.com/job1",
+            description="Python developer needed",
+            skills="Python",
+        ),
+        Job(
+            naukri_job_id="job_2",
+            title="Django Developer",
+            company="Web Corp",
+            url="http://example.com/job2",
+            description="Django developer needed",
+            skills="Python",
+        ),
     ]
 
     mock_matcher = AsyncMock()
     mock_matcher.match.side_effect = [
         LLMQuotaExceededError("Quota exhausted", is_daily_quota=True),
-        {"score": 80, "should_apply": True, "reasoning": "Fits perfectly"},
+        JobApplication(
+            match_score=80.0,
+            should_apply=True,
+            match_reasoning="Fits perfectly",
+            matching_skills="Python",
+        ),
     ]
 
     mock_applier = AsyncMock()
@@ -211,8 +245,8 @@ async def test_process_jobs_quota_no_fallback_continue(mock_settings):
     vector_filter.get_similarity_score.return_value = 0.5
 
     with (
-        patch("src.orchestrator.agent.log_error"),
-        patch("src.orchestrator.agent.log_warning"),
+        patch("src.naukri_agent.orchestrator.agent.log_error"),
+        patch("src.naukri_agent.orchestrator.agent.log_warning"),
         patch("asyncio.sleep", return_value=None),
     ):
         await agent._process_jobs(jobs, mock_matcher, mock_applier, mock_searcher, vector_filter)
@@ -222,3 +256,42 @@ async def test_process_jobs_quota_no_fallback_continue(mock_settings):
     assert agent._jobs_applied == 1
     assert agent._jobs_failed == 1
     assert agent._interrupted is False
+
+
+@pytest.mark.asyncio
+async def test_agent_constructor_di(mock_settings):
+    mock_repo = MagicMock()
+    mock_engine = MagicMock()
+    mock_interactions = MagicMock()
+    mock_llm = MagicMock()
+    mock_parser = MagicMock()
+    mock_login = MagicMock()
+    mock_searcher = MagicMock()
+    mock_matcher = MagicMock()
+    mock_refresher = MagicMock()
+
+    agent = NaukriAgent(
+        settings=mock_settings,
+        repository=mock_repo,
+        browser_engine=mock_engine,
+        browser_interactions=mock_interactions,
+        llm_provider=mock_llm,
+        resume_parser=mock_parser,
+        login_handler=mock_login,
+        job_searcher=mock_searcher,
+        job_matcher=mock_matcher,
+        question_answerer_factory=lambda p: MagicMock(),
+        job_applier_factory=lambda qa: MagicMock(),
+        profile_refresher=mock_refresher,
+    )
+
+    assert agent._settings == mock_settings
+    assert agent._repo == mock_repo
+    assert agent._engine == mock_engine
+    assert agent._interactions == mock_interactions
+    assert agent._llm == mock_llm
+    assert agent._resume_parser == mock_parser
+    assert agent._login_handler == mock_login
+    assert agent._job_searcher == mock_searcher
+    assert agent._job_matcher == mock_matcher
+    assert agent._profile_refresher == mock_refresher

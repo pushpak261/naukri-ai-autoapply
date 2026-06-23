@@ -2,9 +2,11 @@
 Tests for the async_retry utility decorator.
 """
 
-import pytest
 import asyncio
-from src.utils.helpers import async_retry
+
+import pytest
+
+from src.naukri_agent.utils.helpers import async_retry
 
 
 class CustomException(Exception):

@@ -11,8 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from google.genai import errors as genai_errors
 
-from src.ai.providers.gemini import GeminiProvider
-from src.core.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.naukri_agent.ai.providers.gemini import GeminiProvider
+from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
 
 # The exact error payload shape Gemini's free tier returns when the daily
 # request quota for a model is exhausted (taken from a real production log).

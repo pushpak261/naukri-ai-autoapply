@@ -5,11 +5,13 @@ Tests matching logic, score validation, and edge cases.
 """
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.ai.job_matcher import JobMatcher
-from src.core.exceptions import LLMQuotaExceededError
+import pytest
+
+from src.naukri_agent.ai.job_matcher import JobMatcher
+from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
+from src.naukri_agent.core.exceptions import LLMQuotaExceededError
 
 
 @pytest.fixture
@@ -29,41 +31,46 @@ def mock_settings(tmp_path):
 @pytest.fixture
 def sample_resume():
     """A sample resume profile."""
-    return {
-        "name": "Jane Developer",
-        "skills": ["Python", "FastAPI", "Django", "PostgreSQL", "Docker", "AWS"],
-        "total_experience_years": 4,
-        "current_title": "Backend Developer",
-        "summary": "Backend developer with 4 years of experience.",
-    }
+    return ResumeProfile(
+        name="Jane Developer",
+        skills=["Python", "FastAPI", "Django", "PostgreSQL", "Docker", "AWS"],
+        total_experience_years=4.0,
+        current_title="Backend Developer",
+        summary="Backend developer with 4 years of experience.",
+        file_hash="test_hash",
+    )
 
 
 @pytest.fixture
 def high_match_job():
     """A job that should score high against the sample resume."""
-    return {
-        "title": "Python Backend Developer",
-        "company": "Tech Startup",
-        "location": "Bangalore",
-        "experience": "3-5 years",
-        "salary": "12-18 LPA",
-        "description": "Looking for a Python developer with FastAPI and PostgreSQL experience.",
-        "skills": "Python, FastAPI, PostgreSQL, Docker",
-    }
+    return Job(
+        naukri_job_id="high_match_job_id",
+        title="Python Backend Developer",
+        company="Tech Startup",
+        url="https://example.com/job/1",
+        location="Bangalore",
+        experience="3-5 years",
+        salary="12-18 LPA",
+        description="Looking for a Python developer with FastAPI and PostgreSQL experience.",
+        skills="Python, FastAPI, PostgreSQL, Docker",
+    )
 
 
 @pytest.fixture
 def low_match_job():
     """A job that should score low against the sample resume."""
-    return {
-        "title": "iOS Developer",
-        "company": "Mobile Corp",
-        "location": "Delhi",
-        "experience": "5-8 years",
-        "salary": "20-30 LPA",
-        "description": "Senior iOS developer with Swift and Objective-C expertise.",
-        "skills": "Swift, Objective-C, iOS, Xcode",
-    }
+    return Job(
+        naukri_job_id="low_match_job_id",
+        title="iOS Developer",
+        company="Mobile Corp",
+        url="https://example.com/job/2",
+        location="Delhi",
+        experience="5-8 years",
+        salary="20-30 LPA",
+        description="Senior iOS developer with Swift and Objective-C expertise.",
+        skills="Swift, Objective-C, iOS, Xcode",
+    )
 
 
 @pytest.fixture
@@ -104,8 +111,8 @@ class TestJobMatcher:
         result = await matcher.match(sample_resume, high_match_job)
 
         mock_llm.generate_content.assert_awaited_once()
-        assert result["score"] == 85
-        assert result["should_apply"] is True  # 85 >= threshold of 70
+        assert result.match_score == 85
+        assert result.should_apply is True  # 85 >= threshold of 70
 
     @pytest.mark.asyncio
     async def test_match_below_threshold_should_not_apply(
@@ -120,8 +127,8 @@ class TestJobMatcher:
         matcher = JobMatcher(mock_llm, mock_settings)
         result = await matcher.match(sample_resume, low_match_job)
 
-        assert result["score"] == 35
-        assert result["should_apply"] is False
+        assert result.match_score == 35
+        assert result.should_apply is False
 
     @pytest.mark.asyncio
     async def test_match_handles_malformed_json_gracefully(
@@ -134,8 +141,8 @@ class TestJobMatcher:
         matcher = JobMatcher(mock_llm, mock_settings)
         result = await matcher.match(sample_resume, high_match_job)
 
-        assert result["score"] == 0
-        assert result["should_apply"] is False
+        assert result.match_score == 0
+        assert result.should_apply is False
 
     @pytest.mark.asyncio
     async def test_match_retries_on_malformed_json_and_succeeds(
@@ -152,8 +159,8 @@ class TestJobMatcher:
         result = await matcher.match(sample_resume, high_match_job)
 
         assert mock_llm.generate_content.call_count == 2
-        assert result["score"] == 85
-        assert result["should_apply"] is True
+        assert result.match_score == 85
+        assert result.should_apply is True
 
     @pytest.mark.asyncio
     async def test_match_propagates_quota_exhaustion(

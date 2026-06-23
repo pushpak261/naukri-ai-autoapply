@@ -5,7 +5,7 @@ init:
 
 format:
 	black src/ tests/
-	isort src/ tests/
+	ruff check src/ tests/ --select I --fix
 
 lint:
 	ruff check src/ tests/
@@ -17,7 +17,7 @@ test:
 	pytest tests/ -v
 
 run:
-	python -m src.main run
+	python -m src.naukri_agent.main run
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +

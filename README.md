@@ -37,7 +37,7 @@ pre-commit install
 ### 2. Initialize Configuration
 
 ```bash
-python -m src.main init
+python -m src.naukri_agent.main init
 ```
 
 This creates a `.env` file from the template. Edit it with your credentials:
@@ -63,32 +63,32 @@ Edit `config.yaml` to set:
 
 ```bash
 # Dry run first (scores jobs but doesn't apply)
-python -m src.main run --dry-run
+python -m src.naukri_agent.main run --dry-run
 
 # Full run (actually applies)
-python -m src.main run
+python -m src.naukri_agent.main run
 
 # With overrides
-python -m src.main run --cap 10 --threshold 80
+python -m src.naukri_agent.main run --cap 10 --threshold 80
 ```
 
 ### 5. View Statistics
 
 ```bash
-python -m src.main status
+python -m src.naukri_agent.main status
 ```
 
 ## 🎯 CLI Commands
 
 | Command | Description |
 |---------|-------------|
-| `python -m src.main run` | Start the application agent |
-| `python -m src.main run --dry-run` | Score jobs without applying |
-| `python -m src.main status` | View application statistics |
-| `python -m src.main parse-resume <path>` | Test resume parsing |
-| `python -m src.main test-match <url>` | Test matching against a job |
-| `python -m src.main init` | Initialize config files |
-| `python -m src.main refresh-profile` | Refresh Naukri profile to keep it active |
+| `python -m src.naukri_agent.main run` | Start the application agent |
+| `python -m src.naukri_agent.main run --dry-run` | Score jobs without applying |
+| `python -m src.naukri_agent.main status` | View application statistics |
+| `python -m src.naukri_agent.main parse-resume <path>` | Test resume parsing |
+| `python -m src.naukri_agent.main test-match <url>` | Test matching against a job |
+| `python -m src.naukri_agent.main init` | Initialize config files |
+| `python -m src.naukri_agent.main refresh-profile` | Refresh Naukri profile to keep it active |
 
 ## 🏗️ Architecture
 
@@ -114,7 +114,7 @@ flowchart TD
 
 ### Code Structure
 ```text
-src/
+src/naukri_agent/
 ├── config/          # Settings, constants, selectors
 ├── ai/              # Gemini-powered resume parsing, job matching, Q&A
 ├── browser/         # Playwright engine, stealth, login, search, apply
@@ -191,7 +191,7 @@ Before deploying to the cloud, you must securely encrypt your resume so GitHub A
 1. Place your `resume.pdf` in the root folder of this project.
 2. Run the encryption helper script:
    ```bash
-   python update_resume.py
+   python scripts/update_resume.py
    ```
 3. This will create a `resume.pdf.enc` file (which is safe to push to GitHub) and a `resume_key.txt` file (which contains your secret decryption key).
 
@@ -217,7 +217,7 @@ Because your session cookies and resume are securely encrypted, you do **not** n
 1. Replace the local `resume.pdf` file with your updated version.
 2. Run the update script:
    ```bash
-   python update_resume.py
+   python scripts/update_resume.py
    ```
 3. Commit and push the updated `resume.pdf.enc` file.
 
@@ -225,12 +225,12 @@ Because your session cookies and resume are securely encrypted, you do **not** n
 If Naukri is asking for an OTP on your cloud bot or login is failing, you can bypass the login screen entirely by grabbing the session cookies from your own laptop:
 1. Run the bot locally so it opens a visible window:
    ```bash
-   python -m src.main run --dry-run
+   python -m src.naukri_agent.main run --dry-run
    ```
 2. Log into Naukri manually. Once the bot starts scanning jobs, you can press `Ctrl+C` to stop it.
 3. Your login cookies are now saved locally. Encrypt them for the cloud:
    ```bash
-   python sync_session.py
+   python scripts/sync_session.py
    ```
 4. Commit and push the new `session.enc` file:
    ```bash

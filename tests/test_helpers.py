@@ -2,12 +2,12 @@
 Tests for utility helper functions.
 """
 
-from src.utils.helpers import (
-    clean_text,
-    truncate_text,
-    extract_naukri_job_id,
+from src.naukri_agent.utils.helpers import (
     build_search_url,
+    clean_text,
+    extract_naukri_job_id,
     hash_file,
+    truncate_text,
 )
 
 

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from src.utils.gmail_otp import fetch_naukri_otp
+from src.naukri_agent.utils.gmail_otp import fetch_naukri_otp
 
 
 def test_fetch_naukri_otp_success():

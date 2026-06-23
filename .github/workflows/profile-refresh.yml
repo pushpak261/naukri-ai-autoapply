@@ -62,7 +62,7 @@ jobs:
           NAUKRI_EMAIL: ${{ secrets.NAUKRI_EMAIL }}
           NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
         run: |
-          xvfb-run python -m src.main refresh-profile
+          xvfb-run python -m src.naukri_agent.main refresh-profile
 
       - name: Encrypt and Commit Session
         env:

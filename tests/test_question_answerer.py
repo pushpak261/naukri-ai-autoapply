@@ -3,10 +3,12 @@ Tests for the question answerer module.
 """
 
 import json
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.ai.question_answerer import QuestionAnswerer
+import pytest
+
+from src.naukri_agent.ai.question_answerer import QuestionAnswerer
+from src.naukri_agent.core.domain.entities import Job, ResumeProfile
 
 
 @pytest.fixture
@@ -29,12 +31,12 @@ def mock_settings(tmp_path):
 @pytest.fixture
 def sample_resume():
     """A sample resume profile."""
-    return {
-        "name": "Jane Developer",
-        "skills": ["Python", "FastAPI"],
-        "total_experience_years": 3,
-        "current_title": "Software Engineer",
-    }
+    return ResumeProfile(
+        name="Jane Developer",
+        skills=["Python", "FastAPI"],
+        total_experience_years=3.0,
+        current_title="Software Engineer",
+    )
 
 
 class TestQuestionAnswerer:
@@ -52,8 +54,13 @@ class TestQuestionAnswerer:
             {"question": "What is your total experience?", "type": "text", "index": 2},
         ]
 
-        job_data = {"title": "Python Dev", "company": "Tech Corp"}
-        answers = await answerer.answer_questions(questions, job_data)
+        job = Job(
+            naukri_job_id="test_job_1",
+            title="Python Dev",
+            company="Tech Corp",
+            url="https://example.com/1",
+        )
+        answers = await answerer.answer_questions(questions, job)
 
         assert len(answers) == 3
         assert answers[0]["answer"] == "10 LPA"
@@ -86,8 +93,13 @@ class TestQuestionAnswerer:
             {"question": "Current location?", "type": "text", "index": 2},
         ]
 
-        job_data = {"title": "Python Dev", "company": "Tech Corp"}
-        answers = await answerer.answer_questions(questions, job_data)
+        job = Job(
+            naukri_job_id="test_job_2",
+            title="Python Dev",
+            company="Tech Corp",
+            url="https://example.com/2",
+        )
+        answers = await answerer.answer_questions(questions, job)
 
         assert len(answers) == 3
         # Direct notice period answer should be index 0

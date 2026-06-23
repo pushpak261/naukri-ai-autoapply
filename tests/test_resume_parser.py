@@ -4,10 +4,12 @@ Tests for the resume parser module.
 Tests PDF text extraction and profile parsing without making actual API calls.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
-from src.ai.resume_parser import ResumeParser
+import pytest
+
+from src.naukri_agent.ai.resume_parser import ResumeParser
+from src.naukri_agent.core.domain.entities import ResumeProfile
 
 
 @pytest.fixture
@@ -33,21 +35,21 @@ def mock_repo():
 @pytest.fixture
 def sample_profile():
     """A sample parsed resume profile."""
-    return {
-        "name": "John Doe",
-        "email": "john@example.com",
-        "phone": "+91-9876543210",
-        "current_title": "Senior Python Developer",
-        "summary": "Experienced backend developer with 5 years in Python.",
-        "total_experience_years": 5,
-        "skills": ["Python", "FastAPI", "Django", "PostgreSQL", "AWS", "Docker"],
-        "technical_skills": ["Python", "FastAPI", "Django", "PostgreSQL"],
-        "soft_skills": ["Leadership", "Communication"],
-        "job_titles_held": ["Python Developer", "Senior Python Developer"],
-        "education": [
+    return ResumeProfile(
+        name="John Doe",
+        email="john@example.com",
+        phone="+91-9876543210",
+        current_title="Senior Python Developer",
+        summary="Experienced backend developer with 5 years in Python.",
+        total_experience_years=5.0,
+        skills=["Python", "FastAPI", "Django", "PostgreSQL", "AWS", "Docker"],
+        technical_skills=["Python", "FastAPI", "Django", "PostgreSQL"],
+        soft_skills=["Leadership", "Communication"],
+        job_titles_held=["Python Developer", "Senior Python Developer"],
+        education=[
             {"degree": "B.Tech Computer Science", "institution": "IIT Delhi", "year": "2019"}
         ],
-        "work_experience": [
+        work_experience=[
             {
                 "title": "Senior Python Developer",
                 "company": "Tech Corp",
@@ -55,10 +57,10 @@ def sample_profile():
                 "highlights": ["Built microservices", "Led team of 5"],
             }
         ],
-        "certifications": ["AWS Solutions Architect"],
-        "languages": ["English", "Hindi"],
-        "key_achievements": ["Reduced API latency by 40%"],
-    }
+        certifications=["AWS Solutions Architect"],
+        languages=["English", "Hindi"],
+        key_achievements=["Reduced API latency by 40%"],
+    )
 
 
 class TestResumeParser:
@@ -91,20 +93,16 @@ class TestResumeParser:
 
     def test_profile_structure(self, sample_profile):
         """Test that a valid profile has all required fields."""
-        required_fields = [
-            "name",
-            "skills",
-            "total_experience_years",
-            "education",
-            "work_experience",
-        ]
-        for field in required_fields:
-            assert field in sample_profile, f"Missing field: {field}"
+        assert sample_profile.name == "John Doe"
+        assert sample_profile.skills is not None
+        assert sample_profile.total_experience_years == 5.0
+        assert sample_profile.education is not None
+        assert sample_profile.work_experience is not None
 
     def test_skills_list_not_empty(self, sample_profile):
         """Test that skills list is populated."""
-        assert len(sample_profile["skills"]) > 0
+        assert len(sample_profile.skills) > 0
 
     def test_experience_is_number(self, sample_profile):
         """Test that experience years is numeric."""
-        assert isinstance(sample_profile["total_experience_years"], (int, float))
+        assert isinstance(sample_profile.total_experience_years, (int, float))
