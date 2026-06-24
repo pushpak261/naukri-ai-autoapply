@@ -57,7 +57,7 @@ search:
 # ---------------------------------------------------------------------------
 application:
   daily_cap: 30                   # Max applications per day
-  match_score_threshold: 30       # Minimum AI match score (0-100) to auto-apply
+  match_score_threshold: 50       # Minimum AI match score (0-100) to auto-apply
   delay_between_applies_min: 30   # Minimum delay in seconds between applications
   delay_between_applies_max: 90   # Maximum delay in seconds between applications
   delay_between_actions_min: 1.0  # Minimum delay between browser actions (seconds)
