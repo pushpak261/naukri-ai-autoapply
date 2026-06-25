@@ -16,7 +16,7 @@ side doesn't immediately break the flow.
 import asyncio
 import contextlib
 
-from src.naukri_agent.config.constants import NAVIGATION_TIMEOUT
+from src.naukri_agent.config.constants import NAVIGATION_TIMEOUT, ProfileSelectors
 from src.naukri_agent.core.interfaces import IBrowserEngine, IBrowserInteractions
 from src.naukri_agent.utils.logger import get_logger, log_error, log_success
 
@@ -102,18 +102,22 @@ class ProfileRefresher:
         return False
 
     async def _click_resume_headline_edit_icon(self, page) -> bool:
-        """
-        The page contains TWO "Resume headline" text nodes: one in the
-        left "Quick links" sidebar (plain text/link, no icon) and one as
-        the section header in the main panel (with an adjacent pencil
-        icon). We don't rely on a semantic <heading> role since the
-        section label is just styled text, not an h1-h4. Instead we:
-          1. Collect every element with that exact text.
-          2. For each, try several ways to find a nearby clickable icon.
-          3. Click it, then VERIFY the modal actually opened before
-             declaring success — if not, keep trying the next candidate
-             instead of silently returning a false positive.
-        """
+        """Click the edit (pencil) icon for the main "Resume headline" section."""
+
+        # Strategy #1 (preferred): use the dedicated resilient selector.
+        try:
+            edit_icon = page.locator(f"xpath={ProfileSelectors.RESUME_HEADLINE_EDIT_ICON}").first
+            await edit_icon.wait_for(state="visible", timeout=STEP_TIMEOUT_MS)
+            await edit_icon.scroll_into_view_if_needed()
+            await edit_icon.click(timeout=3000)
+            if await self._modal_is_open(page):
+                logger.info("Clicked Resume Headline edit icon (dedicated selector).")
+                return True
+        except Exception:
+            # Fall back to heuristics below
+            pass
+
+        # Strategy #2 (fallback): heuristic based on text match locations.
         text_matches = page.get_by_text("Resume headline", exact=True)
 
         try:
