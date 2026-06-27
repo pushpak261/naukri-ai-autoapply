@@ -91,24 +91,89 @@ class HumanInteractions(IBrowserInteractions):
 
     async def close_popups(self) -> None:
         """Attempt to close any visible popups or modals."""
+        page = self._engine.page
+        if not page:
+            return
+
+        # 1. Try Escape key
+        try:
+            await page.keyboard.press("Escape")
+            await asyncio.sleep(0.2)
+        except Exception:
+            pass
+
+        # 2. Try close button selectors
         popup_selectors = [
-            '//button[@aria-label="Close"]',
-            '//button[contains(@class, "close")]',
-            '//span[contains(@class, "close")]',
-            '[class*="chatbot-close"]',
-            '[class*="modal-close"]',
-            '[class*="crossIcon"]',
+            "img[alt='cross-icon' i]",
+            "[alt*='cross' i]",
+            "[alt*='close' i]",
+            "button[aria-label='Close' i]",
+            "[aria-label='close' i]",
+            "div[class*='modal' i] svg",  # the X icon is often a bare svg
+            "div[class*='modal' i] [class*='close' i]",
+            "div[class*='overlay' i] [class*='close' i]",
+            "[class*='cross' i]",
+            "[class*='close' i]",
+            "[class*='chatbot-close' i]",
+            "[class*='modal-close' i]",
+            "[class*='popup-close' i]",
+            "[class*='crossIcon' i]",
+            "button:has-text('Close')",
+            "button:has-text('Dismiss')",
+            "button:has-text('No thanks')",
+            "button:has-text('Not now')",
+            "button:has-text('Skip')",
         ]
 
         for selector in popup_selectors:
             try:
-                element = await self._engine.page.query_selector(selector)
-                if element and await element.is_visible():
-                    await element.click()
+                locator = page.locator(selector).first
+                if await locator.is_visible(timeout=500):
+                    await locator.click(timeout=1500)
                     logger.debug(f"Closed popup with selector: {selector}")
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(0.4)
             except Exception:
                 pass
+
+        # 3. Fallback: Hiding/removing overlays using DOM injection (excluding elements with Save button)
+        try:
+            popup_container_selectors = [
+                ".nps-feedback-container",
+                ".md__backdrop",
+                ".npsf__captureNpsPopup",
+                "[class*='modal' i]",
+                "[class*='overlay' i]",
+                "[class*='popup' i]",
+                "[class*='backdrop' i]",
+                "[class*='nps' i]",
+            ]
+            for container_sel in popup_container_selectors:
+                elements_removed = await page.evaluate(
+                    f"""() => {{
+                    let count = 0;
+                    document.querySelectorAll("{container_sel}").forEach(el => {{
+                        if (!el) return;
+                        // Avoid removing the edit modal (which contains a Save button)
+                        const hasSaveButton = Array.from(el.querySelectorAll('button')).some(
+                            btn => btn.textContent.trim().toLowerCase() === 'save'
+                        );
+                        if (!hasSaveButton && !el.contains(document.querySelector('.profile-summary')) && !el.id.includes('root')) {{
+                            el.remove();
+                            count++;
+                        }}
+                    }});
+                    // Restore body overflow style in case modal disabled scrolling
+                    document.body.style.overflow = 'auto';
+                    document.documentElement.style.overflow = 'auto';
+                    return count;
+                }}"""
+                )
+                if elements_removed > 0:
+                    logger.debug(
+                        f"Programmatically removed {elements_removed} blocking elements matching '{container_sel}'"
+                    )
+        except Exception as e:
+            logger.debug(f"Error removing overlays via JS fallback: {e}")
 
     async def wait_for_navigation_complete(self, timeout: int = DEFAULT_TIMEOUT) -> None:
         """Wait for the page to finish loading."""
