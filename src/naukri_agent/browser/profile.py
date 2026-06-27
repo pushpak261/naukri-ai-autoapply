@@ -26,18 +26,6 @@ HOMEPAGE_URL = "https://www.naukri.com/mnjuser/homepage"
 PROFILE_URL_FRAGMENT = "/mnjuser/profile"
 MODAL_URL_MARKER = "action=modalOpen"
 
-# Close ("X") icon selectors for the feedback / NPS pop-up that can appear
-# right after the profile page loads (see "How likely are you to
-# recommend our Power Profile service?").
-POPUP_CLOSE_SELECTORS = [
-    "button[aria-label='Close' i]",
-    "[aria-label='close' i]",
-    "div[class*='modal' i] svg",  # the X icon is often a bare svg
-    "div[class*='modal' i] [class*='close' i]",
-    "div[class*='overlay' i] [class*='close' i]",
-    "[class*='cross' i]",
-]
-
 STEP_TIMEOUT_MS = 10_000
 RETRY_ATTEMPTS = 3
 RETRY_DELAY_SECONDS = 1.5
@@ -74,18 +62,13 @@ class ProfileRefresher:
     # Step 2: Dismiss the feedback pop-up, if present
     # ------------------------------------------------------------------ #
     async def _dismiss_popup_if_present(self, page) -> bool:
-        """Best-effort, non-fatal check for the feedback pop-up's X button."""
-        for sel in POPUP_CLOSE_SELECTORS:
-            try:
-                locator = page.locator(sel).first
-                if await locator.is_visible(timeout=1000):
-                    await locator.click(timeout=2000)
-                    logger.info(f"Closed feedback pop-up via selector: {sel}")
-                    await asyncio.sleep(0.4)
-                    return True
-            except Exception:
-                continue
-        return False
+        """Robustly dismiss or remove feedback pop-ups, nudges, or NPS overlays."""
+        try:
+            await self._interactions.close_popups()
+            return True
+        except Exception as e:
+            logger.debug(f"Error calling close_popups: {e}")
+            return False
 
     # ------------------------------------------------------------------ #
     # Step 3: Click the edit (pencil) icon on "Resume headline"
@@ -109,7 +92,11 @@ class ProfileRefresher:
             edit_icon = page.locator(f"xpath={ProfileSelectors.RESUME_HEADLINE_EDIT_ICON}").first
             await edit_icon.wait_for(state="visible", timeout=STEP_TIMEOUT_MS)
             await edit_icon.scroll_into_view_if_needed()
-            await edit_icon.click(timeout=3000)
+            try:
+                await edit_icon.click(timeout=3000)
+            except Exception:
+                # Force click if normal click gets intercepted by an overlay
+                await edit_icon.click(timeout=3000, force=True)
             if await self._modal_is_open(page):
                 logger.info("Clicked Resume Headline edit icon (dedicated selector).")
                 return True
@@ -171,7 +158,10 @@ class ProfileRefresher:
                 try:
                     icon = icon_locator
                     await icon.wait_for(state="visible", timeout=1500)
-                    await icon.click(timeout=3000)
+                    try:
+                        await icon.click(timeout=3000)
+                    except Exception:
+                        await icon.click(timeout=3000, force=True)
                 except Exception:
                     continue
 
@@ -206,7 +196,10 @@ class ProfileRefresher:
             try:
                 target = locator.first
                 await target.wait_for(state="visible", timeout=STEP_TIMEOUT_MS)
-                await target.click(timeout=STEP_TIMEOUT_MS)
+                try:
+                    await target.click(timeout=STEP_TIMEOUT_MS)
+                except Exception:
+                    await target.click(timeout=STEP_TIMEOUT_MS, force=True)
                 logger.info("Clicked Save in Resume Headline modal.")
                 return True
             except Exception:
@@ -230,6 +223,9 @@ class ProfileRefresher:
                     HOMEPAGE_URL, wait_until="domcontentloaded", timeout=NAVIGATION_TIMEOUT
                 )
                 await self._interactions.wait_for_navigation_complete()
+
+            # Dismiss any blocking pop-up that appears on the homepage before trying to proceed
+            await self._dismiss_popup_if_present(page)
 
             # --- Step 1: Click View profile, with retries ---
             clicked = False
