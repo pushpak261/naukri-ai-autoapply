@@ -72,20 +72,25 @@ class SQLAlchemyRepository(IRepository):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._session_factory = session_factory
         self._applied_jobs_cache: set[str] = set()
+        self._applied_composite_cache: set[tuple[str, str]] = set()
 
     async def initialize(self) -> None:
-        """Load all applied job IDs into an O(1) hash set for fast deduplication."""
+        """Load all applied job IDs and (title, company) combinations into O(1) hash sets for fast deduplication."""
         try:
             async with self._session_factory() as session:
                 result = await session.execute(
-                    select(DBJob.naukri_job_id).join(
+                    select(DBJob.naukri_job_id, DBJob.title, DBJob.company).join(
                         DBApplication, DBApplication.job_id == DBJob.id
                     )
                 )
-                applied_job_ids = result.scalars().all()
-                for naukri_job_id in applied_job_ids:
+                rows = result.all()
+                for naukri_job_id, title, company in rows:
                     if naukri_job_id:
                         self._applied_jobs_cache.add(naukri_job_id)
+                    if title and company:
+                        self._applied_composite_cache.add(
+                            (title.lower().strip(), company.lower().strip())
+                        )
         except Exception as e:
             import logging
 
@@ -156,6 +161,12 @@ class SQLAlchemyRepository(IRepository):
         """Check if we've already applied to this job (any status) using O(1) cache."""
         return naukri_job_id in self._applied_jobs_cache
 
+    def is_already_applied_composite(self, title: str, company: str) -> bool:
+        """Check if we've already applied to this job title & company combination (O(1))."""
+        if not title or not company:
+            return False
+        return (title.lower().strip(), company.lower().strip()) in self._applied_composite_cache
+
     # -----------------------------------------------------------------------
     # Application operations
     # -----------------------------------------------------------------------
@@ -187,8 +198,13 @@ class SQLAlchemyRepository(IRepository):
             # Update O(1) cache
             job_result = await session.execute(select(DBJob).filter(DBJob.id == job_id))
             job = job_result.scalar_one_or_none()
-            if job and job.naukri_job_id:
-                self._applied_jobs_cache.add(job.naukri_job_id)
+            if job:
+                if job.naukri_job_id:
+                    self._applied_jobs_cache.add(job.naukri_job_id)
+                if job.title and job.company:
+                    self._applied_composite_cache.add(
+                        (job.title.lower().strip(), job.company.lower().strip())
+                    )
 
             return JobApplication(
                 id=app.id,
@@ -374,3 +390,11 @@ class SQLAlchemyRepository(IRepository):
                 }
                 for log in logs
             ]
+
+    async def get_all_job_descriptions(self) -> list[str]:
+        """Fetch all stored job descriptions to construct a TF-IDF reference corpus."""
+        async with self._session_factory() as session:
+            result = await session.execute(
+                select(DBJob.description).filter(DBJob.description != None, DBJob.description != "")
+            )
+            return list(result.scalars().all())
