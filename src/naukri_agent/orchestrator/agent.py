@@ -744,9 +744,7 @@ class NaukriAgent:
                 app_password=password,
                 recipient_email=self._settings.alerts.recipient_email,
                 cooldown_minutes=self._settings.alerts.cooldown_minutes,
-                cooldown_dir=str(
-                    self._settings.project_root / self._settings.logging.log_dir
-                ),
+                cooldown_dir=str(self._settings.project_root / self._settings.logging.log_dir),
             )
             await notifier.send_alert(task_name, exception, extra_context)
         except Exception as alert_err:

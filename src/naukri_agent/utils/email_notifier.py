@@ -18,7 +18,7 @@ import platform
 import smtplib
 import time
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
@@ -119,7 +119,7 @@ class EmailAlertNotifier:
         error_msg = str(exception)
         tb = traceback.format_exception(type(exception), exception, exception.__traceback__)
         tb_text = "".join(tb)
-        now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+        now = datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
         host = platform.node() or "unknown"
 
         subject = f"🚨 Naukri Agent Alert — {task_name} failed ({error_type})"

@@ -77,6 +77,7 @@ async def _run_with_alerts(task_name: str, coro: Coroutine[Any, Any, Any]) -> An
             logger.warning(f"Could not send failure alert: {alert_err}")
         raise
 
+
 @click.group()
 @click.version_option(version="1.0.0", prog_name="Naukri AI Agent")
 def cli():
