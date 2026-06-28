@@ -112,6 +112,14 @@ class LoggingSettings(BaseModel):
     log_dir: str = "data/logs"
 
 
+class AlertSettings(BaseModel):
+    """Email alert configuration for failure notifications."""
+
+    enabled: bool = True
+    recipient_email: str = ""  # Defaults to GMAIL_OTP_EMAIL if blank
+    cooldown_minutes: int = 15  # Suppress duplicate alerts within this window
+
+
 # ---------------------------------------------------------------------------
 # Root settings model
 # ---------------------------------------------------------------------------
@@ -126,6 +134,7 @@ class Settings(BaseModel):
     profile: ProfileSettings = Field(default_factory=ProfileSettings)
     exclusions: ExclusionSettings = Field(default_factory=ExclusionSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
+    alerts: AlertSettings = Field(default_factory=AlertSettings)
 
     # Computed paths
     project_root: Path = PROJECT_ROOT
@@ -227,6 +236,7 @@ def _apply_env_overrides(config: dict) -> dict:
         ("naukri", "mobile_number"): "NAUKRI_MOBILE_NUMBER",
         ("naukri", "use_otp_login"): "NAUKRI_USE_OTP_LOGIN",
         ("ai", "gemini_api_key"): "GEMINI_API_KEY",
+        ("alerts", "recipient_email"): "ALERT_EMAIL_TO",
     }
 
     for (section, key), env_var in env_map.items():

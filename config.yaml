@@ -103,3 +103,13 @@ logging:
   level: "INFO"            # DEBUG, INFO, WARNING, ERROR
   log_to_file: true
   log_dir: "data/logs"
+
+# ---------------------------------------------------------------------------
+# Email Alerts (failure notifications)
+# ---------------------------------------------------------------------------
+# Reuses GMAIL_OTP_EMAIL / GMAIL_APP_PASSWORD from .env for SMTP.
+# Leave recipient_email blank to send alerts to GMAIL_OTP_EMAIL itself.
+alerts:
+  enabled: true                # Set to false to disable all email alerts
+  recipient_email: ""          # Override with ALERT_EMAIL_TO env var
+  cooldown_minutes: 15         # Suppress duplicate alerts within this window
