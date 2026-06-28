@@ -261,6 +261,10 @@ class NaukriAgent:
             login_success = await login_handler.login()
             if not login_success:
                 log_error("Login failed. Cannot proceed.")
+                await self._send_alert(
+                    "run",
+                    RuntimeError("Login failed — could not authenticate with Naukri.com."),
+                )
                 return
 
             # Step 4: Search for jobs
@@ -315,6 +319,7 @@ class NaukriAgent:
         except Exception as e:
             log_error(f"Agent error: {e}")
             logger.exception("Agent fatal error")
+            await self._send_alert("run", e)
         finally:
             await self._cleanup()
 
@@ -493,6 +498,15 @@ class NaukriAgent:
                                     "⚠️  Gemini's daily request quota is exhausted — stopping "
                                     "the run here instead of marking every remaining job as a "
                                     "non-match."
+                                )
+                                await self._send_alert(
+                                    "run",
+                                    e,
+                                    extra_context=(
+                                        f"Model: {self._settings.ai.model}\n"
+                                        f"Jobs processed so far: applied={self._jobs_applied}, "
+                                        f"failed={self._jobs_failed}, skipped={self._jobs_skipped}"
+                                    ),
                                 )
                                 self._interrupted = True
                                 break
@@ -708,6 +722,36 @@ class NaukriAgent:
         else:
             signal.signal(signal.SIGINT, handle_signal)
 
+    async def _send_alert(
+        self,
+        task_name: str,
+        exception: BaseException,
+        extra_context: str = "",
+    ) -> None:
+        """Best-effort email alert — never raises."""
+        try:
+            if not self._settings.alerts.enabled:
+                return
+            sender = self._settings.naukri.gmail_otp_email
+            password = self._settings.naukri.gmail_app_password
+            if not sender or not password:
+                return
+
+            from src.naukri_agent.utils.email_notifier import EmailAlertNotifier
+
+            notifier = EmailAlertNotifier(
+                sender_email=sender,
+                app_password=password,
+                recipient_email=self._settings.alerts.recipient_email,
+                cooldown_minutes=self._settings.alerts.cooldown_minutes,
+                cooldown_dir=str(
+                    self._settings.project_root / self._settings.logging.log_dir
+                ),
+            )
+            await notifier.send_alert(task_name, exception, extra_context)
+        except Exception as alert_err:
+            logger.warning(f"Could not send failure alert: {alert_err}")
+
     # -----------------------------------------------------------------------
     # Public utility methods (for CLI subcommands)
     # -----------------------------------------------------------------------
@@ -879,6 +923,13 @@ class NaukriAgent:
             login_success = await login_handler.login()
             if not login_success:
                 log_error("Login failed. Cannot proceed with profile refresh.")
+                await self._send_alert(
+                    "refresh-profile",
+                    RuntimeError(
+                        "Login failed — could not authenticate with Naukri.com "
+                        "during scheduled profile refresh."
+                    ),
+                )
                 return
 
             # Execute profile refresh
@@ -893,6 +944,7 @@ class NaukriAgent:
         except Exception as e:
             log_error(f"Error during profile refresh task: {e}")
             logger.exception("Profile refresh fatal error")
+            await self._send_alert("refresh-profile", e)
         finally:
             if self._engine:
                 try:

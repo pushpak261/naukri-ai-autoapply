@@ -14,16 +14,68 @@ Usage:
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING
+from collections.abc import Coroutine
+from typing import TYPE_CHECKING, Any
 
 import click
 
 from src.naukri_agent.config.settings import get_settings
-from src.naukri_agent.utils.logger import console
+from src.naukri_agent.utils.logger import console, get_logger
 
 if TYPE_CHECKING:
     from src.naukri_agent.orchestrator.agent import NaukriAgent
 
+logger = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Alert helpers
+# ---------------------------------------------------------------------------
+def _create_notifier(settings):
+    """Construct an ``EmailAlertNotifier`` from the current settings.
+
+    Returns ``None`` when alerts are disabled or SMTP credentials are
+    missing — callers must handle a ``None`` return.
+    """
+    if not settings.alerts.enabled:
+        return None
+
+    sender = settings.naukri.gmail_otp_email
+    password = settings.naukri.gmail_app_password
+    if not sender or not password:
+        return None
+
+    from src.naukri_agent.utils.email_notifier import EmailAlertNotifier
+
+    return EmailAlertNotifier(
+        sender_email=sender,
+        app_password=password,
+        recipient_email=settings.alerts.recipient_email,
+        cooldown_minutes=settings.alerts.cooldown_minutes,
+        cooldown_dir=str(settings.project_root / settings.logging.log_dir),
+    )
+
+
+async def _run_with_alerts(task_name: str, coro: Coroutine[Any, Any, Any]) -> Any:
+    """Run *coro* and send an email alert if it raises an exception.
+
+    The exception is always re-raised so existing error handling (log +
+    exit code) continues to work as before.
+    """
+    try:
+        return await coro
+    except (SystemExit, KeyboardInterrupt):
+        raise  # Never alert on intentional exits
+    except Exception as exc:
+        # Best-effort alert — must not mask the original error
+        try:
+            settings = get_settings()
+            notifier = _create_notifier(settings)
+            if notifier:
+                await notifier.send_alert(task_name, exc)
+        except Exception as alert_err:
+            logger.warning(f"Could not send failure alert: {alert_err}")
+        raise
 
 @click.group()
 @click.version_option(version="1.0.0", prog_name="Naukri AI Agent")
@@ -48,7 +100,7 @@ def cli():
 )
 def run(dry_run: bool, cap: int | None, threshold: int | None):
     """Start the job application agent."""
-    asyncio.run(_run(dry_run, cap, threshold))
+    asyncio.run(_run_with_alerts("run", _run(dry_run, cap, threshold)))
 
 
 def create_agent(settings, session_factory) -> NaukriAgent:
@@ -99,7 +151,7 @@ async def _run(dry_run: bool, cap: int | None, threshold: int | None):
 @cli.command()
 def status():
     """Show application statistics and recent history."""
-    asyncio.run(_status())
+    asyncio.run(_run_with_alerts("status", _status()))
 
 
 async def _status():
@@ -115,7 +167,7 @@ async def _status():
 @click.argument("resume_path", type=click.Path(exists=True))
 def parse_resume(resume_path: str):
     """Parse a resume PDF and display the structured profile."""
-    asyncio.run(_parse_resume(resume_path))
+    asyncio.run(_run_with_alerts("parse-resume", _parse_resume(resume_path)))
 
 
 async def _parse_resume(resume_path: str):
@@ -131,7 +183,7 @@ async def _parse_resume(resume_path: str):
 @click.argument("job_url")
 def test_match(job_url: str):
     """Test job matching against a specific Naukri job URL."""
-    asyncio.run(_test_match(job_url))
+    asyncio.run(_run_with_alerts("test-match", _test_match(job_url)))
 
 
 async def _test_match(job_url: str):
@@ -146,7 +198,7 @@ async def _test_match(job_url: str):
 @cli.command("refresh-profile")
 def refresh_profile():
     """Automated task to refresh the user profile."""
-    asyncio.run(_refresh_profile())
+    asyncio.run(_run_with_alerts("refresh-profile", _refresh_profile()))
 
 
 async def _refresh_profile():
