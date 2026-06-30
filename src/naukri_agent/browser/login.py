@@ -192,15 +192,14 @@ class LoginHandler:
         """
         Execute the full login flow.
 
-        First checks if a saved session is still valid. If not, performs
-        a fresh login with credential entry and OTP wait.
+        Skips credential entry when a saved or live session is already authenticated.
 
         Returns:
             True if login was successful, False otherwise.
         """
-        # Step 1: Try session restoration
         if await self._check_existing_session():
-            log_success("Session restored — already logged in!")
+            log_success("Already logged in — skipping login flow.")
+            await self._engine.save_session()
             return True
 
         # Step 2: Fresh login
@@ -209,17 +208,19 @@ class LoginHandler:
 
     async def _check_existing_session(self) -> bool:
         """
-        Navigate to Naukri and check if saved session cookies are still valid.
+        Check whether saved session cookies still represent a logged-in user.
 
         Returns:
-            True if already logged in, False if session expired.
+            True if already logged in, False if session expired or absent.
         """
         try:
-            await self._login_page.navigate_to_base()
+            # Strongest signal: authenticated dashboard is reachable
+            if await self._login_page.verify_active_session():
+                return True
 
-            # Check for profile indicators (logged-in state)
-            is_logged_in = await self._login_page.is_logged_in()
-            if is_logged_in:
+            # Fallback: homepage DOM indicators
+            await self._login_page.navigate_to_base()
+            if await self._login_page.wait_and_check_logged_in():
                 return True
 
             logger.info("Saved session expired or not found")
@@ -229,11 +230,28 @@ class LoginHandler:
             logger.debug(f"Session check failed: {e}")
             return False
 
+    async def _skip_if_already_logged_in(self) -> bool:
+        """Return True when the current browser session is already authenticated."""
+        if await self._login_page.verify_active_session():
+            log_success("Already logged in — skipping login form.")
+            await self._engine.save_session()
+            return True
+
+        if await self._login_page.wait_and_check_logged_in():
+            log_success("Already logged in — skipping login form.")
+            await self._engine.save_session()
+            return True
+
+        return False
+
     async def _perform_login(self) -> bool:
         """
         Perform a fresh login using the injected login strategy.
         """
         try:
+            if await self._skip_if_already_logged_in():
+                return True
+
             # Navigate to login page
             log_info("Navigating to Naukri login page...")
             await self._login_page.navigate()

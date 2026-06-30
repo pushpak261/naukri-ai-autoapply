@@ -159,7 +159,7 @@ class Settings(BaseModel):
         present, and return a list of human-readable problem descriptions.
 
         Returns an empty list if everything required is present. Intended to
-        be called once at startup (see `src.main`) so the agent fails fast
+        be called once at startup (see `src.naukri_agent.main`) so the agent fails fast
         with an actionable message instead of crashing deep inside the
         browser-login or AI layers with a confusing stack trace.
         """
@@ -192,7 +192,20 @@ class Settings(BaseModel):
         if not resume_path:
             problems.append("Resume path is not configured (resume.path in config.yaml).")
         elif not resume_path.exists():
-            problems.append(f"Resume file not found at: {resume_path}")
+            enc_path = self.project_root / "resume.pdf.enc"
+            if enc_path.exists():
+                problems.append(
+                    f"Resume file not found at: {resume_path}. "
+                    "Only resume.pdf.enc is present — decrypt it with "
+                    "`python scripts/decrypt_secrets.py` (needs resume_key.txt or "
+                    "RESUME_KEY), or place resume.pdf in the project root."
+                )
+            else:
+                problems.append(
+                    f"Resume file not found at: {resume_path}. "
+                    "Place your PDF at that path, or run "
+                    "`python scripts/update_resume.py` after adding resume.pdf."
+                )
 
         if self.search.experience_min > self.search.experience_max:
             problems.append(
@@ -211,6 +224,13 @@ def _load_yaml_config() -> dict:
     with open(config_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return data if isinstance(data, dict) else {}
+
+
+def _parse_env_value(env_var: str, raw: str) -> str | bool | int | float:
+    """Coerce common environment variable string forms into Python types."""
+    if env_var == "NAUKRI_USE_OTP_LOGIN":
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return raw
 
 
 def _apply_env_overrides(config: dict) -> dict:
@@ -241,10 +261,10 @@ def _apply_env_overrides(config: dict) -> dict:
 
     for (section, key), env_var in env_map.items():
         env_val = os.environ.get(env_var)
-        if env_val:
+        if env_val is not None and env_val != "":
             if section not in config:
                 config[section] = {}
-            config[section][key] = env_val
+            config[section][key] = _parse_env_value(env_var, env_val)
 
     return config
 

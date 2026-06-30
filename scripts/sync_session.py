@@ -1,44 +1,45 @@
+"""
+Encrypt local Naukri session cookies for cloud deployment.
+
+Requires an active login session at data/sessions/naukri_session.json.
+Log in locally first with: python -m src.naukri_agent.main run --dry-run
+"""
+
+from __future__ import annotations
+
+import sys
 from pathlib import Path
-from cryptography.fernet import Fernet
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.naukri_agent.utils.secrets import encrypt_file, get_cipher, load_fernet_key
 
 
-def main():
-    session_file = Path("data/sessions/naukri_session.json")
-    key_file = Path("resume_key.txt")
-    enc_file = Path("session.enc")
+def main() -> None:
+    session_file = PROJECT_ROOT / "data" / "sessions" / "naukri_session.json"
+    enc_file = PROJECT_ROOT / "session.enc"
 
-    if not key_file.exists():
-        print("❌ Error: resume_key.txt not found. You need this key to encrypt your session.")
-        return
+    if load_fernet_key(PROJECT_ROOT) is None:
+        print("[ERROR] resume_key.txt not found.")
+        print("Run python scripts/update_resume.py first to generate a key, or create resume_key.txt manually.")
+        sys.exit(1)
 
     if not session_file.exists():
-        print("❌ Error: Active session not found at data/sessions/naukri_session.json")
-        print("\nYou need to log in locally first so we can grab your cookies!")
-        print("Run this command to open the browser and log in:")
+        print("[ERROR] Active session not found at data/sessions/naukri_session.json")
+        print("\nLog in locally first:")
         print("  python -m src.naukri_agent.main run --dry-run")
-        print("\nOnce you successfully log in and the bot starts searching, you can stop it.")
-        print("Then run `python sync_session.py` again.")
-        return
+        print("\nAfter login, stop the bot and run this script again.")
+        sys.exit(1)
 
-    # Read the existing key
-    with open(key_file, "rb") as f:
-        key = f.read().strip()
+    cipher = get_cipher(PROJECT_ROOT)
+    assert cipher is not None
+    encrypt_file(session_file, enc_file, cipher)
 
-    cipher = Fernet(key)
-
-    # Read the session JSON
-    with open(session_file, "rb") as f:
-        data = f.read()
-
-    # Encrypt and save
-    encrypted_data = cipher.encrypt(data)
-    with open(enc_file, "wb") as f:
-        f.write(encrypted_data)
-
-    print("✅ Success! Your session cookies have been securely encrypted into session.enc")
-    print("Next steps to push this to your cloud bot:")
+    print("[SUCCESS] Encrypted session → session.enc")
+    print("\nNext steps:")
     print("1. git add session.enc")
-    print('2. git commit -m "Sync session cookies to cloud"')
+    print('2. git commit -m "Sync Naukri session to cloud"')
     print("3. git push")
 
 

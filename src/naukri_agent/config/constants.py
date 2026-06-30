@@ -10,6 +10,7 @@ text matching over volatile CSS classes).
 # =============================================================================
 NAUKRI_BASE_URL = "https://www.naukri.com"
 NAUKRI_LOGIN_URL = "https://www.naukri.com/nlogin/login"
+NAUKRI_DASHBOARD_URL = "https://www.naukri.com/mnjuser/homepage"
 NAUKRI_SEARCH_URL = "https://www.naukri.com/jobsearch"
 
 # Search URL template — parameters are appended as query params

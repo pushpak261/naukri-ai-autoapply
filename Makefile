@@ -2,6 +2,8 @@
 
 init:
 	pip install -r requirements.txt
+	playwright install chromium
+	python -m src.naukri_agent.main init
 
 format:
 	black src/ tests/

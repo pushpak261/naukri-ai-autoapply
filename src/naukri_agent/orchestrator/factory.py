@@ -40,7 +40,7 @@ class DependencyFactory:
     """Creates and wires dependencies for the application.
 
     A `session_factory` may be injected explicitly (recommended — see
-    `src.main`, which creates one via `init_db()` and passes it in). If
+    `src.naukri_agent.main`, which creates one via `init_db()` and passes it in). If
     omitted, `get_repository()` will raise, since there is no implicit
     global database state to fall back on.
     """

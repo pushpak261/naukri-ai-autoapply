@@ -45,7 +45,6 @@ jobs:
         env:
           RESUME_KEY: ${{ secrets.RESUME_KEY }}
         run: |
-          pip install cryptography
           python -c "
           from cryptography.fernet import Fernet
           import os

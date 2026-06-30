@@ -24,5 +24,5 @@ USER agent
 
 # Credentials, config, and resume are expected to be mounted/provided at
 # runtime — see README.md and .env.example. They are NOT baked into the image.
-ENTRYPOINT ["python", "-m", "src.main"]
+ENTRYPOINT ["python", "-m", "src.naukri_agent.main"]
 CMD ["run"]

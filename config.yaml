@@ -8,8 +8,8 @@
 # Naukri.com Credentials
 # ---------------------------------------------------------------------------
 naukri:
-  email: ""          # Override with NAUKRI_EMAIL env var
-  password: ""       # Override with NAUKRI_PASSWORD env var
+  email: "virajkale9604@gmail.com"          # Override with NAUKRI_EMAIL env var
+  password: "Ganja@9604bonk"       # Override with NAUKRI_PASSWORD env var
 
 # ---------------------------------------------------------------------------
 # Google Gemini AI Settings
@@ -69,8 +69,8 @@ application:
 # Personal Details (for auto-filling application forms)
 # ---------------------------------------------------------------------------
 profile:
-  current_ctc: "4.4 LPA"          # e.g., "8.5 LPA" or "850000"
-  expected_ctc: "6 LPA"         # e.g., "12 LPA" or "1200000"
+  current_ctc: "5.5 LPA"          # e.g., "8.5 LPA" or "850000"
+  expected_ctc: "10 LPA"         # e.g., "12 LPA" or "1200000"
   notice_period: "Immediate"        # e.g., "30 days", "60 days", "Immediate"
   current_location: "Pune"     # e.g., "Bangalore"
   preferred_locations:

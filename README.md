@@ -25,7 +25,7 @@ A production-grade, AI-powered agent that automatically discovers and applies to
 ### 1. Install Dependencies
 
 ```bash
-cd "AI Agent Naukri"
+cd naukri-ai-autoapply
 pip install -r requirements.txt
 playwright install chromium
 
@@ -189,11 +189,16 @@ To protect your privacy, your `resume.pdf` is strictly ignored by Git. Instead, 
 ### 1. Encrypt Your Resume
 Before deploying to the cloud, you must securely encrypt your resume so GitHub Actions can read it.
 1. Place your `resume.pdf` in the root folder of this project.
-2. Run the encryption helper script:
+2. Run the encryption helper script (generates `resume_key.txt` on first run):
    ```bash
    python scripts/update_resume.py
    ```
-3. This will create a `resume.pdf.enc` file (which is safe to push to GitHub) and a `resume_key.txt` file (which contains your secret decryption key).
+3. This creates `resume.pdf.enc` (safe to push to GitHub) and `resume_key.txt` (local only — add its contents as the `RESUME_KEY` GitHub secret).
+
+**Cloning an existing repo with encrypted files?** Put your `resume_key.txt` in the project root (or set `RESUME_KEY`), then run:
+```bash
+python scripts/decrypt_secrets.py
+```
 
 ### 2. Configure GitHub Secrets
 1. Navigate to your repository on GitHub.

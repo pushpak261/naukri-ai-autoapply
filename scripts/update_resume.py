@@ -1,61 +1,63 @@
-import os
+"""
+Encrypt resume.pdf (and optional resume_profile.json) for cloud deployment.
+
+On first run, generates resume_key.txt. On later runs, reuses the existing key
+so GitHub Secrets do not need to change.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+
 from cryptography.fernet import Fernet
 
+from src.naukri_agent.utils.secrets import encrypt_file, generate_and_save_key, load_fernet_key
 
-def main():
-    if not os.path.exists("resume.pdf"):
-        print("[ERROR] resume.pdf not found in the current folder.")
-        return
 
-    if not os.path.exists("resume_key.txt"):
-        print(
-            "[ERROR] resume_key.txt not found! You need the original key to update the resume so GitHub can still decrypt it."
-        )
-        return
+def main() -> None:
+    resume_path = PROJECT_ROOT / "resume.pdf"
+    enc_path = PROJECT_ROOT / "resume.pdf.enc"
 
-    # Read the existing key so we don't have to change GitHub Secrets
-    with open("resume_key.txt", "rb") as f:
-        key = f.read().strip()
+    if not resume_path.exists():
+        print("[ERROR] resume.pdf not found in the project root.")
+        print("Place your PDF resume there, then run this script again.")
+        sys.exit(1)
+
+    key = load_fernet_key(PROJECT_ROOT)
+    key_was_new = key is None
+    if key_was_new:
+        key = generate_and_save_key(PROJECT_ROOT)
+        print("[NEW] Generated resume_key.txt — add this value as the RESUME_KEY GitHub secret.")
+    else:
+        print("[INFO] Using existing resume_key.txt")
 
     cipher = Fernet(key)
+    encrypt_file(resume_path, enc_path, cipher)
+    print("[SUCCESS] Encrypted resume.pdf → resume.pdf.enc")
 
-    # Read the new PDF
-    with open("resume.pdf", "rb") as f:
-        data = f.read()
-
-    # Encrypt and save
-    encrypted_data = cipher.encrypt(data)
-    with open("resume.pdf.enc", "wb") as f:
-        f.write(encrypted_data)
-
-    # Encrypt and save resume_profile.json if it exists
-    profile_path = "resume_profile.json"
-    profile_enc_path = "resume_profile.json.enc"
-    encrypted_profile_success = False
-
-    if os.path.exists(profile_path):
-        with open(profile_path, "rb") as f:
-            profile_data = f.read()
-        encrypted_profile_data = cipher.encrypt(profile_data)
-        with open(profile_enc_path, "wb") as f:
-            f.write(encrypted_profile_data)
-        encrypted_profile_success = True
-
-    print("[SUCCESS] Your new resume.pdf has been securely encrypted into resume.pdf.enc")
-    if encrypted_profile_success:
-        print(
-            "[SUCCESS] Your resume_profile.json has been securely encrypted into resume_profile.json.enc"
-        )
+    profile_path = PROJECT_ROOT / "resume_profile.json"
+    profile_enc_path = PROJECT_ROOT / "resume_profile.json.enc"
+    if profile_path.exists():
+        encrypt_file(profile_path, profile_enc_path, cipher)
+        print("[SUCCESS] Encrypted resume_profile.json → resume_profile.json.enc")
     else:
-        print("[NOTE] No resume_profile.json found, skipping profile encryption.")
+        print("[NOTE] No resume_profile.json found — run parse-resume first if you want to sync it.")
 
-    print("Next steps:")
-    if encrypted_profile_success:
-        print("1. git add resume.pdf.enc resume_profile.json.enc")
+    print("\nNext steps:")
+    if key_was_new:
+        print("1. Copy resume_key.txt into GitHub → Settings → Secrets → RESUME_KEY")
+        print("2. git add resume.pdf.enc" + (" resume_profile.json.enc" if profile_path.exists() else ""))
+        print('3. git commit -m "Add encrypted resume"')
+        print("4. git push")
     else:
-        print("1. git add resume.pdf.enc")
-    print('2. git commit -m "Update resume and profile"')
-    print("3. git push")
+        print("1. git add resume.pdf.enc" + (" resume_profile.json.enc" if profile_path.exists() else ""))
+        print('2. git commit -m "Update encrypted resume"')
+        print("3. git push")
+    print("\nKeep resume_key.txt local only — it is listed in .gitignore.")
 
 
 if __name__ == "__main__":

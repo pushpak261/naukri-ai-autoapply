@@ -10,6 +10,7 @@ import asyncio
 from src.naukri_agent.browser.pages.base import BasePage
 from src.naukri_agent.config.constants import (
     NAUKRI_BASE_URL,
+    NAUKRI_DASHBOARD_URL,
     NAUKRI_LOGIN_URL,
     LoginSelectors,
 )
@@ -36,6 +37,40 @@ class LoginPage(BasePage):
         await page.goto(NAUKRI_BASE_URL, wait_until="domcontentloaded")
         await self._interactions.wait_for_navigation_complete()
         await asyncio.sleep(2)
+
+    async def wait_and_check_logged_in(self, retries: int = 3, delay: float = 2.0) -> bool:
+        """Retry the logged-in DOM check to allow slow post-login renders."""
+        for attempt in range(retries):
+            if await self.is_logged_in():
+                return True
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
+        return False
+
+    async def verify_active_session(self) -> bool:
+        """
+        Confirm the browser session is authenticated by visiting the user dashboard.
+
+        Naukri redirects unauthenticated users to the login page from mnjuser URLs.
+        """
+        page = self._engine.page
+        try:
+            await page.goto(NAUKRI_DASHBOARD_URL, wait_until="domcontentloaded", timeout=45_000)
+            await self._interactions.wait_for_navigation_complete()
+            await asyncio.sleep(2)
+
+            current_url = page.url.lower()
+            if "nlogin" in current_url or current_url.rstrip("/").endswith("/login"):
+                logger.debug("Dashboard navigation redirected to login — session inactive")
+                return False
+            if "mnjuser" in current_url:
+                logger.debug("Dashboard accessible — session active")
+                return True
+
+            return await self.wait_and_check_logged_in()
+        except Exception as e:
+            logger.debug(f"Session verification via dashboard failed: {e}")
+            return False
 
     async def is_logged_in(self) -> bool:
         """

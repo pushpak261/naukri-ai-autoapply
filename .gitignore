@@ -19,7 +19,9 @@ src/data/
 resume.pdf
 *.resume.pdf
 resume_profile.json
-
+resume_profile.json.enc
+resume.pdf.enc
+resume_key.txt
 
 # Python
 __pycache__/

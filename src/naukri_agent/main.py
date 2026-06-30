@@ -5,10 +5,10 @@ Provides subcommands for running the agent, viewing status, parsing
 resumes, and testing job matching.
 
 Usage:
-    python -m src.main run [--dry-run]
-    python -m src.main status
-    python -m src.main parse-resume <path>
-    python -m src.main test-match <job_url>
+    python -m src.naukri_agent.main run [--dry-run]
+    python -m src.naukri_agent.main status
+    python -m src.naukri_agent.main parse-resume <path>
+    python -m src.naukri_agent.main test-match <job_url>
 """
 
 from __future__ import annotations
@@ -216,6 +216,8 @@ def init():
     """Initialize configuration files and data directories."""
     import shutil
 
+    from src.naukri_agent.utils.secrets import decrypt_local_secrets
+
     settings = get_settings()
     settings.ensure_dirs()
 
@@ -230,12 +232,34 @@ def init():
     elif env_path.exists():
         console.print("  ℹ️  .env already exists")
 
+    decrypt_messages = decrypt_local_secrets(settings.project_root)
+    if decrypt_messages:
+        console.print("  🔐 Encrypted assets:")
+        for message in decrypt_messages:
+            if message.startswith("No decryption key"):
+                console.print(f"  ℹ️  {message}")
+            elif "Could not decrypt" in message:
+                console.print(f"  ⚠️  {message}")
+            elif message.startswith("Skipped"):
+                console.print(f"  ℹ️  {message}")
+            else:
+                console.print(f"  ✅ {message}")
+
+    resume_path = settings.project_root / settings.resume.path
+    if not resume_path.exists():
+        console.print(
+            "  ⚠️  resume.pdf is missing — add it to the project root, or run "
+            "[bold]python scripts/decrypt_secrets.py[/bold] if you have resume_key.txt"
+        )
+    else:
+        console.print("  ✅ Resume file found")
+
     console.print("  ✅ Data directories created")
     console.print()
     console.print("[bold cyan]Next steps:[/bold cyan]")
     console.print("  1. Edit [bold].env[/bold] with your Naukri credentials and Gemini API key")
     console.print("  2. Edit [bold]config.yaml[/bold] with your job preferences")
-    console.print("  3. Run [bold]python -m src.main run --dry-run[/bold] to test")
+    console.print("  3. Run [bold]python -m src.naukri_agent.main run --dry-run[/bold] to test")
 
 
 def main():
