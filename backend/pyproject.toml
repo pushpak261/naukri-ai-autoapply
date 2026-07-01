@@ -1,0 +1,59 @@
+[project]
+name = "ai-agent-naukri"
+version = "1.0.0"
+description = "AI-assisted job application agent for Naukri.com"
+requires-python = ">=3.11"
+readme = "README.md"
+
+# ---------------------------------------------------------------------------
+# Black — formatting
+# ---------------------------------------------------------------------------
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+# ---------------------------------------------------------------------------
+# Ruff — linting (replaces flake8 + isort + pyupgrade + bugbear, etc.)
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (unused imports/vars, undefined names — the highest-value checks)
+    "B",   # flake8-bugbear (common bug patterns)
+    "SIM", # flake8-simplify
+    "UP",  # pyupgrade (modern Python idioms)
+    "C4",  # flake8-comprehensions
+]
+ignore = [
+    "E501",  # line length is enforced by black, not worth double-policing
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F401"]
+"scripts/*" = ["E402"]  # scripts adjust sys.path before importing project modules
+
+# ---------------------------------------------------------------------------
+# Mypy — static type checking
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = false
+warn_unused_configs = true
+ignore_missing_imports = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+exclude = ["tests/", "scripts/"]
+
+# ---------------------------------------------------------------------------
+# Pytest
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+addopts = "-ra --strict-markers"

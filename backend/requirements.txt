@@ -1,0 +1,38 @@
+# Core
+playwright>=1.49.0,<2.0.0
+google-genai>=1.0.0,<2.0.0
+
+# PDF Parsing
+PyMuPDF>=1.25.0,<2.0.0
+
+# OCR (fallback for scanned/image-based resumes)
+pytesseract>=0.3.10,<1.0.0
+pillow>=10.0.0,<12.0.0
+
+# Database
+sqlalchemy>=2.0.0,<3.0.0
+aiosqlite>=0.20.0,<1.0.0
+
+# Resilience
+tenacity>=8.4.0,<10.0.0
+
+# Configuration
+pydantic>=2.0.0,<3.0.0
+pydantic-settings>=2.0.0,<3.0.0
+pyyaml>=6.0.0,<7.0.0
+python-dotenv>=1.0.0,<2.0.0
+
+# CLI & Console UI
+click>=8.1.0,<9.0.0
+rich>=13.0.0,<14.0.0
+
+# Utilities
+aiofiles>=24.0.0,<25.0.0
+
+# Encryption (resume/session sync for cloud deployment)
+cryptography>=42.0.0,<45.0.0
+
+# Web API (dashboard)
+fastapi>=0.115.0,<1.0.0
+uvicorn[standard]>=0.32.0,<1.0.0
+sse-starlette>=2.0.0,<3.0.0

@@ -7,6 +7,10 @@ on:
   pull_request:
     types: [opened, synchronize, reopened]
 
+defaults:
+  run:
+    working-directory: backend
+
 jobs:
   sonarcloud:
     name: SonarCloud
@@ -20,14 +24,17 @@ jobs:
         uses: actions/setup-python@v4
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements*.txt
 
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+          pip install -r requirements.txt -r requirements-dev.txt
           
       - name: Run Tests & Coverage
+        env:
+          PYTHONPATH: .
         run: |
           pytest --cov=src --cov-report=xml
 
@@ -36,3 +43,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # Needed to get PR information, if any
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        with:
+          projectBaseDir: backend
+          args: >
+            -Dproject.settings=sonar-project.properties

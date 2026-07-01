@@ -2,26 +2,29 @@
 .env
 .env.*
 !.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
 
 # Data (runtime artifacts — never commit these)
-data/sessions/
-data/resumes/
-data/*.db
-data/*.db-*
-data/naukri_agent_backup_*.db
-data/logs/
-data/match_cache.json
-data/qa_cache.json
-src/data/
+backend/data/sessions/
+backend/data/resumes/
+backend/data/*.db
+backend/data/*.db-*
+backend/data/naukri_agent_backup_*.db
+backend/data/logs/
+backend/data/match_cache.json
+backend/data/qa_cache.json
+backend/src/data/
 
 # Personal data — your resume contains PII and shouldn't be pushed to a
 # remote repo even though the agent needs a local copy to run.
-resume.pdf
-*.resume.pdf
-resume_profile.json
-resume_profile.json.enc
-resume.pdf.enc
-resume_key.txt
+backend/resume.pdf
+backend/*.resume.pdf
+backend/resume_profile.json
+backend/resume_profile.json.enc
+backend/resume.pdf.enc
+backend/resume_key.txt
 
 # Python
 __pycache__/
@@ -36,6 +39,16 @@ htmlcov/
 .coverage
 .coverage.*
 
+# Local virtualenv
+venv/
+
+# Debug dumps
+debug_artifacts/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
 # IDE
 .vscode/
 .idea/
@@ -43,4 +56,3 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
-resume_key.txt  
