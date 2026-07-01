@@ -395,6 +395,6 @@ class SQLAlchemyRepository(IRepository):
         """Fetch all stored job descriptions to construct a TF-IDF reference corpus."""
         async with self._session_factory() as session:
             result = await session.execute(
-                select(DBJob.description).filter(DBJob.description != None, DBJob.description != "")
+                select(DBJob.description).filter(DBJob.description.is_not(None), DBJob.description != "")
             )
             return list(result.scalars().all())
