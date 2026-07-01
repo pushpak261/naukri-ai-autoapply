@@ -161,19 +161,51 @@ class QuestionAnswerer(IQuestionAnswerer):
         cache_file = settings.project_root / "data" / "qa_cache.json"
         self._cache = QACache(cache_file)
 
+        # Initialize Trie/Aho-Corasick on DIRECT_ANSWER_PATTERNS keys
+        from src.naukri_agent.utils.trie import AhoCorasick
+
+        self._trie = AhoCorasick(list(DIRECT_ANSWER_PATTERNS.keys()))
+
     def _try_direct_answer(self, question_text: str) -> str | None:
         """
-        Try to answer a question directly from config values using
-        pattern matching. Returns None if no pattern matches.
+        Try to answer a question directly from config values using Trie lookup
+        or Fuzzy Levenshtein Distance matching. Returns None if no match.
         """
         question_lower = question_text.lower().strip()
 
-        for pattern, config_key in DIRECT_ANSWER_PATTERNS.items():
-            if pattern in question_lower:
-                answer = self._direct_answers.get(config_key, "")
-                if answer:
-                    logger.debug(f"Direct answer for '{pattern}': {answer}")
-                    return answer
+        # 1. Exact/Substring match using Aho-Corasick (Trie)
+        matched_patterns = self._trie.search(question_lower)
+        if matched_patterns:
+            # Pick the longest matched pattern to be most specific (e.g. "expected ctc" over "ctc")
+            best_pattern = str(max(matched_patterns.keys(), key=len))
+            config_key = DIRECT_ANSWER_PATTERNS.get(best_pattern, "")
+            answer = self._direct_answers.get(config_key, "")
+            if answer:
+                logger.debug(f"Trie/Aho-Corasick direct answer for '{best_pattern}': {answer}")
+                return answer
+
+        # 2. Fuzzy Levenshtein match fallback
+        from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
+
+        best_fuzzy_pattern = None
+        best_fuzzy_score = 0.0
+
+        for pattern in DIRECT_ANSWER_PATTERNS.keys():
+            score = fuzzy_similarity_ratio(pattern, question_lower)
+            if score > best_fuzzy_score:
+                best_fuzzy_score = score
+                best_fuzzy_pattern = pattern
+
+        # If fuzzy match is extremely high (e.g. >= 0.80), resolve it directly
+        if best_fuzzy_pattern and best_fuzzy_score >= 0.80:
+            config_key = DIRECT_ANSWER_PATTERNS[best_fuzzy_pattern]
+            answer = self._direct_answers.get(config_key, "")
+            if answer:
+                logger.debug(
+                    f"Fuzzy Levenshtein direct answer for '{best_fuzzy_pattern}' "
+                    f"(score: {best_fuzzy_score:.2f}): {answer}"
+                )
+                return answer
 
         return None
 

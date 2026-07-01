@@ -308,7 +308,28 @@ class NaukriAgent:
                 + [self._resume_profile.current_title]
                 + [self._resume_profile.summary]
             )
-            vector_filter = VectorSimilarityFilter(resume_text)
+            # Compute document frequency for TF-IDF from DB corpus
+            doc_frequencies = {}
+            total_documents = 0
+            if self._repo:
+                try:
+                    import re
+                    from collections import Counter
+
+                    all_descriptions = await self._repo.get_all_job_descriptions()
+                    total_documents = len(all_descriptions)
+                    df_counter = Counter()
+                    for desc in all_descriptions:
+                        if desc:
+                            words = set(re.findall(r"\b[a-z0-9]+\b", desc.lower()))
+                            df_counter.update(words)
+                    doc_frequencies = dict(df_counter)
+                except Exception as e:
+                    logger.warning(f"Failed to build TF-IDF corpus from DB: {e}")
+
+            vector_filter = VectorSimilarityFilter(
+                resume_text, doc_frequencies=doc_frequencies, total_documents=total_documents
+            )
 
             # Step 6: Process each job using Priority Queue Max-Heap
             await self._process_jobs(jobs, matcher, applier, searcher, vector_filter)
@@ -372,11 +393,44 @@ class NaukriAgent:
         resume_profile = self._resume_profile
         job_queue: list[tuple[float, int, Job]] = []
         for idx, job in enumerate(jobs):
+            # Title Whitelist Filter
+            whitelist = self._settings.exclusions.title_whitelist
+            if whitelist and isinstance(whitelist, (list, set, tuple)):
+                title_lower = (job.title or "").lower()
+                if not any(kw.lower() in title_lower for kw in whitelist):
+                    continue
+
             text_to_score = f"{job.title} {job.company} {job.skills}"
             score = vector_filter.get_similarity_score(text_to_score)
 
+            # Recalibrate heuristics: Boost for search keywords and resume skills in title
+            title_lower = (job.title or "").lower()
+            import re
+
+            title_words = set(re.findall(r"\b[a-z0-9]+\b", title_lower))
+
+            # Word-based overlap between title and search keywords
+            search_keywords = self._settings.search.keywords
+            search_kw_words = set()
+            for kw in search_keywords:
+                search_kw_words.update(re.findall(r"\b[a-z0-9]+\b", kw.lower()))
+
+            if title_words & search_kw_words:
+                score += 0.15
+
+            # Word-based overlap between title and top resume technical skills
+            tech_skills_words = set()
+            for skill in resume_profile.technical_skills[:10]:
+                tech_skills_words.update(re.findall(r"\b[a-z0-9]+\b", skill.lower()))
+
+            if title_words & tech_skills_words:
+                score += 0.10
+
+            # Boost for very fresh jobs
             posted = str(job.posted_date).lower()
-            if "just now" in posted or "hour" in posted or "today" in posted or "1 day" in posted:
+            if "just now" in posted or "hour" in posted or "today" in posted:
+                score += 0.10
+            elif "1 day" in posted or "2 days" in posted:
                 score += 0.05
 
             heapq.heappush(job_queue, (-score, idx, job))
@@ -407,12 +461,25 @@ class NaukriAgent:
             )
 
             # Deduplication
-            if self._repo and self._repo.is_already_applied(job.naukri_job_id):
-                self._jobs_skipped += 1
-                continue
+            if self._repo:
+                is_applied = self._repo.is_already_applied(job.naukri_job_id)
+                is_applied_comp = self._repo.is_already_applied_composite(job.title, job.company)
+                if is_applied is True:
+                    log_info(
+                        f"Skipping duplicate: already applied (Job ID {job.naukri_job_id} matches database)"
+                    )
+                    self._jobs_skipped += 1
+                    continue
+                if is_applied_comp is True:
+                    log_info(
+                        f"Skipping duplicate: already applied (Composite Title + Company '{job.title} @ {job.company}' matches database)"
+                    )
+                    self._jobs_skipped += 1
+                    continue
 
             # Exclusion filters
             if self._is_excluded(job):
+                log_info(f"Skipping job: matches exclusion keywords ({job.title} @ {job.company})")
                 self._jobs_skipped += 1
                 continue
 
@@ -444,9 +511,16 @@ class NaukriAgent:
             full_text = f"{job.title} {job.skills} {job.description}"
             full_sim_score = vector_filter.get_similarity_score(full_text)
 
-            if full_sim_score < 0.03:
+            if full_sim_score < 0.08:
+                log_info(
+                    f"Skipping job: similarity score ({full_sim_score:.3f}) below threshold (0.08)"
+                )
                 self._jobs_skipped += 1
                 continue
+            else:
+                log_info(
+                    f"Similarity score ({full_sim_score:.3f}) passed pre-filter threshold (0.08)"
+                )
 
             # AI Matching (pace to respect Gemini free tier limits)
             log_info("Pacing AI requests (waiting 6.5s) to avoid Google limits...")
@@ -633,8 +707,12 @@ class NaukriAgent:
                     self._settings.application.delay_between_applies_max,
                 )
             elif status.startswith("skipped"):
+                log_info(f"Job application skipped: {job.title} @ {job.company} — Status: {status}")
                 self._jobs_skipped += 1
             else:
+                log_error(
+                    f"Job application failed: {job.title} @ {job.company} — Error: {error_msg}"
+                )
                 self._jobs_failed += 1
 
     def _is_excluded(self, job: Job) -> bool:

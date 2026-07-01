@@ -46,7 +46,7 @@ search:
     - "Bangalore"
     - "Remote"
   experience_min: 0        # Minimum years of experience filter
-  experience_max: 1        # Maximum years of experience filter
+  experience_max: 2        # Maximum years of experience filter
   salary_min: 0            # Minimum salary in LPA (0 = any)
   freshness: 3             # Job posting age in days (1, 3, 7, 15, 30)
   max_pages: 3             # Max search result pages to scan per keyword
@@ -94,7 +94,38 @@ exclusions:
     - "bpo"
     - "customer"
     - "tech support"
+
   description_keywords: [] # Skip jobs with these words in description
+
+  title_whitelist:         # Only process jobs containing these keywords (case-insensitive)
+  # Confirmed from Naukri URL patterns
+  - "software developer"
+  - "software engineer"
+  - "full stack developer"
+  - "junior software developer"
+  - "fresher"
+
+  # Confirmed big IT fresher titles (publicly documented)
+  # - "programmer analyst"         # Cognizant — GenC program
+  # - "technology analyst"         # Infosys — InfyTQ/InStep program
+  # - "systems engineer"           # TCS / Wipro
+  - "associate engineer"         # HCL / Capgemini / Accenture (confirmed)
+  # - "assistant system engineer"  # TCS exact fresher title (confirmed)
+  # - "it analyst"                 # TCS trainee variant (confirmed)
+  - "engineer trainee"           # Wipro Elite NTH exact title (confirmed)
+
+  # Broadly used on Naukri for 0-1 yr
+  - "trainee"
+  - "junior"
+  - "associate"
+  - "SDE"
+
+  # Additional confirmed companies hiring freshers
+  # - "software analyst"           # Tech Mahindra / IBM pattern
+  - "application developer"      # Oracle / IBM fresher title
+  # - "associate consultant"       # Accenture / Deloitte fresher title
+  # - "get engineer"               # HCL Graduate Engineer Trainee (GET)
+  # - "graduate engineer"          # HCL GET program (confirmed)
 
 # ---------------------------------------------------------------------------
 # Logging

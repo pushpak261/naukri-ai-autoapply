@@ -57,35 +57,47 @@ class JobSearcher:
 
         search_config = self._settings.search
 
+        import asyncio
+
+        queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+
         for keyword in search_config.keywords:
             for location in search_config.locations:
-                if not self._engine.is_alive():
-                    log_warning("Browser disconnected! Restarting browser engine...")
-                    with contextlib.suppress(Exception):
-                        await self._engine.close()
-                    await self._engine.launch()
+                await queue.put((keyword, location))
 
-                log_info(f"Searching: '{keyword}' in '{location}'...")
+        while not queue.empty():
+            keyword, location = await queue.get()
 
-                jobs = await self._search_keyword_location(
-                    keyword=keyword,
-                    location=location,
-                    max_pages=search_config.max_pages,
-                )
+            if not self._engine.is_alive():
+                log_warning("Browser disconnected! Restarting browser engine...")
+                with contextlib.suppress(Exception):
+                    await self._engine.close()
+                await self._engine.launch()
 
-                # Deduplicate
-                for job in jobs:
-                    job_id = job.naukri_job_id
-                    if job_id and job_id not in seen_ids:
-                        seen_ids.add(job_id)
-                        all_jobs.append(job)
+            log_info(f"Searching: '{keyword}' in '{location}'...")
 
-                log_success(
-                    f"Found {len(jobs)} jobs for '{keyword}' in '{location}' "
-                    f"({len(all_jobs)} total unique)"
-                )
+            jobs = await self._search_keyword_location(
+                keyword=keyword,
+                location=location,
+                max_pages=search_config.max_pages,
+            )
 
-                # Delay between searches
+            # Deduplicate
+            for job in jobs:
+                job_id = job.naukri_job_id
+                if job_id and job_id not in seen_ids:
+                    seen_ids.add(job_id)
+                    all_jobs.append(job)
+
+            log_success(
+                f"Found {len(jobs)} jobs for '{keyword}' in '{location}' "
+                f"({len(all_jobs)} total unique)"
+            )
+
+            queue.task_done()
+
+            # Delay between searches if more tasks remain
+            if not queue.empty():
                 await random_delay(3, 6)
 
         log_success(f"Total unique jobs found: {len(all_jobs)}")

@@ -178,6 +178,87 @@ def _map_to_domain_profile(data: dict, file_hash: str) -> ResumeProfile:
     )
 
 
+DEFAULT_TECH_SKILLS = [
+    "python",
+    "java",
+    "c++",
+    "c#",
+    "javascript",
+    "typescript",
+    "rust",
+    "go",
+    "ruby",
+    "php",
+    "swift",
+    "kotlin",
+    "html",
+    "css",
+    "sql",
+    "postgresql",
+    "mysql",
+    "mongodb",
+    "redis",
+    "cassandra",
+    "dynamodb",
+    "sqlite",
+    "react",
+    "angular",
+    "vue",
+    "next.js",
+    "node.js",
+    "express",
+    "django",
+    "flask",
+    "fastapi",
+    "spring boot",
+    "docker",
+    "kubernetes",
+    "aws",
+    "azure",
+    "gcp",
+    "git",
+    "github",
+    "gitlab",
+    "jenkins",
+    "terraform",
+    "ansible",
+    "linux",
+    "bash",
+    "spark",
+    "hadoop",
+    "tensorflow",
+    "pytorch",
+    "scikit-learn",
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "graphql",
+    "rest api",
+    "grpc",
+    "microservices",
+    "agile",
+    "scrum",
+    "ci/cd",
+    "selenium",
+    "playwright",
+    "cypress",
+    "machine learning",
+    "deep learning",
+    "nlp",
+    "computer vision",
+    "artificial intelligence",
+    "data science",
+    "devops",
+    "cloud computing",
+    "backend",
+    "frontend",
+    "fullstack",
+    "software engineer",
+    "developer",
+    "architect",
+]
+
+
 class ResumeParser(IResumeParser):
     """
     Parses PDF resumes into structured profiles using AI.
@@ -193,6 +274,9 @@ class ResumeParser(IResumeParser):
         self._llm = llm_provider
         self._repo = repository
         self._settings = settings
+        from src.naukri_agent.utils.trie import AhoCorasick
+
+        self._aho_matcher = AhoCorasick(DEFAULT_TECH_SKILLS)
 
     def _extract_pdf_text(self, pdf_path: str | Path) -> str:
         """
@@ -218,7 +302,8 @@ class ResumeParser(IResumeParser):
 
         doc = fitz.open(str(path))
         try:
-            text_parts = [page.get_text("text") for page in doc]
+            # Use sorted layout extraction to maintain reading order for multi-column resumes
+            text_parts = [page.get_text("text", sort=True) for page in doc]
             full_text = "\n".join(text_parts).strip()
 
             avg_chars_per_page = len(full_text) / max(doc.page_count, 1)
@@ -293,7 +378,18 @@ class ResumeParser(IResumeParser):
             try:
                 pixmap = page.get_pixmap(matrix=matrix)
                 image = Image.frombytes("RGB", (pixmap.width, pixmap.height), pixmap.samples)
-                page_text = pytesseract.image_to_string(image)
+
+                # Strong Pre-processing Algorithm for enhanced OCR accuracy:
+                from PIL import ImageOps
+
+                # 1. Convert to Grayscale
+                gray_img = image.convert("L")
+                # 2. Apply Auto-Contrast enhancement to maximize text/background separation
+                contrast_img = ImageOps.autocontrast(gray_img)
+                # 3. Apply Binarization (thresholding) to create sharp black-and-white text
+                binarized_img = contrast_img.point(lambda x: 0 if x < 128 else 255, "1")
+
+                page_text = pytesseract.image_to_string(binarized_img)
                 if page_text:
                     ocr_text_parts.append(page_text)
             except Exception as e:
@@ -381,9 +477,31 @@ class ResumeParser(IResumeParser):
             )
 
             profile = json.loads(response_text)
+
+            # Match resume_text using Aho-Corasick to capture any omitted core skills
+            matched_skills = list(self._aho_matcher.search(resume_text).keys())
+
+            # Combine/deduplicate with general skills
+            gemini_skills = profile.get("skills", [])
+            existing_skills_lower = {s.lower() for s in gemini_skills}
+            for skill in matched_skills:
+                if skill.lower() not in existing_skills_lower:
+                    gemini_skills.append(skill)
+                    existing_skills_lower.add(skill.lower())
+            profile["skills"] = gemini_skills
+
+            # Combine/deduplicate with technical skills
+            gemini_tech_skills = profile.get("technical_skills", [])
+            existing_tech_lower = {s.lower() for s in gemini_tech_skills}
+            for skill in matched_skills:
+                if skill.lower() not in existing_tech_lower:
+                    gemini_tech_skills.append(skill)
+                    existing_tech_lower.add(skill.lower())
+            profile["technical_skills"] = gemini_tech_skills
+
             log_success(f"Resume parsed successfully: {profile.get('name', 'Unknown')}")
             logger.info(
-                f"Found {len(profile.get('skills', []))} skills, "
+                f"Found {len(profile.get('skills', []))} skills (with Aho-Corasick), "
                 f"{profile.get('total_experience_years', '?')} years experience"
             )
 
