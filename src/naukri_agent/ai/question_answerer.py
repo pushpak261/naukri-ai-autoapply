@@ -190,7 +190,7 @@ class QuestionAnswerer(IQuestionAnswerer):
         best_fuzzy_pattern = None
         best_fuzzy_score = 0.0
 
-        for pattern in DIRECT_ANSWER_PATTERNS.keys():
+        for pattern in DIRECT_ANSWER_PATTERNS:
             score = fuzzy_similarity_ratio(pattern, question_lower)
             if score > best_fuzzy_score:
                 best_fuzzy_score = score
