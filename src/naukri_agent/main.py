@@ -223,6 +223,9 @@ def init():
 
 def main():
     """Entry point."""
+    from src.naukri_agent.utils.terminal_logging import setup_terminal_logging
+
+    setup_terminal_logging()
     cli()
 
 

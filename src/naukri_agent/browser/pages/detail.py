@@ -45,18 +45,16 @@ class JobDetailPage(BasePage):
             btn_texts = await page.evaluate(
                 """
                 () => {
-                    const elements = [...document.querySelectorAll('button, a, .apply-button, .applyBtn')];
+                    const elements = [...document.querySelectorAll('button, a, .apply-button, .applyBtn, [class*="apply" i], [class*="walkin" i]')];
                     return elements.map(el => (el.textContent || '').trim().toLowerCase());
                 }
                 """
             )
             for text in btn_texts:
-                if text in [
-                    "applied",
-                    "already applied",
-                    "applied successfully",
-                    "successfully applied",
-                ]:
+                if not text:
+                    continue
+                # Check for past-tense indicators of a completed application to avoid false positive on "apply"
+                if any(x in text for x in ["applied", "already applied", "submitted", "received"]):
                     return True
         except PlaywrightError:
             pass
