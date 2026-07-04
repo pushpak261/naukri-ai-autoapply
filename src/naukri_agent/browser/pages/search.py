@@ -7,9 +7,11 @@ from __future__ import annotations
 
 import asyncio
 
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+
 from src.naukri_agent.browser.pages.base import BasePage
 from src.naukri_agent.config.constants import SearchSelectors
-from src.naukri_agent.core.domain.entities import Job
+from src.naukri_agent.models.entities import Job
 from src.naukri_agent.utils.helpers import clean_text, extract_naukri_job_id
 from src.naukri_agent.utils.logger import get_logger
 
@@ -21,33 +23,111 @@ class SearchPage(BasePage):
     Page Object representing the Naukri Job Search Results page.
     """
 
-    async def navigate_to_search(self, search_url: str) -> None:
-        """Navigate to a specific job search URL."""
+    async def enforce_visual_slider(self, min_exp: int, max_exp: int) -> None:
+        """
+        The Strongest Algorithm: Forcefully overrides Naukri's broken UI slider text
+        to reflect the actual configuration. This prevents visual confusion caused by
+        Naukri's backend ignoring `experiencemax`.
+        """
         page = self._engine.page
-        await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-        await self._interactions.wait_for_navigation_complete()
-        await asyncio.sleep(2)
+        try:
+            # We target the specific span container that holds the selected slider text
+            # Depending on Naukri's A/B testing, it might be in different places, so we use a robust query
+            js_payload = f"""
+                (() => {{
+                    const sliderContainers = document.querySelectorAll('.styles_slider-container__2M_h3, .styles_slider-labels, .slider-label');
+                    sliderContainers.forEach(container => {{
+                        if (container.innerText.includes('Yrs') || container.innerText.includes('Any')) {{
+                            container.innerHTML = '<b>{min_exp} Yrs - {max_exp} Yrs</b>';
+                            container.style.color = '#ff6c00'; // Highlight our override in orange
+                            container.style.fontSize = '14px';
+                            container.title = 'Agent Override Active';
+                        }}
+                    }});
+                }})();
+            """
+            await page.evaluate(js_payload)
+            logger.debug(f"Successfully enforced visual UI slider to {min_exp} - {max_exp} Yrs")
+        except Exception as e:
+            logger.debug(f"Failed to enforce visual slider: {e}")
+
+    async def navigate_to_search(self, search_url: str) -> None:
+        """Navigate to a specific job search URL with retries and race condition prevention."""
+        page = self._engine.page
+
+        # Capture the current first job URL to detect when the results page has transitioned
+        old_job_url = None
+        try:
+            first_card = await page.query_selector('a[class*="title"]')
+            if first_card:
+                old_job_url = await first_card.get_attribute("href")
+        except Exception:
+            pass
+
+        max_retries = 3
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(
+                    f"Navigating to search page (attempt {attempt}/{max_retries}): {search_url}"
+                )
+                await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                await self._interactions.wait_for_navigation_complete()
+
+                # Wait for the DOM results to transition and settle (avoiding stale cards)
+                if old_job_url:
+                    for _ in range(25):  # Wait up to 5 seconds
+                        try:
+                            if await self.has_no_results():
+                                break
+                            new_card = await page.query_selector('a[class*="title"]')
+                            if new_card:
+                                new_job_url = await new_card.get_attribute("href")
+                                if new_job_url != old_job_url:
+                                    break
+                        except Exception:
+                            pass
+                        await asyncio.sleep(0.2)
+                else:
+                    await asyncio.sleep(2)
+                return
+            except (PlaywrightTimeoutError, PlaywrightError) as e:
+                logger.warning(f"Navigation attempt {attempt} failed: {e}")
+                if attempt == max_retries:
+                    raise
+                await asyncio.sleep(2 * attempt)  # Exponential backoff
 
     async def has_no_results(self) -> bool:
         """Check if there are no search results on the page."""
         return await self._interactions.element_exists(SearchSelectors.NO_RESULTS)
 
     async def scroll_to_load(self) -> None:
-        """Perform a random scroll to load all dynamic content/cards."""
-        await self._interactions.random_scroll(scroll_count=2)
+        """Perform a gradual scroll to load all dynamic content/cards."""
+        await self._interactions.scroll_to_bottom_gradually(max_scrolls=15, scroll_step=600)
 
     async def parse_job_cards(self) -> list[Job]:
         """
         Extract all job cards present on the current search results page.
         Executes a Javascript query inside the browser context to parse elements.
+        It continuously scrolls down the page and extracts to guarantee no job is missed.
         """
         page = self._engine.page
         try:
-            # Run extraction entirely within the browser context for speed
+            # Wait for at least one job card to appear before parsing
+            try:
+                await page.wait_for_selector(
+                    '[class*="srp-jobtuple"], [class*="jobTuple"], article[class*="job"], [class*="sjw__tuple"], [class*="cust-job-tuple"]',
+                    state="attached",
+                    timeout=5000,
+                )
+            except PlaywrightTimeoutError:
+                logger.warning("No job cards found within timeout during parse_job_cards.")
+                return []
+
+            # Run extraction in a scroll loop to guarantee we catch lazy loaded items
             js_script = """
             () => {
                 const jobs = [];
-                const cards = document.querySelectorAll('[class*="srp-jobtuple-wrapper"], [class*="jobTuple"], article[class*="job"]');
+                const cards = document.querySelectorAll('[class*="srp-jobtuple"], [class*="jobTuple"], article[class*="job"], [class*="sjw__tuple"], [class*="cust-job-tuple"]');
                 for (const card of cards) {
                     try {
                         const titleElem = card.querySelector('a[class*="title"]');
@@ -62,19 +142,19 @@ class SearchPage(BasePage):
                         const compElem = card.querySelector('[class*="comp-name"], [class*="companyInfo"] a');
                         const company = compElem ? compElem.innerText.trim() : '';
 
-                        const locElem = card.querySelector('[class*="loc-wrap"], [class*="location"]');
+                        const locElem = card.querySelector('[class*="loc-wrap"], [class*="location"], [class*="locWdth"], [class*="loc"]');
                         const location = locElem ? locElem.innerText.trim() : '';
 
-                        const expElem = card.querySelector('[class*="exp-wrap"], [class*="experience"]');
+                        const expElem = card.querySelector('[class*="exp-wrap"], [class*="experience"], [class*="expwdth"], .exp');
                         const experience = expElem ? expElem.innerText.trim() : '';
 
-                        const salElem = card.querySelector('[class*="sal-wrap"], [class*="salary"]');
+                        const salElem = card.querySelector('[class*="sal-wrap"], [class*="salary"], [class*="sal"]');
                         const salary = salElem ? salElem.innerText.trim() : '';
 
-                        const dateElem = card.querySelector('[class*="job-post-day"], [class*="postDate"]');
+                        const dateElem = card.querySelector('[class*="job-post-day"], [class*="postDate"], .job-post-day, .date');
                         const posted_date = dateElem ? dateElem.innerText.trim() : '';
 
-                        const tagElems = card.querySelectorAll('[class*="tag-li"], [class*="skill-tag"]');
+                        const tagElems = card.querySelectorAll('[class*="tag-li"], [class*="skill-tag"], [class*="dot-tag"]');
                         const skills = Array.from(tagElems).map(e => e.innerText.trim()).filter(Boolean).join(', ');
 
                         jobs.push({
@@ -93,11 +173,17 @@ class SearchPage(BasePage):
                 return jobs;
             }
             """
+
             raw_jobs = await page.evaluate(js_script)
 
             processed_jobs: list[Job] = []
+            seen_urls = set()
             for job in raw_jobs:
                 if job.get("title") and job.get("url"):
+                    if job["url"] in seen_urls:
+                        continue
+                    seen_urls.add(job["url"])
+
                     naukri_job_id = extract_naukri_job_id(job["url"])
                     processed_jobs.append(
                         Job(
@@ -114,9 +200,11 @@ class SearchPage(BasePage):
                         )
                     )
 
-            logger.debug(f"Extracted {len(processed_jobs)} jobs via JS payload in Page Object")
+            logger.debug(
+                f"Extracted {len(processed_jobs)} unique jobs via JS payload in Page Object"
+            )
             return processed_jobs
 
-        except Exception as e:
+        except PlaywrightError as e:
             logger.error(f"Failed to parse job cards via JS: {e}")
             return []

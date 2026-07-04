@@ -30,30 +30,35 @@ import contextlib
 import dataclasses
 import heapq
 import json
+import re
 import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
 
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+
 from rich.panel import Panel
 from rich.table import Table
 
-from src.naukri_agent.ai.similarity import VectorSimilarityFilter
+from src.naukri_agent.utils.similarity import VectorSimilarityFilter
 from src.naukri_agent.browser.apply import JobApplier
 from src.naukri_agent.browser.login import LoginHandler
 from src.naukri_agent.browser.profile import ProfileRefresher
 from src.naukri_agent.browser.search import JobSearcher
 from src.naukri_agent.config.constants import ApplicationStatus
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
-from src.naukri_agent.core.domain.specifications import (
+from src.naukri_agent.models.entities import Job, JobApplication, ResumeProfile
+from src.naukri_agent.models.rules import (
     CompanyExclusionSpecification,
+    ConsultancyScamSpecification,
     DescriptionExclusionSpecification,
     JobSpecification,
     TitleExclusionSpecification,
+    AuthenticityExclusionSpecification,
 )
-from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
-from src.naukri_agent.core.interfaces import (
+from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.naukri_agent.bot.interfaces import (
     IBrowserEngine,
     IBrowserInteractions,
     IJobMatcher,
@@ -62,7 +67,7 @@ from src.naukri_agent.core.interfaces import (
     IRepository,
     IResumeParser,
 )
-from src.naukri_agent.orchestrator.factory import DependencyFactory
+from src.naukri_agent.bot.factory import DependencyFactory
 from src.naukri_agent.utils.helpers import TimeUtility
 from src.naukri_agent.utils.logger import (
     console,
@@ -205,12 +210,14 @@ class NaukriAgent:
         self._resume_profile = None
         self._run_log_id: int | None = None
         self._interrupted = False
+        self._external_jobs: list[tuple[Job, str]] = []
 
         # Counters
         self._jobs_found = 0
         self._jobs_applied = 0
         self._jobs_skipped = 0
         self._jobs_failed = 0
+        self._daily_applied = 0
 
         # Job Exclusions Specification
         self._exclusion_spec: JobSpecification | None = None
@@ -282,7 +289,12 @@ class NaukriAgent:
                 CompanyExclusionSpecification(exclusions.companies)
                 | TitleExclusionSpecification(exclusions.title_keywords)
                 | DescriptionExclusionSpecification(exclusions.description_keywords)
+                | AuthenticityExclusionSpecification(
+                    exclusions.fake_company_blocklist, exclusions.max_openings_without_logo
+                )
             )
+            if exclusions.enable_scam_filter:
+                self._exclusion_spec |= ConsultancyScamSpecification()
 
             # Step 5: Initialize AI components
             matcher = self._job_matcher
@@ -314,7 +326,7 @@ class NaukriAgent:
 
                     all_descriptions = await self._repo.get_all_job_descriptions()
                     total_documents = len(all_descriptions)
-                    df_counter = Counter()
+                    df_counter: Counter[str] = Counter()
                     for desc in all_descriptions:
                         if desc:
                             words = set(re.findall(r"\b[a-z0-9]+\b", desc.lower()))
@@ -334,8 +346,13 @@ class NaukriAgent:
             log_warning("Agent interrupted by user (Ctrl+C)")
             self._interrupted = True
         except Exception as e:
-            log_error(f"Agent error: {e}")
-            logger.exception("Agent fatal error")
+            if self._interrupted:
+                log_warning(
+                    "Agent run interrupted during browser operation. Shutting down gracefully."
+                )
+            else:
+                log_error(f"Agent error: {e}")
+                logger.exception("Agent fatal error")
         finally:
             await self._cleanup()
 
@@ -347,6 +364,8 @@ class NaukriAgent:
             return
 
         path = Path(resume_path)
+        if not path.is_absolute():
+            path = self._settings.project_root / path
         if not path.exists():
             log_error(f"Resume file not found: {path}")
             return
@@ -393,6 +412,10 @@ class NaukriAgent:
             if whitelist and isinstance(whitelist, (list, set, tuple)):
                 title_lower = (job.title or "").lower()
                 if not any(kw.lower() in title_lower for kw in whitelist):
+                    log_info(
+                        f"Skipping job: title '{job.title}' does not match any whitelist keywords"
+                    )
+                    self._jobs_skipped += 1
                     continue
 
             text_to_score = f"{job.title} {job.company} {job.skills}"
@@ -400,8 +423,6 @@ class NaukriAgent:
 
             # Recalibrate heuristics: Boost for search keywords and resume skills in title
             title_lower = (job.title or "").lower()
-            import re
-
             title_words = set(re.findall(r"\b[a-z0-9]+\b", title_lower))
 
             # Word-based overlap between title and search keywords
@@ -481,7 +502,7 @@ class NaukriAgent:
             # Check browser status before interacting
             if not self._engine.is_alive():
                 log_warning("Browser disconnected! Restarting browser engine...")
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(PlaywrightTimeoutError, PlaywrightError):
                     await self._engine.close()
                 await self._engine.launch()
                 try:
@@ -489,7 +510,7 @@ class NaukriAgent:
                     if not login_handler:
                         raise RuntimeError("LoginHandler not configured.")
                     await login_handler.login()
-                except Exception as e:
+                except (PlaywrightTimeoutError, PlaywrightError) as e:
                     logger.error(f"Failed to re-login after restart: {e}")
 
             # Get description & key skills if not already present
@@ -498,101 +519,119 @@ class NaukriAgent:
                 job.description = details.get("description", "")
                 if details.get("skills"):
                     job.skills = details["skills"]
+                job.openings = details.get("openings", 0)
+                job.has_company_logo = details.get("has_company_logo", False)
+
                 if not self._interactions:
                     raise RuntimeError("BrowserInteractions not configured.")
                 await self._interactions.action_delay()
+
+            # Re-evaluate exclusions now that we have full details
+            if self._is_excluded(job):
+                log_info(
+                    f"Skipping job: matches exclusion rules after fetching details ({job.title} @ {job.company})"
+                )
+                self._jobs_skipped += 1
+                continue
 
             # Second similarity filter (using description)
             full_text = f"{job.title} {job.skills} {job.description}"
             full_sim_score = vector_filter.get_similarity_score(full_text)
 
-            if full_sim_score < 0.08:
+            if full_sim_score < 0.04:
                 log_info(
-                    f"Skipping job: similarity score ({full_sim_score:.3f}) below threshold (0.08)"
+                    f"Skipping job: similarity score ({full_sim_score:.3f}) below threshold (0.04)"
                 )
                 self._jobs_skipped += 1
                 continue
             else:
                 log_info(
-                    f"Similarity score ({full_sim_score:.3f}) passed pre-filter threshold (0.08)"
+                    f"Similarity score ({full_sim_score:.3f}) passed pre-filter threshold (0.04)"
                 )
 
-            # AI Matching (pace to respect Gemini free tier limits)
-            log_info("Pacing AI requests (waiting 6.5s) to avoid Google limits...")
-            await asyncio.sleep(6.5)
+            # AI Matching (rate-limited by TokenBucketRateLimiter in GeminiProvider)
+            if not self._settings.ai.enable_matching:
+                log_info("AI matching is disabled in config. Bypassing AI comparison.")
+                match_result = JobApplication(
+                    match_score=100.0,
+                    should_apply=True,
+                    match_reasoning="AI matching bypassed via config (enable_matching: false)",
+                    matching_skills="Bypassed",
+                    missing_skills="Bypassed",
+                )
+            else:
+                try:
+                    match_result = await matcher.match(resume_profile, job)
+                except (LLMQuotaExceededError, LLMAPIError) as e:
+                    # Determine if it's a daily quota error or any general API failure (like 503)
+                    is_daily = isinstance(e, LLMQuotaExceededError) and e.is_daily_quota
 
-            try:
-                match_result = await matcher.match(resume_profile, job)
-            except (LLMQuotaExceededError, LLMAPIError) as e:
-                # Determine if it's a daily quota error or any general API failure (like 503)
-                is_daily = isinstance(e, LLMQuotaExceededError) and e.is_daily_quota
+                    # Fallback to model if configured (works for both daily quota exhaustion and model failures/503s)
+                    if self._settings.ai.fallback_model:
+                        fallback_model = self._settings.ai.fallback_model
+                        reason = (
+                            "daily request quota is exhausted"
+                            if is_daily
+                            else f"failed with error: {e}"
+                        )
+                        log_warning(f"⚠️  Primary model '{self._settings.ai.model}' {reason}.")
+                        log_success(
+                            f"✅ Switching to fallback model '{fallback_model}' and continuing run..."
+                        )
 
-                # Fallback to model if configured (works for both daily quota exhaustion and model failures/503s)
-                if self._settings.ai.fallback_model:
-                    fallback_model = self._settings.ai.fallback_model
-                    reason = (
-                        "daily request quota is exhausted"
-                        if is_daily
-                        else f"failed with error: {e}"
-                    )
-                    log_warning(f"⚠️  Primary model '{self._settings.ai.model}' {reason}.")
-                    log_success(
-                        f"✅ Switching to fallback model '{fallback_model}' and continuing run..."
-                    )
+                        # Update active model name
+                        llm_provider = self._llm
+                        if not llm_provider:
+                            raise RuntimeError("LLMProvider not configured.") from e
+                        if hasattr(llm_provider, "set_model"):
+                            llm_provider.set_model(fallback_model)
 
-                    # Update active model name
-                    llm_provider = self._llm
-                    if not llm_provider:
-                        raise RuntimeError("LLMProvider not configured.") from e
-                    if hasattr(llm_provider, "set_model"):
-                        llm_provider.set_model(fallback_model)
+                        # Update settings
+                        self._settings.ai.model = fallback_model
+                        self._settings.ai.fallback_model = None  # Prevent infinite fallback loop
 
-                    # Update settings
-                    self._settings.ai.model = fallback_model
-                    self._settings.ai.fallback_model = None  # Prevent infinite fallback loop
-
-                    # Retry current match once
-                    try:
-                        match_result = await matcher.match(resume_profile, job)
-                    except Exception as fallback_err:
-                        logger.error(f"AI Match failed on fallback model: {fallback_err}")
-                        self._jobs_failed += 1
-                        continue
-                else:
-                    if isinstance(e, LLMQuotaExceededError):
-                        if e.is_daily_quota:
-                            log_error(str(e))
-                            if self._settings.ai.abort_on_quota:
+                        # Retry current match once
+                        try:
+                            match_result = await matcher.match(resume_profile, job)
+                        except Exception as fallback_err:
+                            logger.error(f"AI Match failed on fallback model: {fallback_err}")
+                            self._jobs_failed += 1
+                            continue
+                    else:
+                        if isinstance(e, LLMQuotaExceededError):
+                            if e.is_daily_quota:
+                                log_error(str(e))
+                                if self._settings.ai.abort_on_quota:
+                                    log_error(
+                                        "⚠️  Gemini's daily request quota is exhausted — stopping "
+                                        "the run here instead of marking every remaining job as a "
+                                        "non-match."
+                                    )
+                                    self._interrupted = True
+                                    break
+                                else:
+                                    log_warning(
+                                        f"⚠️  Gemini's daily request quota is exhausted for model '{self._settings.ai.model}', "
+                                        "but continuing run (abort_on_quota is False)."
+                                    )
+                                    self._jobs_failed += 1
+                                    continue
+                            else:
                                 log_error(
-                                    "⚠️  Gemini's daily request quota is exhausted — stopping "
-                                    "the run here instead of marking every remaining job as a "
-                                    "non-match."
+                                    "⚠️  Gemini rate limit hit repeatedly — stopping the run "
+                                    "to avoid wasting further requests."
                                 )
+                                log_error(str(e))
                                 self._interrupted = True
                                 break
-                            else:
-                                log_warning(
-                                    f"⚠️  Gemini's daily request quota is exhausted for model '{self._settings.ai.model}', "
-                                    "but continuing run (abort_on_quota is False)."
-                                )
-                                self._jobs_failed += 1
-                                continue
                         else:
-                            log_error(
-                                "⚠️  Gemini rate limit hit repeatedly — stopping the run "
-                                "to avoid wasting further requests."
-                            )
-                            log_error(str(e))
-                            self._interrupted = True
-                            break
-                    else:
-                        log_error(f"⚠️  Gemini API error occurred: {e}")
-                        self._jobs_failed += 1
-                        continue
-            except Exception as e:
-                logger.error(f"AI Match failed: {e}")
-                self._jobs_failed += 1
-                continue
+                            log_error(f"⚠️  Gemini API error occurred: {e}")
+                            self._jobs_failed += 1
+                            continue
+                except Exception as e:
+                    logger.error(f"AI Match failed: {e}")
+                    self._jobs_failed += 1
+                    continue
 
             # Save job in database
             db_job = None
@@ -608,6 +647,8 @@ class NaukriAgent:
                     description=job.description,
                     skills=job.skills,
                     posted_date=job.posted_date,
+                    openings=job.openings,
+                    has_company_logo=job.has_company_logo,
                 )
                 assert db_job.id is not None
 
@@ -652,7 +693,7 @@ class NaukriAgent:
                         raise RuntimeError("BrowserInteractions not configured.")
                     await self._interactions.wait_for_navigation_complete()
                     await asyncio.sleep(2)
-                except Exception as e:
+                except (PlaywrightTimeoutError, PlaywrightError) as e:
                     logger.error(f"Failed to navigate to job page {job.url}: {e}")
                     if self._repo and db_job:
                         assert db_job.id is not None
@@ -693,6 +734,11 @@ class NaukriAgent:
                     self._settings.application.delay_between_applies_max,
                 )
             elif status.startswith("skipped"):
+                if status == ApplicationStatus.SKIPPED_EXTERNAL:
+                    ext_url = apply_result.get("external_url")
+                    self._external_jobs.append((job, ext_url))
+                elif status == ApplicationStatus.SKIPPED_SCREENING:
+                    log_warning(f"Screening questions skipped: {job.title} @ {job.company}")
                 log_info(f"Job application skipped: {job.title} @ {job.company} — Status: {status}")
                 self._jobs_skipped += 1
             else:
@@ -709,6 +755,20 @@ class NaukriAgent:
 
     async def _cleanup(self) -> None:
         """Save state, update run log, print summary, and close browser."""
+        # Send external jobs email if needed
+        if (
+            getattr(self._settings.application, "collect_external_jobs", False)
+            and self._external_jobs
+        ):
+            from src.naukri_agent.utils.email_sender import send_external_jobs_email
+
+            try:
+                await asyncio.to_thread(
+                    send_external_jobs_email, self._external_jobs, self._settings
+                )
+            except Exception as e:
+                logger.error(f"Failed to send external jobs email: {e}")
+
         # Update run log
         if self._repo and self._run_log_id:
             status = "interrupted" if self._interrupted else "completed"
@@ -734,7 +794,7 @@ class NaukriAgent:
         if self._engine:
             try:
                 await self._engine.close()
-            except Exception as e:
+            except (PlaywrightTimeoutError, PlaywrightError) as e:
                 logger.debug(f"Browser close error: {e}")
 
     def _print_banner(self) -> None:
@@ -746,6 +806,7 @@ class NaukriAgent:
                 f"  Locations: {', '.join(self._settings.search.locations)}\n"
                 f"  Daily Cap: {self._settings.application.daily_cap}\n"
                 f"  Match Threshold: {self._settings.application.match_score_threshold}%\n"
+                f"  AI Matching: {'Enabled' if self._settings.ai.enable_matching else 'Disabled (Bulk Apply Mode)'}\n"
                 f"  Dry Run: {'Yes' if self._settings.application.dry_run else 'No'}\n"
                 f"  AI Model: {self._settings.ai.model}",
                 border_style="cyan",
@@ -975,5 +1036,5 @@ class NaukriAgent:
             if self._engine:
                 try:
                     await self._engine.close()
-                except Exception as e:
+                except (PlaywrightTimeoutError, PlaywrightError) as e:
                     logger.debug(f"Browser close error: {e}")

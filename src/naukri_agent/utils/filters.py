@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import re
 import logging
-from src.naukri_agent.core.domain.entities import Job
+from src.naukri_agent.models.entities import Job
 
 logger = logging.getLogger(__name__)
 
@@ -45,9 +45,9 @@ class JobFilter:
             ) and self._passes_freshness_filter(str(job.posted_date)):
                 filtered_jobs.append(job)
             else:
-                logger.debug(
-                    f"Strict filter removed: {job.title} "
-                    f"(Exp: {job.experience}, Age: {job.posted_date})"
+                logger.info(
+                    f"Local filter removed: {job.title} "
+                    f"(Exp: '{job.experience}', Age: '{job.posted_date}')"
                 )
 
         if self.sort_by == "date":
@@ -56,36 +56,67 @@ class JobFilter:
         return filtered_jobs
 
     def _passes_experience_filter(self, exp_text: str) -> bool:
-        """Check if the job's experience requirement is within limits."""
+        """Check if the job's experience requirement is within limits.
+
+        Naukri experience strings look like "0-2 Yrs", "3-5 Yrs", "5 Yrs".
+        We parse the *minimum* required experience from the range and check
+        that it doesn't exceed our configured maximum.
+        """
         exp_text = exp_text.lower()
-        match = re.search(r"(\d+)", exp_text)
-        if match:
-            min_req = int(match.group(1))
+
+        # If the text contains a month abbreviation, it's likely a walk-in date wrongly parsed as experience
+        months = [
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+            "oct",
+            "nov",
+            "dec",
+        ]
+        if any(month in exp_text for month in months):
+            return True
+
+        # Try to match range format first: "X-Y" or "X to Y"
+        range_match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)", exp_text)
+        if range_match:
+            min_req = int(range_match.group(1))
+            return min_req <= self.max_experience
+        # Single number format: "5 Yrs"
+        single_match = re.search(r"(\d+)", exp_text)
+        if single_match:
+            min_req = int(single_match.group(1))
             if min_req > self.max_experience:
                 return False
         return True
 
     def _passes_freshness_filter(self, date_text: str) -> bool:
         """Check if the job posting age is within limits."""
-        date_text = date_text.lower()
+        if self.max_freshness_days <= 0:
+            return True
 
-        # If config is meant for very recent jobs (<= 7 days)
-        if self.max_freshness_days <= 7:
-            if "week" in date_text or "month" in date_text or "30+" in date_text:
-                return False
-
-            day_match = re.search(r"(\d+)\s*day", date_text)
-            if day_match and int(day_match.group(1)) > self.max_freshness_days:
-                return False
-
-        return True
+        days = self._parse_date_to_days(date_text)
+        return days <= self.max_freshness_days
 
     @staticmethod
     def _parse_date_to_days(date_text: str) -> int:
         """Convert a job posting date string to an approximate number of days for sorting."""
         date_text = date_text.lower()
-        if "just now" in date_text or "today" in date_text:
+        if (
+            "just now" in date_text
+            or "today" in date_text
+            or "hour" in date_text
+            or "minute" in date_text
+            or "second" in date_text
+        ):
             return 0
+        if "yesterday" in date_text:
+            return 1
         if "month" in date_text:
             match = re.search(r"(\d+)", date_text)
             return int(match.group(1)) * 30 if match else 30
@@ -101,5 +132,9 @@ class JobFilter:
         day_match = re.search(r"(\d+)\s*day", date_text)
         if day_match:
             return int(day_match.group(1))
+
+        # Handle "a day ago" or "day ago"
+        if "day" in date_text:
+            return 1
 
         return 999  # Default to very old if unknown

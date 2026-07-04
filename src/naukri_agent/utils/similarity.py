@@ -8,7 +8,7 @@ import math
 import re
 from collections import Counter
 
-from src.naukri_agent.core.interfaces import IJobFilter
+from src.naukri_agent.bot.interfaces import IJobFilter
 
 
 class VectorSimilarityFilter(IJobFilter):

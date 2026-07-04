@@ -11,20 +11,23 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
+from src.naukri_agent.database.manager import DatabaseManager
+import functools
 
-from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
-from src.naukri_agent.core.interfaces import IRepository
-from src.naukri_agent.database.models import (
+from src.naukri_agent.models.entities import Job, JobApplication, ResumeProfile
+from src.naukri_agent.bot.interfaces import IRepository
+from src.naukri_agent.models.db_schema import (
     Application as DBApplication,
 )
-from src.naukri_agent.database.models import (
+from src.naukri_agent.models.db_schema import (
     Job as DBJob,
 )
-from src.naukri_agent.database.models import (
+from src.naukri_agent.models.db_schema import (
     ResumeProfile as DBResumeProfile,
 )
-from src.naukri_agent.database.models import (
+from src.naukri_agent.models.db_schema import (
     RunLog as DBRunLog,
 )
 
@@ -59,6 +62,25 @@ def _map_db_to_resume_profile(data: dict, file_hash: str) -> ResumeProfile:
     )
 
 
+def with_failover(func):
+    @functools.wraps(func)
+    async def wrapper(self, *args, **kwargs):
+        try:
+            return await func(self, *args, **kwargs)
+        except OperationalError as e:
+            # Tell the manager that the database failed
+            await self._db_manager.report_failure(e)
+            # Retry the transaction one more time (which will now use the secondary DB)
+            return await func(self, *args, **kwargs)
+        except SQLAlchemyError as e:
+            if "asyncpg" in str(e).lower() or "connection" in str(e).lower():
+                await self._db_manager.report_failure(e)
+                return await func(self, *args, **kwargs)
+            raise
+
+    return wrapper
+
+
 class SQLAlchemyRepository(IRepository):
     """
     SQLAlchemy implementation of the IRepository interface.
@@ -69,15 +91,17 @@ class SQLAlchemyRepository(IRepository):
         await repo.save_job(naukri_job_id="...", title="...", ...)
     """
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
-        self._session_factory = session_factory
+    def __init__(self, db_manager: DatabaseManager) -> None:
+        self._db_manager = db_manager
         self._applied_jobs_cache: set[str] = set()
         self._applied_composite_cache: set[tuple[str, str]] = set()
 
+    @with_failover
     async def initialize(self) -> None:
         """Load all applied job IDs and (title, company) combinations into O(1) hash sets for fast deduplication."""
+        session_factory = await self._db_manager.get_session_factory()
         try:
-            async with self._session_factory() as session:
+            async with session_factory() as session:
                 result = await session.execute(
                     select(DBJob.naukri_job_id, DBJob.title, DBJob.company).join(
                         DBApplication, DBApplication.job_id == DBJob.id
@@ -91,7 +115,7 @@ class SQLAlchemyRepository(IRepository):
                         self._applied_composite_cache.add(
                             (title.lower().strip(), company.lower().strip())
                         )
-        except Exception as e:
+        except SQLAlchemyError as e:
             import logging
 
             logging.getLogger(__name__).warning(f"Failed to load cache: {e}")
@@ -99,6 +123,7 @@ class SQLAlchemyRepository(IRepository):
     # -----------------------------------------------------------------------
     # Job operations
     # -----------------------------------------------------------------------
+    @with_failover
     async def save_job(
         self,
         naukri_job_id: str,
@@ -111,9 +136,12 @@ class SQLAlchemyRepository(IRepository):
         description: str = "",
         skills: str = "",
         posted_date: str = "",
+        openings: int = 0,
+        has_company_logo: bool = False,
     ) -> Job:
         """Save a job listing. Returns existing if already saved."""
-        async with self._session_factory() as session, session.begin():
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
             result = await session.execute(
                 select(DBJob).filter(DBJob.naukri_job_id == naukri_job_id)
             )
@@ -123,6 +151,9 @@ class SQLAlchemyRepository(IRepository):
                 # Update description if it was previously empty
                 if description and not existing.description:
                     existing.description = description
+                # Update authenticity info
+                existing.openings = openings
+                existing.has_company_logo = has_company_logo
                 db_job = existing
             else:
                 db_job = DBJob(
@@ -136,6 +167,8 @@ class SQLAlchemyRepository(IRepository):
                     description=description,
                     skills=skills,
                     posted_date=posted_date,
+                    openings=openings,
+                    has_company_logo=has_company_logo,
                 )
                 session.add(db_job)
                 await session.flush()
@@ -154,6 +187,8 @@ class SQLAlchemyRepository(IRepository):
                 description=db_job.description,
                 skills=db_job.skills,
                 posted_date=db_job.posted_date,
+                openings=db_job.openings,
+                has_company_logo=db_job.has_company_logo,
                 scraped_at=db_job.scraped_at,
             )
 
@@ -170,6 +205,7 @@ class SQLAlchemyRepository(IRepository):
     # -----------------------------------------------------------------------
     # Application operations
     # -----------------------------------------------------------------------
+    @with_failover
     async def save_application(
         self,
         job_id: int,
@@ -181,7 +217,8 @@ class SQLAlchemyRepository(IRepository):
         error_message: str = "",
     ) -> JobApplication:
         """Record an application attempt."""
-        async with self._session_factory() as session, session.begin():
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
             app = DBApplication(
                 job_id=job_id,
                 match_score=match_score,
@@ -218,9 +255,11 @@ class SQLAlchemyRepository(IRepository):
                 applied_at=app.applied_at,
             )
 
+    @with_failover
     async def get_today_application_count(self) -> int:
         """Count applications made today (UTC)."""
-        async with self._session_factory() as session:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
             today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
             from src.naukri_agent.config.constants import ApplicationStatus
 
@@ -232,9 +271,11 @@ class SQLAlchemyRepository(IRepository):
             )
             return result.scalar_one() or 0
 
+    @with_failover
     async def get_application_stats(self, days: int = 7) -> dict[str, int]:
         """Get application statistics for the last N days."""
-        async with self._session_factory() as session:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
             since = datetime.now(UTC) - timedelta(days=days)
             result = await session.execute(
                 select(DBApplication).filter(DBApplication.applied_at >= since)
@@ -255,9 +296,11 @@ class SQLAlchemyRepository(IRepository):
                     stats["failed"] += 1
             return stats
 
+    @with_failover
     async def get_recent_applications(self, limit: int = 20) -> list[dict]:
         """Get the most recent application records with job details."""
-        async with self._session_factory() as session:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
             result = await session.execute(
                 select(DBApplication, DBJob)
                 .join(DBJob, DBApplication.job_id == DBJob.id)
@@ -282,11 +325,13 @@ class SQLAlchemyRepository(IRepository):
     # -----------------------------------------------------------------------
     # Resume profile operations
     # -----------------------------------------------------------------------
+    @with_failover
     async def save_resume_profile(
         self, file_hash: str, file_path: str, parsed_json: str
     ) -> ResumeProfile:
         """Save or update a parsed resume profile."""
-        async with self._session_factory() as session, session.begin():
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
             result = await session.execute(
                 select(DBResumeProfile).filter(DBResumeProfile.file_hash == file_hash)
             )
@@ -315,13 +360,15 @@ class SQLAlchemyRepository(IRepository):
             profile_data = json.loads(db_profile.parsed_json)
             return _map_db_to_resume_profile(profile_data, db_profile.file_hash)
 
+    @with_failover
     async def get_cached_profile(self, file_hash: str) -> ResumeProfile | None:
         """
         Retrieve a cached resume profile by file hash.
 
         Returns the parsed domain ResumeProfile, or None if not cached.
         """
-        async with self._session_factory() as session:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
             result = await session.execute(
                 select(DBResumeProfile).filter(DBResumeProfile.file_hash == file_hash)
             )
@@ -334,9 +381,11 @@ class SQLAlchemyRepository(IRepository):
     # -----------------------------------------------------------------------
     # Run log operations
     # -----------------------------------------------------------------------
+    @with_failover
     async def create_run_log(self, search_keywords: list[str]) -> int:
         """Create a new run log entry. Returns the run log ID."""
-        async with self._session_factory() as session, session.begin():
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
             run_log = DBRunLog(
                 search_keywords=", ".join(search_keywords),
                 status="running",
@@ -346,6 +395,7 @@ class SQLAlchemyRepository(IRepository):
             await session.refresh(run_log)
             return run_log.id
 
+    @with_failover
     async def update_run_log(
         self,
         run_log_id: int,
@@ -357,7 +407,8 @@ class SQLAlchemyRepository(IRepository):
         error_message: str = "",
     ) -> None:
         """Update a run log entry with final statistics."""
-        async with self._session_factory() as session, session.begin():
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
             result = await session.execute(select(DBRunLog).filter(DBRunLog.id == run_log_id))
             run_log = result.scalar_one_or_none()
             if run_log:
@@ -369,9 +420,11 @@ class SQLAlchemyRepository(IRepository):
                 run_log.status = status
                 run_log.error_message = error_message
 
+    @with_failover
     async def get_run_stats(self, limit: int = 10) -> list[dict]:
         """Get the most recent run logs."""
-        async with self._session_factory() as session:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
             result = await session.execute(
                 select(DBRunLog).order_by(DBRunLog.started_at.desc()).limit(limit)
             )
@@ -391,10 +444,14 @@ class SQLAlchemyRepository(IRepository):
                 for log in logs
             ]
 
+    @with_failover
     async def get_all_job_descriptions(self) -> list[str]:
         """Fetch all stored job descriptions to construct a TF-IDF reference corpus."""
-        async with self._session_factory() as session:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
             result = await session.execute(
-                select(DBJob.description).filter(DBJob.description.is_not(None), DBJob.description != "")
+                select(DBJob.description).filter(
+                    DBJob.description.is_not(None), DBJob.description != ""
+                )
             )
             return list(result.scalars().all())

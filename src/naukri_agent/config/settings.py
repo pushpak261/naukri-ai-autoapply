@@ -37,9 +37,11 @@ class NaukriCredentials(BaseModel):
 class AISettings(BaseModel):
     """Gemini AI configuration."""
 
+    use_gemini: bool = False
     gemini_api_key: str = ""
     model: str = "gemini-2.5-flash"
     fallback_model: str | None = None
+    enable_matching: bool = True
     abort_on_quota: bool = True
     temperature: float = 0.3
     max_output_tokens: int = 4096
@@ -73,16 +75,20 @@ class SearchSettings(BaseModel):
 
 
 class ApplicationSettings(BaseModel):
-    """Application control settings."""
+    """Application behavior controls."""
 
     daily_cap: int = 25
     match_score_threshold: int = 70
+    answer_questions_with_pdf: bool = True
     delay_between_applies_min: int = 30
     delay_between_applies_max: int = 90
     delay_between_actions_min: float = 1.0
     delay_between_actions_max: float = 3.0
     skip_external_apply: bool = True
+    collect_external_jobs: bool = True
+    email_recipient: str = ""
     dry_run: bool = False
+    enable_project_indexer: bool = False
 
 
 class ProfileSettings(BaseModel):
@@ -99,6 +105,9 @@ class ProfileSettings(BaseModel):
 class ExclusionSettings(BaseModel):
     """Filters to skip certain jobs."""
 
+    enable_scam_filter: bool = True
+    fake_company_blocklist: list[str] = Field(default_factory=list)
+    max_openings_without_logo: int = 50
     companies: list[str] = Field(default_factory=list)
     title_keywords: list[str] = Field(default_factory=list)
     description_keywords: list[str] = Field(default_factory=list)
@@ -227,15 +236,23 @@ def _apply_env_overrides(config: dict) -> dict:
         ("naukri", "gmail_app_password"): "GMAIL_APP_PASSWORD",
         ("naukri", "mobile_number"): "NAUKRI_MOBILE_NUMBER",
         ("naukri", "use_otp_login"): "NAUKRI_USE_OTP_LOGIN",
+        ("ai", "use_gemini"): "USE_GEMINI",
         ("ai", "gemini_api_key"): "GEMINI_API_KEY",
     }
+
+    # Keys whose values must be coerced from env-var strings to booleans
+    _bool_keys = {("naukri", "use_otp_login"), ("ai", "use_gemini")}
 
     for (section, key), env_var in env_map.items():
         env_val = os.environ.get(env_var)
         if env_val:
             if section not in config:
                 config[section] = {}
-            config[section][key] = env_val
+            # Boolean env vars: "true"/"1"/"yes" → True, anything else → False
+            if (section, key) in _bool_keys:
+                config[section][key] = env_val.strip().lower() in ("true", "1", "yes")
+            else:
+                config[section][key] = env_val
 
     return config
 

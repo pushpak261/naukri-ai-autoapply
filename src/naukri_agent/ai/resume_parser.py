@@ -17,11 +17,17 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.domain.entities import ResumeProfile
-from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
-from src.naukri_agent.core.interfaces import ILLMProvider, IRepository, IResumeParser
+from src.naukri_agent.models.entities import ResumeProfile
+from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.naukri_agent.bot.interfaces import ILLMProvider, IRepository, IResumeParser
 from src.naukri_agent.utils.helpers import hash_file, truncate_text
-from src.naukri_agent.utils.logger import get_logger, log_error, log_info, log_success, log_warning
+from src.naukri_agent.utils.logger import (
+    get_logger,
+    log_error,
+    log_info,
+    log_success,
+    log_warning,
+)
 
 
 class EducationEntry(BaseModel):
@@ -148,7 +154,7 @@ def _resolve_tesseract_cmd() -> str | None:
     return None
 
 
-def _map_to_domain_profile(data: dict, file_hash: str) -> ResumeProfile:
+def _map_to_domain_profile(data: dict, file_hash: str, raw_text: str = "") -> ResumeProfile:
     education = data.get("education", [])
     if education and not isinstance(education[0], dict):
         education = [e.model_dump() if hasattr(e, "model_dump") else dict(e) for e in education]
@@ -175,6 +181,7 @@ def _map_to_domain_profile(data: dict, file_hash: str) -> ResumeProfile:
         languages=data.get("languages", []),
         key_achievements=data.get("key_achievements", []),
         file_hash=file_hash,
+        raw_text=raw_text or data.get("raw_text", ""),
     )
 
 
@@ -430,7 +437,22 @@ class ResumeParser(IResumeParser):
             try:
                 profile = json.loads(profile_json_path.read_text(encoding="utf-8"))
                 log_info(f"Using local resume profile from {profile_json_path.name}")
-                return _map_to_domain_profile(profile, file_hash)
+                domain_profile = _map_to_domain_profile(profile, file_hash)
+
+                # If feature enabled but raw_text is missing, retroactively extract and save it
+                if (
+                    self._settings.application.answer_questions_with_pdf
+                    and not domain_profile.raw_text
+                ):
+                    log_info("Extracting raw resume text to support AI question answering...")
+                    resume_text = self._extract_pdf_text(path)
+                    domain_profile.raw_text = resume_text
+                    profile["raw_text"] = resume_text
+                    profile_json_path.write_text(
+                        json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
+                    )
+
+                return domain_profile
             except Exception as e:
                 log_warning(
                     f"Failed to read local {profile_json_path.name}: {e}. Falling back to default parsing."
@@ -464,7 +486,11 @@ class ResumeParser(IResumeParser):
         resume_text = self._extract_pdf_text(path)
         truncated_text = truncate_text(resume_text, max_length=15000)
 
-        # Call Gemini
+        # Call Gemini or parse locally
+        if not self._settings.ai.use_gemini:
+            log_info("Gemini AI is disabled. Using local deterministic parsing.")
+            return await self._parse_locally(resume_text, file_hash, profile_json_path, path)
+
         prompt = RESUME_PARSE_PROMPT.format(resume_text=truncated_text)
 
         try:
@@ -505,6 +531,9 @@ class ResumeParser(IResumeParser):
                 f"{profile.get('total_experience_years', '?')} years experience"
             )
 
+            # Embed the raw resume text so QuestionAnswerer can use it for screening questions
+            profile["raw_text"] = resume_text
+
             # Write to local resume_profile.json
             try:
                 profile_json_path.write_text(
@@ -536,3 +565,66 @@ class ResumeParser(IResumeParser):
         except Exception as e:
             log_error(f"Failed to parse resume with AI: {e}")
             return ResumeProfile(file_hash=file_hash)
+
+    async def _parse_locally(
+        self, resume_text: str, file_hash: str, profile_json_path: Path, path: Path
+    ) -> ResumeProfile:
+        import re
+
+        lines = [line.strip() for line in resume_text.split("\n") if line.strip()]
+        name = lines[0] if lines else "Unknown"
+
+        email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", resume_text)
+        email = email_match.group(0) if email_match else ""
+
+        phone_match = re.search(
+            r"\+?\d{2,3}[-\s]?\d{10}|\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", resume_text
+        )
+        phone = phone_match.group(0) if phone_match else ""
+
+        total_exp = 1.0
+        exp_str = self._settings.profile.total_experience
+        if exp_str:
+            match = re.search(r"\d+(\.\d+)?", exp_str)
+            if match:
+                total_exp = float(match.group(0))
+
+        matched_skills = list(self._aho_matcher.search(resume_text).keys())
+
+        profile = {
+            "name": name,
+            "email": email,
+            "phone": phone,
+            "current_title": "",
+            "summary": "Parsed locally without AI.",
+            "total_experience_years": total_exp,
+            "skills": matched_skills,
+            "technical_skills": matched_skills,
+            "soft_skills": [],
+            "job_titles_held": [],
+            "education": [],
+            "work_experience": [],
+            "certifications": [],
+            "languages": [],
+            "key_achievements": [],
+        }
+
+        try:
+            profile_json_path.write_text(
+                json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+            log_info(f"Saved parsed profile to local {profile_json_path.name}")
+        except Exception as e:
+            logger.warning(f"Failed to write local resume_profile.json: {e}")
+
+        if self._repo:
+            await self._repo.save_resume_profile(
+                file_hash=file_hash,
+                file_path=str(path),
+                parsed_json=json.dumps(profile, ensure_ascii=False),
+            )
+
+        log_success(f"Resume parsed locally successfully: {name}")
+        logger.info(f"Found {len(matched_skills)} skills, {total_exp} years experience")
+
+        return _map_to_domain_profile(profile, file_hash)

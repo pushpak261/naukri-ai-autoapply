@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import asyncio
 
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+
 from src.naukri_agent.browser.pages.login import LoginPage
 from src.naukri_agent.config.constants import LOGIN_TIMEOUT
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.interfaces import IBrowserEngine, IOTPProvider, ILoginStrategy
+from src.naukri_agent.bot.interfaces import IBrowserEngine, IOTPProvider, ILoginStrategy
 from src.naukri_agent.utils.logger import (
     console,
     get_logger,
@@ -84,7 +86,7 @@ async def handle_otp_helper(login_page: LoginPage, otp_provider: IOTPProvider | 
         else:
             logger.debug("No OTP field detected — direct login")
 
-    except Exception as e:
+    except (PlaywrightTimeoutError, PlaywrightError) as e:
         logger.debug(f"OTP handling note: {e}")
 
 
@@ -225,7 +227,7 @@ class LoginHandler:
             logger.info("Saved session expired or not found")
             return False
 
-        except Exception as e:
+        except (PlaywrightTimeoutError, PlaywrightError) as e:
             logger.debug(f"Session check failed: {e}")
             return False
 
@@ -260,7 +262,7 @@ class LoginHandler:
                     log_error("Login failed — could not verify logged-in state")
                 return False
 
-        except Exception as e:
+        except (PlaywrightTimeoutError, PlaywrightError) as e:
             error_msg = str(e)
             if "Target page, context or browser has been closed" in error_msg:
                 log_error("Browser was closed by the user. Aborting login.")

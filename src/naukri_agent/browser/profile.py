@@ -16,8 +16,10 @@ side doesn't immediately break the flow.
 import asyncio
 import contextlib
 
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+
 from src.naukri_agent.config.constants import NAVIGATION_TIMEOUT, ProfileSelectors
-from src.naukri_agent.core.interfaces import IBrowserEngine, IBrowserInteractions
+from src.naukri_agent.bot.interfaces import IBrowserEngine, IBrowserInteractions
 from src.naukri_agent.utils.logger import get_logger, log_error, log_success
 
 logger = get_logger(__name__)
@@ -54,7 +56,7 @@ class ProfileRefresher:
                 await target.click(timeout=STEP_TIMEOUT_MS)
                 logger.info(f"Clicked 'View profile' (strategy #{idx}).")
                 return True
-            except Exception:
+            except (PlaywrightTimeoutError, PlaywrightError):
                 continue
         return False
 
@@ -66,7 +68,7 @@ class ProfileRefresher:
         try:
             await self._interactions.close_popups()
             return True
-        except Exception as e:
+        except PlaywrightError as e:
             logger.debug(f"Error calling close_popups: {e}")
             return False
 
@@ -77,7 +79,7 @@ class ProfileRefresher:
         """Verify the headline modal actually opened (URL marker or Save button)."""
         if MODAL_URL_MARKER in page.url:
             return True
-        with contextlib.suppress(Exception):
+        with contextlib.suppress(PlaywrightTimeoutError, PlaywrightError):
             await page.get_by_role("button", name="Save", exact=True).first.wait_for(
                 state="visible", timeout=2500
             )
@@ -94,13 +96,13 @@ class ProfileRefresher:
             await edit_icon.scroll_into_view_if_needed()
             try:
                 await edit_icon.click(timeout=3000)
-            except Exception:
+            except PlaywrightError:
                 # Force click if normal click gets intercepted by an overlay
                 await edit_icon.click(timeout=3000, force=True)
             if await self._modal_is_open(page):
                 logger.info("Clicked Resume Headline edit icon (dedicated selector).")
                 return True
-        except Exception:
+        except (PlaywrightTimeoutError, PlaywrightError):
             # Fall back to heuristics below
             pass
 
@@ -109,7 +111,7 @@ class ProfileRefresher:
 
         try:
             await text_matches.first.wait_for(state="visible", timeout=STEP_TIMEOUT_MS)
-        except Exception:
+        except PlaywrightTimeoutError:
             log_error("Could not find any 'Resume headline' text on the page.")
             return False
 
@@ -135,7 +137,7 @@ class ProfileRefresher:
             try:
                 if not await element.is_visible(timeout=1500):
                     continue
-            except Exception:
+            except PlaywrightError:
                 continue
 
             # get_by_text(exact=True) matches the innermost element that
@@ -160,9 +162,9 @@ class ProfileRefresher:
                     await icon.wait_for(state="visible", timeout=1500)
                     try:
                         await icon.click(timeout=3000)
-                    except Exception:
+                    except PlaywrightError:
                         await icon.click(timeout=3000, force=True)
-                except Exception:
+                except (PlaywrightTimeoutError, PlaywrightError):
                     continue
 
                 # Don't trust the click blindly — confirm the modal opened.
@@ -175,7 +177,7 @@ class ProfileRefresher:
                 # section that got picked up at a too-high ancestor
                 # level). Undo any accidental navigation and try the
                 # next candidate.
-                with contextlib.suppress(Exception):
+                with contextlib.suppress(PlaywrightError):
                     if MODAL_URL_MARKER not in page.url and PROFILE_URL_FRAGMENT not in page.url:
                         await page.go_back(timeout=5000)
 
@@ -198,11 +200,11 @@ class ProfileRefresher:
                 await target.wait_for(state="visible", timeout=STEP_TIMEOUT_MS)
                 try:
                     await target.click(timeout=STEP_TIMEOUT_MS)
-                except Exception:
+                except PlaywrightError:
                     await target.click(timeout=STEP_TIMEOUT_MS, force=True)
                 logger.info("Clicked Save in Resume Headline modal.")
                 return True
-            except Exception:
+            except (PlaywrightTimeoutError, PlaywrightError):
                 continue
         return False
 
@@ -271,14 +273,14 @@ class ProfileRefresher:
                 return False
 
             # Confirm the modal closed / save registered.
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(PlaywrightTimeoutError):
                 await page.wait_for_url(lambda url: MODAL_URL_MARKER not in url, timeout=10_000)
             await asyncio.sleep(2)  # allow backend save to register
 
             log_success("Profile successfully refreshed!")
             return True
 
-        except Exception as e:
+        except (PlaywrightTimeoutError, PlaywrightError) as e:
             error_msg = str(e)
             if "Target page, context or browser has been closed" in error_msg:
                 log_error("Browser was closed by the user. Aborting profile refresh.")

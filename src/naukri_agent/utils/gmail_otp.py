@@ -12,7 +12,7 @@ import re
 import time
 from email.header import decode_header
 
-from src.naukri_agent.core.interfaces import IOTPProvider
+from src.naukri_agent.bot.interfaces import IOTPProvider
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -130,7 +130,7 @@ class GmailOTPProvider(IOTPProvider):
                     match = re.search(r"\b\d{6}\b", body)
                     if match:
                         otp = match.group(0)
-                        logger.info(f"Successfully retrieved Naukri OTP: {otp}")
+                        logger.info(f"Successfully retrieved Naukri OTP: ****{otp[-2:]}")
 
                         # Mark the processed email as read
                         try:

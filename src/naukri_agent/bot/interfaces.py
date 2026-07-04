@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
-from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
+from src.naukri_agent.models.entities import Job, JobApplication, ResumeProfile
 
 
 # ---------------------------------------------------------------------------
@@ -30,11 +30,19 @@ class IRepository(Protocol):
         description: str = "",
         skills: str = "",
         posted_date: str = "",
-    ) -> Job: ...
+        openings: int = 0,
+        has_company_logo: bool = False,
+    ) -> Job:
+        """Persists a new job listing to the database."""
+        ...
 
-    def is_already_applied(self, naukri_job_id: str) -> bool: ...
+    def is_already_applied(self, naukri_job_id: str) -> bool:
+        """Checks if a job has already been processed using its unique Naukri ID."""
+        ...
 
-    def is_already_applied_composite(self, title: str, company: str) -> bool: ...
+    def is_already_applied_composite(self, title: str, company: str) -> bool:
+        """Fallback check for application status using title and company name."""
+        ...
 
     async def save_application(
         self,

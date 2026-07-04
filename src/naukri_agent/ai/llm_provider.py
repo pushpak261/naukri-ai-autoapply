@@ -10,8 +10,8 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
-from src.naukri_agent.core.interfaces import ILLMProvider
+from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.naukri_agent.bot.interfaces import ILLMProvider
 from src.naukri_agent.utils.helpers import async_retry
 from src.naukri_agent.utils.logger import get_logger
 

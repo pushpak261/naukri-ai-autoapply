@@ -141,21 +141,25 @@ def get_logger(name: str) -> logging.Logger:
 # ---------------------------------------------------------------------------
 def log_info(message: str) -> None:
     """Log an info message with a ℹ️ prefix."""
+    logging.getLogger().info(message)
     console.print(f"  ℹ️  {message}", style="info")
 
 
 def log_success(message: str) -> None:
     """Log a success message with a ✅ prefix."""
+    logging.getLogger().info(message)
     console.print(f"  ✅ {message}", style="success")
 
 
 def log_warning(message: str) -> None:
     """Log a warning message with a ⚠️ prefix."""
+    logging.getLogger().warning(message)
     console.print(f"  ⚠️  {message}", style="warning")
 
 
 def log_error(message: str) -> None:
     """Log an error message with a ❌ prefix."""
+    logging.getLogger().error(message)
     console.print(f"  ❌ {message}", style="error")
 
 

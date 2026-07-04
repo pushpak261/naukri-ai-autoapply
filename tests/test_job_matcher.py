@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.naukri_agent.ai.job_matcher import JobMatcher
-from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
-from src.naukri_agent.core.exceptions import LLMQuotaExceededError
+from src.naukri_agent.models.entities import Job, JobApplication, ResumeProfile
+from src.naukri_agent.utils.exceptions import LLMQuotaExceededError
 
 
 @pytest.fixture

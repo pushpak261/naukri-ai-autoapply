@@ -16,8 +16,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, Index, String, Text
+if TYPE_CHECKING:
+    from src.naukri_agent.database.manager import DatabaseManager
+
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -44,7 +48,11 @@ class Job(Base):
     skills: Mapped[str] = mapped_column(Text, default="")  # Comma-separated skill tags
     url: Mapped[str] = mapped_column(String(1000), nullable=False)
     posted_date: Mapped[str] = mapped_column(String(100), default="")
-    scraped_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False)
+    openings: Mapped[int] = mapped_column(default=0)
+    has_company_logo: Mapped[bool] = mapped_column(default=False)
+    scraped_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
 
     # Relationship
     applications: Mapped[list[Application]] = relationship(
@@ -73,7 +81,9 @@ class Application(Base):
     missing_skills: Mapped[str] = mapped_column(Text, default="")  # Comma-separated
     status: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     error_message: Mapped[str] = mapped_column(Text, default="")
-    applied_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False)
+    applied_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
 
     # Relationship
     job: Mapped[Job] = relationship(back_populates="applications")
@@ -96,7 +106,9 @@ class ResumeProfile(Base):
     file_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
     file_path: Mapped[str] = mapped_column(String(1000), nullable=False)
     parsed_json: Mapped[str] = mapped_column(Text, nullable=False)  # Full JSON of parsed profile
-    parsed_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False)
+    parsed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
 
     def __repr__(self) -> str:
         return f"<ResumeProfile(id={self.id}, file_hash='{self.file_hash[:8]}...')>"
@@ -108,8 +120,10 @@ class RunLog(Base):
     __tablename__ = "run_logs"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    started_at: Mapped[datetime] = mapped_column(default=lambda: datetime.now(UTC), nullable=False)
-    ended_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     search_keywords: Mapped[str] = mapped_column(Text, default="")  # Comma-separated
     jobs_found: Mapped[int] = mapped_column(default=0)
     jobs_applied: Mapped[int] = mapped_column(default=0)
@@ -130,40 +144,29 @@ class RunLog(Base):
 # ---------------------------------------------------------------------------
 # Database initialization
 # ---------------------------------------------------------------------------
-async def init_db(db_path: Path) -> async_sessionmaker[AsyncSession]:
+async def setup_database_manager(db_path: Path) -> "DatabaseManager":
     """
-    Initialize the SQLite database and return an AsyncSession factory.
-
-    Creates all tables if they don't exist. This is idempotent.
-
-    Note: this function is intentionally side-effect-free with respect to
-    module/global state — it returns a fresh session factory bound to a new
-    engine every time it's called. Callers (see DependencyFactory) are
-    responsible for holding onto the returned factory and passing it to
-    whatever needs it. This avoids the pitfalls of a shared mutable module
-    global (which breaks under concurrent test runs or multiple agent
-    instances in the same process).
-
-    Args:
-        db_path: Path to the SQLite database file.
-
-    Returns:
-        A SQLAlchemy async_sessionmaker bound to the async engine.
+    Initialize the SQLite engine and return a DatabaseManager.
     """
+    from src.naukri_agent.utils.logger import log_info
+    from src.naukri_agent.database.manager import DatabaseManager
     from src.naukri_agent.database.backup import DatabaseBackupService
 
+    # Backup existing database before initialization
     backup_service = DatabaseBackupService(db_path)
     backup_service.backup()
-
     db_path.parent.mkdir(parents=True, exist_ok=True)
+
     engine = create_async_engine(
         f"sqlite+aiosqlite:///{db_path}",
         echo=False,
         connect_args={"check_same_thread": False},
     )
 
-    # Run sync schema creation inside async context
+    # Sync schema for SQLite
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    return async_sessionmaker(bind=engine, expire_on_commit=False)
+    log_info(f"Using local SQLite database at {db_path}.")
+
+    return DatabaseManager(engine=engine)

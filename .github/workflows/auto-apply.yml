@@ -9,8 +9,17 @@ on:
 jobs:
   run-bot:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        keyword: 
+          - "Python Developer"
+          - "Backend Developer"
+          - "Software Engineer"
+          - "Full Stack Developer"
     
     steps:
       - name: Checkout repository
@@ -22,13 +31,13 @@ jobs:
           python-version: '3.12'
           cache: 'pip'
 
-      - name: Cache Bot Database (State)
+      - name: Cache Pip
         uses: actions/cache@v4
         with:
-          path: data/
-          key: bot-state-${{ github.run_id }}
+          path: ~/.cache/pip
+          key: pip-${{ hashFiles('requirements.txt') }}
           restore-keys: |
-            bot-state-
+            pip-
 
       - name: Install dependencies
         run: |
@@ -60,12 +69,18 @@ jobs:
           "
           
       - name: Run Naukri Agent
+        uses: nick-fields/retry@v3
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NAUKRI_EMAIL: ${{ secrets.NAUKRI_EMAIL }}
           NAUKRI_PASSWORD: ${{ secrets.NAUKRI_PASSWORD }}
-        run: |
-          xvfb-run python -m src.naukri_agent.main run
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GMAIL_OTP_EMAIL: ${{ secrets.GMAIL_OTP_EMAIL }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+        with:
+          timeout_minutes: 15
+          max_attempts: 3
+          command: xvfb-run python -m src.naukri_agent.main run --keyword "${{ matrix.keyword }}"
 
       - name: Encrypt and Commit Session
         env:
@@ -93,7 +108,7 @@ jobs:
             mv temp_session.enc session.enc
             git add session.enc
             git commit -m "Auto-update session cookies [skip ci]"
-            git push origin main
+            git push origin main || echo "Git push failed due to matrix race condition (safe to ignore)"
           else
             echo "No session changes detected."
           fi

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from playwright.async_api import Page
 
-from src.naukri_agent.core.interfaces import IStealthPatcher
+from src.naukri_agent.bot.interfaces import IStealthPatcher
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)

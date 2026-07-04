@@ -15,6 +15,8 @@ naukri:
 # Google Gemini AI Settings
 # ---------------------------------------------------------------------------
 ai:
+  use_gemini: true   # Set to true to use AI, false to use local deterministic algorithms
+  enable_matching: false # Set to false to skip the entire match scoring step and apply to everything
   gemini_api_key: "" # Override with GEMINI_API_KEY env var
   model: "gemini-3.1-flash-lite"
   fallback_model: "gemini-3.5-flash"  # Optional secondary model when primary model hits daily 429 quota
@@ -46,10 +48,10 @@ search:
     - "Bangalore"
     - "Remote"
   experience_min: 0        # Minimum years of experience filter
-  experience_max: 2        # Maximum years of experience filter
+  experience_max: 1        # Maximum years of experience filter
   salary_min: 0            # Minimum salary in LPA (0 = any)
-  freshness: 3             # Job posting age in days (1, 3, 7, 15, 30)
-  max_pages: 3             # Max search result pages to scan per keyword
+  freshness: 7            # Job posting age in days (1, 3, 7, 15, 30)
+  max_pages: 10            # Max search result pages to scan per keyword
   sort_by: "relevance"     # "relevance" or "date"
 
 # ---------------------------------------------------------------------------
@@ -58,12 +60,14 @@ search:
 application:
   daily_cap: 30                   # Max applications per day
   match_score_threshold: 50       # Minimum AI match score (0-100) to auto-apply
+  answer_questions_with_pdf: false # If true, passes raw resume text to Gemini for precise screening question answers
   delay_between_applies_min: 30   # Minimum delay in seconds between applications
   delay_between_applies_max: 90   # Maximum delay in seconds between applications
   delay_between_actions_min: 1.0  # Minimum delay between browser actions (seconds)
   delay_between_actions_max: 3.0  # Maximum delay between browser actions (seconds)
   skip_external_apply: true       # Skip jobs that redirect to external websites
   dry_run: false                  # If true, score jobs but don't actually apply
+  enable_project_indexer: true    # If true, runs the vibe coding indexer watcher in the background
 
 # ---------------------------------------------------------------------------
 # Personal Details (for auto-filling application forms)
@@ -84,48 +88,194 @@ profile:
 # Exclusion Filters
 # ---------------------------------------------------------------------------
 exclusions:
-  companies: []            # Companies to skip (e.g., ["Company A", "Company B"])
-  title_keywords:          # Skip jobs with these words in title (e.g., ["intern", "junior"])
+  enable_scam_filter: true    # Set to false to disable the math-based fake job / consultancy scam detector
+  max_openings_without_logo: 50 # Ignore jobs with more than this number of openings if the company has no verified logo
+  fake_company_blocklist:
+    - "Spam Company 1"
+    - "Spam Company 2"
+  companies: 
+    - "Techno Experts"
+    - "TeleInfoTech"
+    - "Codinglimits"
+  title_keywords: # Skip jobs with these words in title
+    # Support / Operations
     - "support"
+    - "technical support"
+    - "tech support"
+    - "customer support"
+    - "customer service"
+    - "customer success"
+    - "application support"
+    - "production support"
+    - "desktop support"
+    - "helpdesk"
+    - "service desk"
+    - "operations"
+    - "operator"
+
+    # Testing / QA
     - "testing"
+    - "test"
+    - "tester"
     - "qa"
+    - "quality assurance"
+    - "quality analyst"
+    - "automation tester"
+    - "manual tester"
+    - "performance tester"
+    - "security tester"
+    - "sdet"
+
+    # Sales / Marketing
     - "sales"
     - "marketing"
+    - "business development"
+    - "bdm"
+    - "inside sales"
+    - "field sales"
+    - "presales"
+    - "post sales"
+
+    # BPO / Call Center
     - "bpo"
-    - "customer"
-    - "tech support"
+    - "call center"
+    - "voice process"
+    - "non voice"
+    - "customer care"
+    - "telecaller"
+    - "telecalling"
+    - "chat support"
+
+    # HR / Recruitment
+    - "hr"
+    - "human resource"
+    - "recruiter"
+    - "recruitment"
+    - "talent acquisition"
+
+    # Finance / Accounts
+    - "accountant"
+    - "accounts"
+    - "finance"
+    - "banking"
+    - "auditor"
+    - "tax"
+
+    # Consultancy / Staffing
+    - "consultancy"
+    - "consultant"
+    - "placement"
+    - "staffing"
+    - "recruitment services"
+    - "manpower"
+    - "outsourcing"
+
+    # Experience Level
+    - "intern"
+    - "internship"
+
+    # Senior Positions
+    - "senior"
+    - "sr"
+    - "sr."
+    - "lead"
+    - "team lead"
+    - "technical lead"
+    - "principal"
+    - "staff engineer"
+    - "architect"
+    - "solution architect"
+    - "enterprise architect"
+    - "manager"
+    - "project manager"
+    - "program manager"
+    - "delivery manager"
+    - "engineering manager"
+    - "director"
+    - "vp"
+    - "vice president"
+    - "head"
+    - "chief"
+
+    # Fake Job Indicators
+    - "data entry"
+    - "typing"
+    - "form filling"
+    - "captcha"
+    - "ad posting"
+    - "online work"
+    - "earn from home"
+    - "work from home typing"
+    - "part time"
+    - "urgent hiring"
+    - "urgent requirement"
+    - "bulk hiring"
+    - "limited seats"
+    - "registration"
+    - "registration fee"
+    - "paid training"
+
+    # Non-Software Roles
+    - "civil"
+    - "mechanical"
+    - "electrical"
+    - "electronics"
+    - "automobile"
+    - "pharma"
+    - "chemist"
+    - "doctor"
+    - "nurse"
+    - "teacher"
+    - "faculty"
+
+    # Miscellaneous
+    - "management"
 
   description_keywords: [] # Skip jobs with these words in description
 
   title_whitelist:         # Only process jobs containing these keywords (case-insensitive)
-  # Confirmed from Naukri URL patterns
-  - "software developer"
-  - "software engineer"
-  - "full stack developer"
-  - "junior software developer"
-  - "fresher"
-
-  # Confirmed big IT fresher titles (publicly documented)
-  # - "programmer analyst"         # Cognizant — GenC program
-  # - "technology analyst"         # Infosys — InfyTQ/InStep program
-  # - "systems engineer"           # TCS / Wipro
-  - "associate engineer"         # HCL / Capgemini / Accenture (confirmed)
-  # - "assistant system engineer"  # TCS exact fresher title (confirmed)
-  # - "it analyst"                 # TCS trainee variant (confirmed)
-  - "engineer trainee"           # Wipro Elite NTH exact title (confirmed)
-
-  # Broadly used on Naukri for 0-1 yr
-  - "trainee"
-  - "junior"
-  - "associate"
-  - "SDE"
-
-  # Additional confirmed companies hiring freshers
-  # - "software analyst"           # Tech Mahindra / IBM pattern
-  - "application developer"      # Oracle / IBM fresher title
-  # - "associate consultant"       # Accenture / Deloitte fresher title
-  # - "get engineer"               # HCL Graduate Engineer Trainee (GET)
-  # - "graduate engineer"          # HCL GET program (confirmed)
+    # Confirmed from Naukri URL patterns
+    - "software developer"
+    - "software engineer"
+    - "full stack developer"
+    - "junior software developer"
+    
+    # Broad software engineering keywords (will match any title containing these)
+    - "developer"
+    - "engineer"
+    - "programmer"
+    - "coder"
+    - "sde"
+    - "fullstack"
+    - "frontend"
+    - "backend"
+    - "web"
+    - "java"
+    - "python"
+    - "react"
+    - "node"
+    - "mern"
+    
+    # Fresher / Entry Level specific
+    - "fresher"
+    - "trainee"
+    - "junior"
+    - "associate"
+    # - "intern"
+    # - "graduate"
+    
+    # Confirmed big IT fresher titles (publicly documented)
+    # - "programmer analyst"         # Cognizant — GenC program
+    # - "technology analyst"         # Infosys — InfyTQ/InStep program
+    # - "systems engineer"           # TCS / Wipro
+    - "associate engineer"         # HCL / Capgemini / Accenture (confirmed)
+    # - "assistant system engineer"  # TCS exact fresher title (confirmed)
+    # - "it analyst"                 # TCS trainee variant (confirmed)
+    - "engineer trainee"           # Wipro Elite NTH exact title (confirmed)
+    # - "software analyst"           # Tech Mahindra / IBM pattern
+    - "application developer"      # Oracle / IBM fresher title
+    # - "associate consultant"       # Accenture / Deloitte fresher title
+    # - "get"                        # Graduate Engineer Trainee
 
 # ---------------------------------------------------------------------------
 # Logging
