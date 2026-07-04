@@ -399,7 +399,11 @@ class NaukriAgent:
         Process jobs sequentially: Rank in Max-Heap, pre-filter with TF-IDF,
         AI Match, and Apply. Prevents concurrency issues on the shared browser page.
         """
-        log_info("Building Max-Heap Priority Queue for optimal processing order...")
+        if self._settings.search.enable_heuristics:
+            log_info("Building Max-Heap Priority Queue for optimal processing order...")
+        else:
+            log_info("Processing jobs sequentially (heuristics disabled)...")
+
         assert self._resume_profile is not None, (
             "_process_jobs() requires a parsed resume profile; run() must "
             "check and return early before calling this."
@@ -418,42 +422,56 @@ class NaukriAgent:
                     self._jobs_skipped += 1
                     continue
 
-            text_to_score = f"{job.title} {job.company} {job.skills}"
-            score = vector_filter.get_similarity_score(text_to_score)
+            if self._settings.search.enable_heuristics:
+                text_to_score = f"{job.title} {job.company} {job.skills}"
+                score = vector_filter.get_similarity_score(text_to_score)
 
-            # Recalibrate heuristics: Boost for search keywords and resume skills in title
-            title_lower = (job.title or "").lower()
-            title_words = set(re.findall(r"\b[a-z0-9]+\b", title_lower))
+                # Recalibrate heuristics: Boost for search keywords and resume skills in title
+                title_lower = (job.title or "").lower()
+                title_words = set(re.findall(r"\b[a-z0-9]+\b", title_lower))
 
-            # Word-based overlap between title and search keywords
-            search_keywords = self._settings.search.keywords
-            search_kw_words = set()
-            for kw in search_keywords:
-                search_kw_words.update(re.findall(r"\b[a-z0-9]+\b", kw.lower()))
+                # Word-based overlap between title and search keywords
+                search_keywords = self._settings.search.keywords
+                search_kw_words = set()
+                for kw in search_keywords:
+                    search_kw_words.update(re.findall(r"\b[a-z0-9]+\b", kw.lower()))
 
-            if title_words & search_kw_words:
-                score += 0.15
+                if title_words & search_kw_words:
+                    score += 0.15
 
-            # Word-based overlap between title and top resume technical skills
-            tech_skills_words = set()
-            for skill in resume_profile.technical_skills[:10]:
-                tech_skills_words.update(re.findall(r"\b[a-z0-9]+\b", skill.lower()))
+                # Word-based overlap between title and top resume technical skills
+                tech_skills_words = set()
+                for skill in resume_profile.technical_skills[:10]:
+                    tech_skills_words.update(re.findall(r"\b[a-z0-9]+\b", skill.lower()))
 
-            if title_words & tech_skills_words:
-                score += 0.10
+                if title_words & tech_skills_words:
+                    score += 0.10
 
-            # Boost for very fresh jobs
-            posted = str(job.posted_date).lower()
-            if "just now" in posted or "hour" in posted or "today" in posted:
-                score += 0.10
-            elif "1 day" in posted or "2 days" in posted:
-                score += 0.05
+                # Boost for very fresh jobs
+                posted = str(job.posted_date).lower()
+                if "just now" in posted or "hour" in posted or "today" in posted:
+                    score += 0.10
+                elif "1 day" in posted or "2 days" in posted:
+                    score += 0.05
+            else:
+                score = 0.0
 
             heapq.heappush(job_queue, (-score, idx, job))
+
+        # Log the jobs currently in the Priority Queue in sorted order
+        sorted_queue = sorted(job_queue)
+        logger.info(
+            f"Jobs in Priority Queue (ordered by priority score):\n"
+            + "\n".join(
+                f"  - Score: {abs(score):.2f} | {job.title} @ {job.company} (ID: {job.naukri_job_id})"
+                for score, idx, job in sorted_queue
+            )
+        )
 
         total_jobs = len(job_queue)
         self._daily_applied = await self._repo.get_today_application_count() if self._repo else 0
         processed_count = 0
+        passed_scam_filter_jobs: list[Job] = []
 
         while job_queue:
             if self._interrupted:
@@ -498,6 +516,9 @@ class NaukriAgent:
                 log_info(f"Skipping job: matches exclusion keywords ({job.title} @ {job.company})")
                 self._jobs_skipped += 1
                 continue
+
+            # Log that this job successfully passed the initial exclusion/scam filter
+            passed_scam_filter_jobs.append(job)
 
             # Check browser status before interacting
             if not self._engine.is_alive():
@@ -746,6 +767,15 @@ class NaukriAgent:
                     f"Job application failed: {job.title} @ {job.company} — Error: {error_msg}"
                 )
                 self._jobs_failed += 1
+
+        # Log the jobs that successfully passed the initial exclusion and scam filters
+        logger.info(
+            f"Jobs that passed initial exclusion and scam filters:\n"
+            + "\n".join(
+                f"  - {j.title} @ {j.company} (ID: {j.naukri_job_id})"
+                for j in passed_scam_filter_jobs
+            )
+        )
 
     def _is_excluded(self, job: Job) -> bool:
         """Check if a job matches any exclusion specifications."""

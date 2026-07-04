@@ -64,6 +64,7 @@ class SearchSettings(BaseModel):
     freshness: int = 7
     max_pages: int = 3
     sort_by: str = "relevance"
+    enable_heuristics: bool = True
 
     @field_validator("sort_by")
     @classmethod

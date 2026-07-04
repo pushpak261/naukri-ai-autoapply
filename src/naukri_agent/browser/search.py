@@ -59,8 +59,7 @@ class JobSearcher:
         Returns:
             List of job domain entities.
         """
-        all_jobs: list[Job] = []
-        seen_ids: set = set()
+        all_jobs: dict[str, Job] = {}
 
         search_config = self._settings.search
 
@@ -87,15 +86,14 @@ class JobSearcher:
                 keyword=keyword,
                 location=location,
                 max_pages=search_config.max_pages,
-                seen_ids=seen_ids,
+                seen_ids=all_jobs,
             )
 
             # Deduplicate
             for job in jobs:
                 job_id = job.naukri_job_id
-                if job_id and job_id not in seen_ids:
-                    seen_ids.add(job_id)
-                    all_jobs.append(job)
+                if job_id and job_id not in all_jobs:
+                    all_jobs[job_id] = job
 
             log_success(
                 f"Found {len(jobs)} jobs for '{keyword}' in '{location}' "
@@ -108,15 +106,26 @@ class JobSearcher:
             if not queue.empty():
                 await random_delay(3, 6)
 
+        logger.info(
+            f"Final scraped jobs dictionary:\n"
+            + "\n".join(
+                f"  - '{job_id}': {j.title} @ {j.company}" for job_id, j in all_jobs.items()
+            )
+        )
+        jobs_list = list(all_jobs.values())
+        logger.info(
+            f"Final scraped jobs list:\n"
+            + "\n".join(f"  - {j.title} @ {j.company} (ID: {j.naukri_job_id})" for j in jobs_list)
+        )
         log_success(f"Total unique jobs found: {len(all_jobs)}")
-        return all_jobs
+        return jobs_list
 
     async def _search_keyword_location(
         self,
         keyword: str,
         location: str,
         max_pages: int,
-        seen_ids: set | None = None,
+        seen_ids: set | dict | None = None,
     ) -> list[Job]:
         """Search for a specific keyword+location and paginate through results."""
         all_jobs: list[Job] = []

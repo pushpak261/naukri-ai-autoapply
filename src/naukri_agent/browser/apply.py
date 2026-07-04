@@ -141,6 +141,16 @@ class JobApplier:
         # Check for early failure indicators
         failure_msg = await self._detail_page.check_application_failure()
         if failure_msg:
+            if not getattr(
+                self._settings.application, "answer_questions_with_pdf", True
+            ) and self._is_unanswered_questions_failure(failure_msg):
+                log_warning(
+                    f"Screening questions/mandatory fields detected but 'answer_questions_with_pdf' is false. Skipping job: {job.title}"
+                )
+                return {
+                    "status": ApplicationStatus.SKIPPED_SCREENING,
+                    "error_message": f"Skipped: {failure_msg} and answer_questions_with_pdf is false",
+                }
             log_error(f"Application failed: {failure_msg}")
             return {
                 "status": ApplicationStatus.FAILED,
@@ -176,6 +186,16 @@ class JobApplier:
             # Check for failure indicators
             failure_msg = await self._detail_page.check_application_failure()
             if failure_msg:
+                if not getattr(
+                    self._settings.application, "answer_questions_with_pdf", True
+                ) and self._is_unanswered_questions_failure(failure_msg):
+                    log_warning(
+                        f"Screening questions/mandatory fields detected but 'answer_questions_with_pdf' is false. Skipping job: {job.title}"
+                    )
+                    return {
+                        "status": ApplicationStatus.SKIPPED_SCREENING,
+                        "error_message": f"Skipped: {failure_msg} and answer_questions_with_pdf is false",
+                    }
                 log_error(f"Application failed: {failure_msg}")
                 return {
                     "status": ApplicationStatus.FAILED,
@@ -195,6 +215,16 @@ class JobApplier:
             # Check for failure indicators
             failure_msg = await self._detail_page.check_application_failure()
             if failure_msg:
+                if not getattr(
+                    self._settings.application, "answer_questions_with_pdf", True
+                ) and self._is_unanswered_questions_failure(failure_msg):
+                    log_warning(
+                        f"Screening questions/mandatory fields detected but 'answer_questions_with_pdf' is false. Skipping job: {job.title}"
+                    )
+                    return {
+                        "status": ApplicationStatus.SKIPPED_SCREENING,
+                        "error_message": f"Skipped: {failure_msg} and answer_questions_with_pdf is false",
+                    }
                 log_error(f"Application failed: {failure_msg}")
                 return {
                     "status": ApplicationStatus.FAILED,
@@ -215,6 +245,15 @@ class JobApplier:
             "status": ApplicationStatus.UNCERTAIN,
             "error_message": "Status uncertain — could not confirm success indicator",
         }
+
+    def _is_unanswered_questions_failure(self, failure_msg: str) -> bool:
+        if not failure_msg:
+            return False
+        msg_lower = failure_msg.lower()
+        return any(
+            term in msg_lower
+            for term in ("unanswered", "incomplete", "mandatory", "question", "required")
+        )
 
     def _generate_safe_fallback_for_question(self, question: dict) -> str:
         q_text = question.get("question", "").lower()
