@@ -37,7 +37,31 @@ class JobDetailPage(BasePage):
 
     async def is_already_applied(self) -> bool:
         """Check if the job has already been applied to."""
-        return await self._interactions.element_exists(JobDetailSelectors.ALREADY_APPLIED)
+        if await self._interactions.element_exists(JobDetailSelectors.ALREADY_APPLIED):
+            return True
+
+        page = self._engine.page
+        try:
+            btn_texts = await page.evaluate(
+                """
+                () => {
+                    const elements = [...document.querySelectorAll('button, a, .apply-button, .applyBtn')];
+                    return elements.map(el => (el.textContent || '').trim().toLowerCase());
+                }
+                """
+            )
+            for text in btn_texts:
+                if text in [
+                    "applied",
+                    "already applied",
+                    "applied successfully",
+                    "successfully applied",
+                ]:
+                    return True
+        except PlaywrightError:
+            pass
+
+        return False
 
     async def is_external_apply(self) -> bool:
         """Check if the job apply button redirects to an external site."""
@@ -112,35 +136,96 @@ class JobDetailPage(BasePage):
         if clicked:
             return True
 
-        # Strategy 2: Try common CSS patterns
+        # Strategy 2: Additional XPath variations
+        xpath_patterns = [
+            '//a[contains(translate(., "APPLY", "apply"), "apply") and not(contains(translate(., "APPLIED", "applied"), "applied"))]',
+            '//*[@role="button" and contains(translate(., "APPLY", "apply"), "apply") and not(contains(translate(., "APPLIED", "applied"), "applied"))]',
+            '//input[@type="button" or @type="submit"][contains(translate(@value, "APPLY", "apply"), "apply")]',
+            '//button[contains(translate(., "WALK-IN", "walk-in"), "walk-in") or contains(translate(., "WALKIN", "walkin"), "walkin")]',
+            '//a[contains(translate(., "WALK-IN", "walk-in"), "walk-in") or contains(translate(., "WALKIN", "walkin"), "walkin")]',
+        ]
+        for pattern in xpath_patterns:
+            clicked = await self._interactions.safe_click(pattern, timeout=3000)
+            if clicked:
+                return True
+
+        # Strategy 3: Try common CSS patterns
         css_patterns = [
             'button[class*="apply"]',
             'button[id*="apply"]',
             'a[class*="apply"]',
             '[class*="apply-button"]',
+            '[class*="applyBtn"]',
+            'button[class*="walkin"]',
+            'a[class*="walkin"]',
         ]
         for pattern in css_patterns:
             clicked = await self._interactions.safe_click(pattern, timeout=3000)
             if clicked:
                 return True
 
-        # Strategy 3: JavaScript click (bypasses overlays)
+        # Strategy 4: JavaScript click (bypasses overlays and handles non-standard elements)
         page = self._engine.page
         try:
             result = await page.evaluate(
                 """
                 () => {
-                    const buttons = [...document.querySelectorAll('button')];
-                    const applyBtn = buttons.find(btn => {
-                        const text = btn.textContent.trim().toLowerCase();
-                        const id = (btn.id || '').toLowerCase();
-                        const className = (btn.className || '').toString().toLowerCase();
-                        return text === 'apply' || text === 'apply now' || id.includes('apply') || className.includes('apply');
+                    const elements = [...document.querySelectorAll('button, a, input, [role="button"], [class*="apply" i], [class*="walkin" i]')];
+                    
+                    const visibleCandidates = elements.filter(el => {
+                        try {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width === 0 || rect.height === 0) return false;
+                            const style = window.getComputedStyle(el);
+                            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
+                            return true;
+                        } catch(e) {
+                            return false;
+                        }
                     });
-                    if (applyBtn && !applyBtn.textContent.toLowerCase().includes('applied')) {
-                        applyBtn.click();
-                        return true;
+
+                    // 1. Tag-specific check with strict text
+                    for (const el of visibleCandidates) {
+                        const tag = el.tagName.toLowerCase();
+                        let text = (tag === 'input' ? (el.value || '') : (el.textContent || '')).trim().toLowerCase();
+                        if (text.includes('applied') || text.includes('already applied')) continue;
+                        
+                        if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
+                            if (text === 'apply' || text === 'apply now' || text.startsWith('apply') || text.includes('walk-in') || text.includes('walkin') || text === 'interested') {
+                                el.click();
+                                return true;
+                            }
+                        }
                     }
+
+                    // 2. Class/Id matching
+                    for (const el of visibleCandidates) {
+                        const tag = el.tagName.toLowerCase();
+                        let text = (tag === 'input' ? (el.value || '') : (el.textContent || '')).trim().toLowerCase();
+                        if (text.includes('applied') || text.includes('already applied')) continue;
+                        
+                        const id = (el.id || '').toLowerCase();
+                        const className = (el.className || '').toString().toLowerCase();
+                        
+                        if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
+                            if (id.includes('apply') || className.includes('apply') || className.includes('walk-in') || className.includes('walkin')) {
+                                el.click();
+                                return true;
+                            }
+                        }
+                    }
+
+                    // 3. General text content matching
+                    for (const el of visibleCandidates) {
+                        let text = (el.textContent || '').trim().toLowerCase();
+                        if (text.includes('applied') || text.includes('already applied')) continue;
+                        
+                        if (text === 'apply' || text === 'apply now' || text.includes('walk-in') || text.includes('walkin')) {
+                            el.click();
+                            return true;
+                        }
+                    }
+
                     return false;
                 }
                 """
@@ -1068,8 +1153,8 @@ class JobDetailPage(BasePage):
         # Check for success indicators
         success_selectors = [
             ApplyFlowSelectors.APPLICATION_SUCCESS,
-            '//*[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "applied successfully")]',
-            '//*[contains(translate(text(), "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "successfully applied")]',
+            '//*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "applied successfully")]',
+            '//*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "successfully applied")]',
             ApplyFlowSelectors.SUCCESS_SUBMITTED,
             ApplyFlowSelectors.SUCCESS_RECEIVED,
         ]
@@ -1090,6 +1175,7 @@ class JobDetailPage(BasePage):
                 "successfully applied",
                 "thank you for applying",
                 "application sent",
+                "your application has been sent",
             ]
             for phrase in success_phrases:
                 if phrase in body_text.lower():

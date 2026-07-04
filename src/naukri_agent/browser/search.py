@@ -131,6 +131,7 @@ class JobSearcher:
         all_jobs: list[Job] = []
 
         # Bound max_pages defensively to valid pagination limits (1 to 100)
+        query_seen_ids = set()
         safe_max_pages = max(1, min(100, max_pages))
         for page_num in range(1, safe_max_pages + 1):
             search_url = build_search_url(
@@ -192,18 +193,23 @@ class JobSearcher:
                     break
 
                 # Early Pagination Termination check (only after we confirmed we advanced via navigation)
-                if seen_ids is not None and len(jobs_on_page) > 0:
+                if len(jobs_on_page) > 0:
                     new_jobs_count = sum(
                         1
                         for j in jobs_on_page
-                        if j.naukri_job_id and j.naukri_job_id not in seen_ids
+                        if j.naukri_job_id and j.naukri_job_id not in query_seen_ids
                     )
                     if new_jobs_count == 0:
                         logger.info(
-                            f"Page {page_num} yielded 0 new unique jobs (all {len(jobs_on_page)} were already seen). "
-                            f"Early termination to save time."
+                            f"Page {page_num} yielded 0 new unique jobs for this query (all {len(jobs_on_page)} were already seen). "
+                            f"Early termination to prevent pagination loop."
                         )
                         break
+
+                    # Update query seen set
+                    for j in jobs_on_page:
+                        if j.naukri_job_id:
+                            query_seen_ids.add(j.naukri_job_id)
 
                 # Strict client-side filtering to bypass Naukri's ignored URL params
                 from src.naukri_agent.utils.filters import JobFilter

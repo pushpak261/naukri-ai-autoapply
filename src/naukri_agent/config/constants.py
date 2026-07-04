@@ -149,9 +149,7 @@ class ApplyFlowSelectors:
     SKIP_BUTTON = '//button[contains(text(), "Skip")]'
 
     # Success indicators
-    APPLICATION_SUCCESS = (
-        '//*[contains(text(), "applied successfully") or contains(text(), "Application Submitted")]'
-    )
+    APPLICATION_SUCCESS = '//*[contains(., "applied successfully") or contains(., "Application Submitted") or contains(., "application submitted") or contains(., "successfully applied")]'
 
     # Resume upload
     RESUME_UPLOAD = 'input[type="file"]'
@@ -160,11 +158,11 @@ class ApplyFlowSelectors:
     FORM_FALLBACK = 'form[class*="apply"]'
     CHATBOT_MSG_FALLBACK = '[class*="chatbot-msg"], [class*="bot-msg"]'
     SCREENING_FALLBACK = '[class*="screening"]'
-    GENERIC_SUBMIT = '//button[contains(text(), "Submit")]'
-    GENERIC_APPLY = '//button[contains(text(), "Apply")]'
+    GENERIC_SUBMIT = '//button[contains(., "Submit")]'
+    GENERIC_APPLY = '//button[contains(., "Apply")]'
     GENERIC_SUBMIT_TYPE = 'button[type="submit"]'
-    SUCCESS_SUBMITTED = '//*[contains(text(), "submitted")]'
-    SUCCESS_RECEIVED = '//*[contains(text(), "received your application")]'
+    SUCCESS_SUBMITTED = '//*[contains(., "submitted")]'
+    SUCCESS_RECEIVED = '//*[contains(., "received your application")]'
 
 
 class ProfileSelectors:
