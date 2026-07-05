@@ -104,6 +104,7 @@ class ExclusionSettings(BaseModel):
     companies: list[str] = Field(default_factory=list)
     title_keywords: list[str] = Field(default_factory=list)
     description_keywords: list[str] = Field(default_factory=list)
+    title_whitelist: list[str] = Field(default_factory=list)
 
 
 class LoggingSettings(BaseModel):

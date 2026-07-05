@@ -34,6 +34,8 @@ class IRepository(Protocol):
 
     def is_already_applied(self, naukri_job_id: str) -> bool: ...
 
+    def is_already_applied_composite(self, title: str, company: str) -> bool: ...
+
     async def save_application(
         self,
         job_id: int,
@@ -78,6 +80,8 @@ class IRepository(Protocol):
         limit: int = 50,
         status: str | None = None,
     ) -> tuple[list[dict], int]: ...
+
+    async def get_all_job_descriptions(self) -> list[str]: ...
 
 
 # ---------------------------------------------------------------------------

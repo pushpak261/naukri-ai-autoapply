@@ -94,7 +94,38 @@ exclusions:
     - "bpo"
     - "customer"
     - "tech support"
+
   description_keywords: [] # Skip jobs with these words in description
+
+  title_whitelist:         # Only process jobs containing these keywords (case-insensitive)
+  # Confirmed from Naukri URL patterns
+  - "software developer"
+  - "software engineer"
+  - "full stack developer"
+  - "junior software developer"
+  - "fresher"
+
+  # Confirmed big IT fresher titles (publicly documented)
+  # - "programmer analyst"         # Cognizant — GenC program
+  # - "technology analyst"         # Infosys — InfyTQ/InStep program
+  # - "systems engineer"           # TCS / Wipro
+  - "associate engineer"         # HCL / Capgemini / Accenture (confirmed)
+  # - "assistant system engineer"  # TCS exact fresher title (confirmed)
+  # - "it analyst"                 # TCS trainee variant (confirmed)
+  - "engineer trainee"           # Wipro Elite NTH exact title (confirmed)
+
+  # Broadly used on Naukri for 0-1 yr
+  - "trainee"
+  - "junior"
+  - "associate"
+  - "SDE"
+
+  # Additional confirmed companies hiring freshers
+  # - "software analyst"           # Tech Mahindra / IBM pattern
+  - "application developer"      # Oracle / IBM fresher title
+  # - "associate consultant"       # Accenture / Deloitte fresher title
+  # - "get engineer"               # HCL Graduate Engineer Trainee (GET)
+  # - "graduate engineer"          # HCL GET program (confirmed)
 
 # ---------------------------------------------------------------------------
 # Logging

@@ -61,6 +61,52 @@ class DependencyFactory:
         self._stealth_patcher: IStealthPatcher | None = None
         self._otp_provider: IOTPProvider | None = None
 
+        # Build dependency graph
+        from src.naukri_agent.utils.dag import DAG
+
+        self._dag = DAG()
+
+        # Nodes
+        self._dag.add_node("settings")
+        if session_factory:
+            self._dag.add_node("session_factory")
+        self._dag.add_node("stealth_patcher")
+        self._dag.add_node("otp_provider")
+        self._dag.add_node("repository")
+        self._dag.add_node("llm_provider")
+        self._dag.add_node("browser_engine")
+        self._dag.add_node("browser_interactions")
+
+        # Edges (dependency: u must be initialized before v, or u -> v)
+        self._dag.add_edge("settings", "llm_provider")
+        self._dag.add_edge("settings", "otp_provider")
+        self._dag.add_edge("settings", "browser_engine")
+        self._dag.add_edge("settings", "browser_interactions")
+
+        if session_factory:
+            self._dag.add_edge("session_factory", "repository")
+        self._dag.add_edge("stealth_patcher", "browser_engine")
+        self._dag.add_edge("browser_engine", "browser_interactions")
+
+        # Sort and verify DAG at factory startup
+        self._init_order = self._dag.topological_sort()
+
+        # Map nodes to instantiation functions for topological initialization
+        self._instantiators = {
+            "repository": self.get_repository,
+            "llm_provider": self.get_llm_provider,
+            "stealth_patcher": self.get_stealth_patcher,
+            "otp_provider": self.get_otp_provider,
+            "browser_engine": self.get_browser_engine,
+            "browser_interactions": self.get_browser_interactions,
+        }
+
+    def initialize_all(self) -> None:
+        """Initialize all singletons in topologically sorted order."""
+        for node in self._init_order:
+            if node in self._instantiators:
+                self._instantiators[node]()
+
     def get_settings(self) -> Settings:
         return self._settings
 

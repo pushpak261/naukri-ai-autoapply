@@ -386,7 +386,29 @@ class NaukriAgent:
                 + [self._resume_profile.current_title]
                 + [self._resume_profile.summary]
             )
-            vector_filter = VectorSimilarityFilter(resume_text)
+            doc_frequencies: dict[str, int] = {}
+            total_documents = 0
+            if self._repo:
+                try:
+                    import re
+                    from collections import Counter
+
+                    all_descriptions = await self._repo.get_all_job_descriptions()
+                    total_documents = len(all_descriptions)
+                    df_counter: Counter[str] = Counter()
+                    for desc in all_descriptions:
+                        if desc:
+                            words = set(re.findall(r"\b[a-z0-9]+\b", desc.lower()))
+                            df_counter.update(words)
+                    doc_frequencies = dict(df_counter)
+                except Exception as e:
+                    logger.warning(f"Failed to build TF-IDF corpus from DB: {e}")
+
+            vector_filter = VectorSimilarityFilter(
+                resume_text,
+                doc_frequencies=doc_frequencies,
+                total_documents=total_documents,
+            )
 
             await self._run_search_apply_pipeline(
                 searcher, matcher, applier, vector_filter
@@ -663,6 +685,21 @@ class NaukriAgent:
         if self._repo and self._repo.is_already_applied(job.naukri_job_id):
             self._jobs_skipped += 1
             await self._emit_job(job, "skipped_already_applied", heuristic_score=initial_score)
+            await self._emit_counters(
+                jobs_found=self._jobs_found,
+                processed_count=processed_count,
+                total_queued=total_queued,
+            )
+            return ProcessOutcome.CONTINUE
+
+        if self._repo and self._repo.is_already_applied_composite(job.title, job.company):
+            self._jobs_skipped += 1
+            await self._emit_job(
+                job,
+                "skipped_already_applied",
+                heuristic_score=initial_score,
+                reason="Composite title+company already applied",
+            )
             await self._emit_counters(
                 jobs_found=self._jobs_found,
                 processed_count=processed_count,

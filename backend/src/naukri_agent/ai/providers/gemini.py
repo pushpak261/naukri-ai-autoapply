@@ -63,6 +63,10 @@ class GeminiProvider(ILLMProvider):
 
         self._model_name = model_name
         self._client: genai.Client | None = None
+        from src.naukri_agent.utils.rate_limiter import TokenBucketRateLimiter
+
+        # Initialize token bucket rate limiter: default 15 RPM for free tier (0.25 tokens/sec)
+        self._rate_limiter = TokenBucketRateLimiter(capacity=15.0, refill_rate=15.0 / 60.0)
 
     def _get_client(self) -> genai.Client:
         """Lazy-initialize the genai.Client on demand."""
@@ -104,6 +108,8 @@ class GeminiProvider(ILLMProvider):
                 the user rather than retry.
             LLMAPIError: for any other failure to generate content.
         """
+        # Acquire token from the rate limiter first to respect API constraints
+        await self._rate_limiter.acquire(1.0)
         try:
             response = await self._get_client().aio.models.generate_content(
                 model=self._model_name,

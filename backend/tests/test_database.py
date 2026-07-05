@@ -242,3 +242,24 @@ class TestRunLogOperations:
         assert len(stats) >= 2
         assert stats[0]["keywords"] == ["Run 2"]
         assert stats[1]["keywords"] == ["Run 1"]
+
+    @pytest.mark.asyncio
+    async def test_is_already_applied_composite(self, repo):
+        """Test checking if a job (title, company) has been applied to via composite cache."""
+        job = await repo.save_job(
+            naukri_job_id="COMP_APPLIED",
+            title="Data Analyst",
+            company="Accenture",
+            url="https://naukri.com/job/comp",
+        )
+        assert not repo.is_already_applied_composite("Data Analyst", "Accenture")
+
+        await repo.save_application(
+            job_id=job.id,
+            match_score=90.0,
+            status=ApplicationStatus.APPLIED,
+        )
+
+        assert repo.is_already_applied_composite("Data Analyst", "Accenture")
+        assert repo.is_already_applied_composite("  data analyst ", "ACCENTURE")
+        assert not repo.is_already_applied_composite("Software Engineer", "Accenture")
