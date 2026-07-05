@@ -42,6 +42,7 @@ def job_event_payload(job: Job, status: str, **extra: Any) -> dict[str, Any]:
         "external_apply_url": job.external_apply_url,
         "hiring_for": job.hiring_for,
         "is_consultant_post": job.is_consultant_post,
+        "has_company_logo": job.has_company_logo,
         "match_score": None,
         "heuristic_score": None,
         "match_reasoning": None,

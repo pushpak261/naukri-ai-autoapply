@@ -73,28 +73,6 @@ class NotSpecification(JobSpecification):
         return not self._spec.is_satisfied_by(job)
 
 
-class BigCompanyAllowlistSpecification(JobSpecification):
-    """
-    Specification satisfied when the job's company matches the big-company allowlist.
-    Empty allowlist matches nothing (all jobs are skipped).
-    """
-
-    def __init__(self, companies: list[str]) -> None:
-        self._companies = companies
-        self._regex: re.Pattern[str] | None = None
-        if companies:
-            pattern = "|".join(map(re.escape, companies))
-            self._regex = re.compile(pattern, re.IGNORECASE)
-
-    def is_satisfied_by(self, job: Job) -> bool:
-        if not self._regex:
-            return False
-        company = job.company
-        if company and self._regex.search(company):
-            return True
-        return False
-
-
 class CompanyExclusionSpecification(JobSpecification):
     """
     Specification that is satisfied if the job's company is in the configured exclusion list.

@@ -85,6 +85,7 @@ export const useRunStore = create<RunStore>((set, get) => ({
 
     if (type === 'login_started') set({ phase: 'logging_in', status: 'running' })
     if (type === 'search_started') set({ phase: 'searching' })
+    if (type === 'search_batch_completed') set({ phase: 'searching_and_applying' })
     if (type === 'run_started') set({ status: 'running', phase: 'starting' })
     if (type === 'run_completed') {
       set({ status: 'completed', phase: 'completed' })

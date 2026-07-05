@@ -17,6 +17,13 @@ export interface RunCreate {
   dry_run?: boolean
   cap?: number | null
   threshold?: number | null
+  experience_min?: number | null
+  experience_max?: number | null
+}
+
+export interface SearchExperienceUpdate {
+  experience_min: number
+  experience_max: number
 }
 
 export interface AgentEvent {
@@ -81,9 +88,7 @@ export interface ConfigSummary {
   daily_cap: number
   match_score_threshold: number
   dry_run: boolean
-  require_verified_job: boolean
   min_company_rating: number
-  big_companies: string[]
   excluded_companies: string[]
   excluded_title_keywords: string[]
   ai_model: string

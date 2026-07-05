@@ -2,13 +2,25 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class RunCreate(BaseModel):
     dry_run: bool = False
-    cap: int | None = None
+    cap: int | None = Field(default=None, ge=1)
     threshold: int | None = Field(default=None, ge=0, le=100)
+    experience_min: int | None = Field(default=None, ge=0, le=50)
+    experience_max: int | None = Field(default=None, ge=0, le=50)
+
+    @model_validator(mode="after")
+    def validate_experience_range(self) -> RunCreate:
+        if (
+            self.experience_min is not None
+            and self.experience_max is not None
+            and self.experience_min > self.experience_max
+        ):
+            raise ValueError("experience_min cannot be greater than experience_max")
+        return self
 
 
 class RunStatus(BaseModel):

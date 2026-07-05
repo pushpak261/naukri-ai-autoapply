@@ -87,13 +87,6 @@ def is_valid_company_name(company: str | None) -> bool:
     return company.strip().lower() not in _INVALID_COMPANY_NAMES
 
 
-def company_matches_allowlist(company: str, allowlist: list[str]) -> bool:
-    if not company or not allowlist:
-        return False
-    company_lower = company.lower()
-    return any(entry.strip().lower() in company_lower for entry in allowlist if entry.strip())
-
-
 def _name_looks_like_recruiter(company: str) -> bool:
     return bool(_RECRUITER_NAME_PATTERN.search(company))
 
@@ -142,20 +135,10 @@ class CompanyWebVerifier:
     def __init__(self) -> None:
         self._cache: dict[str, tuple[bool, str]] = {}
 
-    async def verify_software_employer(
-        self,
-        company: str,
-        *,
-        allowlisted: bool = False,
-    ) -> tuple[bool, str]:
+    async def verify_software_employer(self, company: str) -> tuple[bool, str]:
         cache_key = company.strip().lower()
         if cache_key in self._cache:
             return self._cache[cache_key]
-
-        if allowlisted:
-            result = (True, "Company is in big_companies allowlist")
-            self._cache[cache_key] = result
-            return result
 
         query = f'"{company}" software technology company'
         snippets = await asyncio.to_thread(_fetch_web_snippets_sync, query)
@@ -187,53 +170,69 @@ class CompanyWebVerifier:
         return result
 
 
-class EmployerLegitimacyFilter:
+class DirectEmployerFilter:
     """
-    Reject consultancy/recruiter postings and unverified employer names.
+    Accept jobs from companies genuinely hiring for themselves.
 
-    Rules (in order):
-    1. Missing or undisclosed company name → reject
-    2. Consultant/recruiter post without named hiring company → reject
-    3. Company name matches recruiter/staffing patterns (non-allowlisted) → reject
-    4. Optional online verification for non-allowlisted names
+    Requires a valid company name, rejects consultancy/recruiter posts, and
+    optionally requires a company logo on the job post.
     """
 
     def __init__(
         self,
         *,
-        big_companies: list[str] | None = None,
-        verify_online: bool = True,
-        web_verifier: CompanyWebVerifier | None = None,
+        require_direct_employer: bool = True,
+        require_company_logo: bool = True,
+        min_company_rating_for_logo_fallback: float = 3.0,
     ) -> None:
-        self._big_companies = big_companies or []
-        self._verify_online = verify_online
-        self._web_verifier = web_verifier or CompanyWebVerifier()
+        self._require_direct_employer = require_direct_employer
+        self._require_company_logo = require_company_logo
+        self._min_rating_fallback = min_company_rating_for_logo_fallback
 
-    def evaluate_sync(self, job: Job) -> tuple[bool, str]:
-        """Synchronous heuristic checks (no web lookup)."""
+    def evaluate(self, job: Job) -> tuple[bool, str]:
+        if not self._require_direct_employer:
+            return True, ""
+
         company = (job.company or "").strip()
         if not is_valid_company_name(company):
             return False, "Company name missing or not disclosed"
 
-        hiring_for = _clean_label(getattr(job, "hiring_for", None))
-        is_consultant = getattr(job, "is_consultant_post", None)
-        looks_like_recruiter = _name_looks_like_recruiter(company)
-        allowlisted = company_matches_allowlist(company, self._big_companies) and not looks_like_recruiter
+        is_consultant = job.is_consultant_post
+        hiring_for = _clean_label(job.hiring_for)
 
-        if is_consultant is True and not hiring_for:
-            return False, "Consultant posting without named hiring company"
+        if is_consultant is True:
+            return False, "Consultancy/recruiter post"
 
-        if looks_like_recruiter:
-            if not hiring_for:
-                return False, "Recruiter/staffing agency without hiring company information"
+        if hiring_for:
+            return False, "Consultancy/recruiter post hiring for client"
 
-        if _name_looks_like_consultancy(company) and not allowlisted and not hiring_for:
-            return False, "Consultancy posting without named end client"
+        has_logo = job.has_company_logo is True
+        is_direct_post = job.is_consultant_post is False
+        has_direct_employer_signals = has_logo and is_direct_post
+
+        if not has_direct_employer_signals:
+            if _name_looks_like_recruiter(company):
+                return False, "Recruiter/staffing agency post"
+
+            if _name_looks_like_consultancy(company):
+                return False, "Consultancy posting without direct employer signals"
+
+        if self._require_company_logo:
+            if job.has_company_logo is False:
+                return False, "No company logo on job post"
+            if job.has_company_logo is None:
+                has_strong_signals = (
+                    job.company_rating is not None
+                    and job.company_rating >= self._min_rating_fallback
+                    and job.is_verified is True
+                )
+                if not has_strong_signals:
+                    return False, "Company logo status unknown"
 
         description = (job.description or "").lower()
-        if is_consultant is None and not hiring_for:
+        if is_consultant is None:
             if "posted by" in description and "consultant" in description:
-                return False, "Job description indicates consultant post without client"
+                return False, "Job description indicates consultant post"
             if re.search(r"\bour client\b", description) and not re.search(
                 r"\bclient\s*[:\-]\s*\w", description
             ):
@@ -241,24 +240,25 @@ class EmployerLegitimacyFilter:
 
         return True, ""
 
+
+class EmployerLegitimacyFilter:
+    """Optional online verification for employer legitimacy."""
+
+    def __init__(
+        self,
+        *,
+        verify_online: bool = True,
+        web_verifier: CompanyWebVerifier | None = None,
+    ) -> None:
+        self._verify_online = verify_online
+        self._web_verifier = web_verifier or CompanyWebVerifier()
+
     async def evaluate(self, job: Job) -> tuple[bool, str]:
-        passes, reason = self.evaluate_sync(job)
-        if not passes:
-            return passes, reason
-
-        company = job.company.strip()
-        hiring_for = _clean_label(job.hiring_for)
-        looks_like_recruiter = _name_looks_like_recruiter(company)
-        allowlisted = company_matches_allowlist(company, self._big_companies) and not looks_like_recruiter
-
         if not self._verify_online:
             return True, ""
 
-        if allowlisted:
-            return True, ""
+        company = (job.company or "").strip()
+        if not company:
+            return False, "Company name missing for online verification"
 
-        verify_name = hiring_for or company
-        return await self._web_verifier.verify_software_employer(
-            verify_name,
-            allowlisted=False,
-        )
+        return await self._web_verifier.verify_software_employer(company)

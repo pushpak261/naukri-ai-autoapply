@@ -30,6 +30,7 @@ class Job:
     external_apply_url: str | None = None
     hiring_for: str | None = None
     is_consultant_post: bool | None = None
+    has_company_logo: bool | None = None
     scraped_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     id: int | None = None
 

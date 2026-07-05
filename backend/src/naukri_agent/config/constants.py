@@ -198,6 +198,7 @@ class ApplicationStatus:
     SKIPPED_UNVERIFIED = "skipped_unverified"
     SKIPPED_LOW_COMPANY_RATING = "skipped_low_company_rating"
     SKIPPED_NOT_BIG_COMPANY = "skipped_not_big_company"
+    SKIPPED_NOT_DIRECT_EMPLOYER = "skipped_not_direct_employer"
     SKIPPED_CONSULTANCY_RECRUITER = "skipped_consultancy_recruiter"
     EXTERNAL_APPLY = "external_apply"
     FAILED = "failed"

@@ -22,7 +22,7 @@ run:
 	PYTHONPATH=. python -m src.naukri_agent.main run
 
 dev-api:
-	cd .. && python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000 --loop backend.loop:create_event_loop
+	cd .. && python -m backend
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +

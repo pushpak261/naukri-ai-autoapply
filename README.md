@@ -40,7 +40,7 @@ Open http://127.0.0.1:5173 (proxies `/api` to the backend on port 8000). See [fr
 
 ```bash
 # Terminal 1 — API (from repo root)
-python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000 --loop backend.loop:create_event_loop
+python -m backend
 
 # Terminal 2 — UI
 cd frontend && npm run dev

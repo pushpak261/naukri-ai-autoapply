@@ -129,13 +129,7 @@ def create_agent(settings, session_factory, progress_reporter=None) -> NaukriAge
 async def _run(dry_run: bool, cap: int | None, threshold: int | None):
     from src.naukri_agent.database.models import init_db
 
-    settings = get_settings()
-
-    # Apply CLI overrides
-    if cap is not None:
-        settings.application.daily_cap = cap
-    if threshold is not None:
-        settings.application.match_score_threshold = threshold
+    settings = get_settings().copy_for_run(cap=cap, threshold=threshold)
 
     problems = settings.validate_required()
     if problems:

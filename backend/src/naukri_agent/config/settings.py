@@ -8,6 +8,7 @@ overrides. Provides typed, validated access to all settings.
 from __future__ import annotations
 
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -83,10 +84,7 @@ class ApplicationSettings(BaseModel):
     delay_between_actions_max: float = 3.0
     skip_external_apply: bool = True
     dry_run: bool = False
-    require_verified_job: bool = True
     min_company_rating: float = 3.0
-    big_companies: list[str] = Field(default_factory=list)
-    verify_employer_online: bool = True
 
 
 class ProfileSettings(BaseModel):
@@ -147,7 +145,31 @@ class Settings(BaseModel):
     resumes_dir: Path = PROJECT_ROOT / "data" / "resumes"
     db_path: Path = PROJECT_ROOT / "data" / "naukri_agent.db"
 
+    # Per-run flag: when True, daily_cap applies only to this run (UI/CLI override).
+    run_cap_resets_daily: bool = False
+
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def copy_for_run(
+        self,
+        *,
+        cap: int | None = None,
+        threshold: int | None = None,
+        experience_min: int | None = None,
+        experience_max: int | None = None,
+    ) -> Settings:
+        """Deep-copy settings and apply optional per-run overrides without mutating the cache."""
+        run_settings = self.model_copy(deep=True)
+        if cap is not None:
+            run_settings.application.daily_cap = cap
+            run_settings.run_cap_resets_daily = True
+        if threshold is not None:
+            run_settings.application.match_score_threshold = threshold
+        if experience_min is not None:
+            run_settings.search.experience_min = experience_min
+        if experience_max is not None:
+            run_settings.search.experience_max = experience_max
+        return run_settings
 
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
@@ -271,6 +293,42 @@ def _apply_env_overrides(config: dict) -> dict:
             config[section][key] = _parse_env_value(env_var, env_val)
 
     return config
+
+
+def save_search_experience(experience_min: int, experience_max: int) -> Settings:
+    """Persist search experience range to config.yaml and reload settings."""
+    if experience_min > experience_max:
+        raise ValueError(
+            f"experience_min ({experience_min}) cannot be greater than "
+            f"experience_max ({experience_max})."
+        )
+
+    config_path = PROJECT_ROOT / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"Config file not found: {config_path}")
+
+    text = config_path.read_text(encoding="utf-8")
+    updated = _replace_yaml_int_value(text, "experience_min", experience_min)
+    updated = _replace_yaml_int_value(updated, "experience_max", experience_max)
+    if updated == text:
+        config = _load_yaml_config()
+        config.setdefault("search", {})
+        config["search"]["experience_min"] = experience_min
+        config["search"]["experience_max"] = experience_max
+        with open(config_path, "w", encoding="utf-8") as f:
+            yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    else:
+        config_path.write_text(updated, encoding="utf-8")
+
+    get_settings.cache_clear()
+    return get_settings()
+
+
+def _replace_yaml_int_value(text: str, key: str, value: int) -> str:
+    """Replace a top-level YAML int value while preserving trailing comments."""
+    pattern = rf"^(\s*{re.escape(key)}:\s*)\d+(.*)$"
+    replacement = rf"\g<1>{value}\g<2>"
+    return re.sub(pattern, replacement, text, count=1, flags=re.MULTILINE)
 
 
 @lru_cache(maxsize=1)

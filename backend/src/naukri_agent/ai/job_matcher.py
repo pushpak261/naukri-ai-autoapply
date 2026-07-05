@@ -163,23 +163,23 @@ class JobMatcher(IJobMatcher):
         resume_summary = json.dumps(profile_dict, indent=2, ensure_ascii=False)
         resume_summary = truncate_text(resume_summary, max_length=6000)
 
+        self._threshold = self._settings.application.match_score_threshold
+
         resume_hash = resume_profile.file_hash
         job_id = job.naukri_job_id
         if resume_hash and job_id:
             cached_result = self._cache.get(resume_hash, job_id)
             if cached_result:
                 logger.debug(f"Cache hit for Job Match: {job_id}")
+                score = float(cached_result.get("score", 0))
+                should_apply = score >= self._threshold
                 return JobApplication(
-                    match_score=float(cached_result.get("score", 0)),
-                    status=(
-                        "applied"
-                        if cached_result.get("should_apply", False)
-                        else "skipped_low_score"
-                    ),
+                    match_score=score,
+                    status="applied" if should_apply else "skipped_low_score",
                     match_reasoning=cached_result.get("reasoning", ""),
                     matching_skills=", ".join(cached_result.get("matching_skills", [])),
                     missing_skills=", ".join(cached_result.get("missing_skills", [])),
-                    should_apply=cached_result.get("should_apply", False),
+                    should_apply=should_apply,
                 )
 
         # Clean and truncate job description

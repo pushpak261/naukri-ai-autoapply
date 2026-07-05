@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { ApplicationRecord, ConfigSummary } from './types'
+import type { ApplicationRecord, ConfigSummary, SearchExperienceUpdate } from './types'
 
 export interface JobListResponse {
   items: Array<{
@@ -32,4 +32,6 @@ export const jobsApi = {
   recentApplications: (limit = 20) =>
     api.get<ApplicationRecord[]>(`/applications/recent?limit=${limit}`),
   configSummary: () => api.get<ConfigSummary>('/config/summary'),
+  updateSearchExperience: (body: SearchExperienceUpdate) =>
+    api.put<ConfigSummary>('/config/search/experience', body),
 }

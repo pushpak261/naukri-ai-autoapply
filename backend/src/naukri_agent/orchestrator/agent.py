@@ -28,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import dataclasses
+import enum
 import heapq
 import json
 import signal
@@ -40,6 +41,7 @@ from rich.table import Table
 
 from src.naukri_agent.ai.similarity import VectorSimilarityFilter
 from src.naukri_agent.browser.apply import JobApplier
+from src.naukri_agent.browser.gate import BrowserGate
 from src.naukri_agent.browser.login import LoginHandler
 from src.naukri_agent.browser.profile import ProfileRefresher
 from src.naukri_agent.browser.search import JobSearcher
@@ -47,7 +49,6 @@ from src.naukri_agent.config.constants import ApplicationStatus
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
 from src.naukri_agent.core.domain.specifications import (
-    BigCompanyAllowlistSpecification,
     CompanyExclusionSpecification,
     DescriptionExclusionSpecification,
     JobSpecification,
@@ -71,7 +72,6 @@ from src.naukri_agent.core.progress import (
 )
 from src.naukri_agent.orchestrator.factory import DependencyFactory
 from src.naukri_agent.utils.helpers import TimeUtility
-from src.naukri_agent.utils.company_legitimacy import EmployerLegitimacyFilter
 from src.naukri_agent.utils.filters import JobQualityFilter
 from src.naukri_agent.utils.job_metadata import merge_job_metadata
 from src.naukri_agent.utils.logger import (
@@ -86,6 +86,12 @@ from src.naukri_agent.utils.logger import (
 )
 
 logger = get_logger(__name__)
+
+
+class ProcessOutcome(enum.Enum):
+    CONTINUE = "continue"
+    CAP_REACHED = "cap_reached"
+    INTERRUPTED = "interrupted"
 
 
 class NaukriAgent:
@@ -226,12 +232,12 @@ class NaukriAgent:
 
         # Job Exclusions Specification
         self._exclusion_spec: JobSpecification | None = None
-        self._big_company_spec: BigCompanyAllowlistSpecification | None = None
-        self._employer_filter: EmployerLegitimacyFilter | None = None
         self._quality_filter: JobQualityFilter | None = None
         self._progress = progress_reporter or NullProgressReporter()
         self._phase = "idle"
         self._run_errored = False
+        self._total_queued = 0
+        self._cap_reached = False
 
     async def _emit(self, event_type: str, data: dict | None = None) -> None:
         payload = dict(data or {})
@@ -258,6 +264,12 @@ class NaukriAgent:
             "counters_updated",
             counters_payload(self._run_log_id or 0, **payload),
         )
+
+    def _cap_remaining(self) -> int:
+        return self._settings.application.daily_cap - getattr(self, "_daily_applied", 0)
+
+    def _is_cap_reached(self) -> bool:
+        return self._cap_remaining() <= 0
 
     def set_progress_reporter(self, reporter: IProgressReporter) -> None:
         self._progress = reporter
@@ -336,47 +348,25 @@ class NaukriAgent:
                 return
             await self._emit("login_success", {})
 
-            # Step 4: Search for jobs
+            # Step 4–6: Pipeline search batches into apply while searching continues
             self._phase = "searching"
             await self._emit_counters()
             await self._emit("search_started", {})
             searcher = self._job_searcher
             if not searcher:
                 raise RuntimeError("JobSearcher not configured.")
-            jobs = await searcher.search_all()
-            self._jobs_found = len(jobs)
-            await self._emit("search_completed", {"jobs_found": self._jobs_found})
-            await self._emit_counters(jobs_found=self._jobs_found)
 
-            if not jobs:
-                log_warning("No jobs found matching your search criteria.")
-                return
-
-            log_success(f"Found {len(jobs)} candidate jobs. Starting evaluation...")
-
-            # Build the composed job exclusion specifications
             exclusions = self._settings.exclusions
             self._exclusion_spec = (
                 CompanyExclusionSpecification(exclusions.companies)
                 | TitleExclusionSpecification(exclusions.title_keywords)
                 | DescriptionExclusionSpecification(exclusions.description_keywords)
             )
-            big_companies = self._settings.application.big_companies
-            self._big_company_spec = BigCompanyAllowlistSpecification(big_companies)
-            if not big_companies:
-                log_warning(
-                    "application.big_companies allowlist is empty — all jobs will be skipped."
-                )
             self._quality_filter = JobQualityFilter(
-                require_verified=self._settings.application.require_verified_job,
+                require_verified=False,
                 min_company_rating=self._settings.application.min_company_rating,
             )
-            self._employer_filter = EmployerLegitimacyFilter(
-                big_companies=big_companies,
-                verify_online=self._settings.application.verify_employer_online,
-            )
 
-            # Step 5: Initialize AI components
             matcher = self._job_matcher
             if not matcher:
                 raise RuntimeError("JobMatcher not configured.")
@@ -398,10 +388,9 @@ class NaukriAgent:
             )
             vector_filter = VectorSimilarityFilter(resume_text)
 
-            # Step 6: Process each job using Priority Queue Max-Heap
-            self._phase = "processing"
-            await self._emit_counters(jobs_found=self._jobs_found, total_queued=len(jobs))
-            await self._process_jobs(jobs, matcher, applier, searcher, vector_filter)
+            await self._run_search_apply_pipeline(
+                searcher, matcher, applier, vector_filter
+            )
 
         except KeyboardInterrupt:
             log_warning("Agent interrupted by user (Ctrl+C)")
@@ -447,6 +436,148 @@ class NaukriAgent:
                 )
             )
 
+    async def _init_daily_applied(self) -> None:
+        if self._settings.run_cap_resets_daily:
+            self._daily_applied = 0
+        else:
+            self._daily_applied = (
+                await self._repo.get_today_application_count() if self._repo else 0
+            )
+
+    def _rank_batch_jobs(
+        self,
+        jobs: list[Job],
+        vector_filter: VectorSimilarityFilter,
+    ) -> list[Job]:
+        """Rank jobs within a search batch by TF-IDF similarity (highest first)."""
+        job_heap: list[tuple[float, int, Job]] = []
+        for idx, job in enumerate(jobs):
+            text_to_score = f"{job.title} {job.company} {job.skills}"
+            score = vector_filter.get_similarity_score(text_to_score)
+            posted = str(job.posted_date).lower()
+            if "just now" in posted or "hour" in posted or "today" in posted or "1 day" in posted:
+                score += 0.05
+            heapq.heappush(job_heap, (-score, idx, job))
+
+        ranked: list[Job] = []
+        while job_heap:
+            _, _, job = heapq.heappop(job_heap)
+            ranked.append(job)
+        return ranked
+
+    async def _run_search_apply_pipeline(
+        self,
+        searcher: JobSearcher,
+        matcher: IJobMatcher,
+        applier: JobApplier,
+        vector_filter: VectorSimilarityFilter,
+    ) -> None:
+        await self._init_daily_applied()
+        self._total_queued = 0
+        self._cap_reached = False
+
+        gate = BrowserGate()
+        queue: asyncio.Queue[Job | None] = asyncio.Queue()
+
+        await asyncio.gather(
+            self._search_producer(searcher, queue, gate, vector_filter),
+            self._apply_consumer(queue, matcher, applier, searcher, vector_filter, gate),
+        )
+
+        if self._jobs_found == 0:
+            log_warning("No jobs found matching your search criteria.")
+
+    async def _search_producer(
+        self,
+        searcher: JobSearcher,
+        queue: asyncio.Queue[Job | None],
+        gate: BrowserGate,
+        vector_filter: VectorSimilarityFilter,
+    ) -> None:
+        try:
+            async for batch in searcher.iter_search_batches(browser_gate=gate):
+                if self._interrupted or self._cap_reached or self._is_cap_reached():
+                    break
+
+                ranked_jobs = self._rank_batch_jobs(batch.jobs, vector_filter)
+                for job in ranked_jobs:
+                    await self._emit_job(job, "queued")
+                    await queue.put(job)
+                    self._total_queued += 1
+
+                self._jobs_found += len(batch.jobs)
+                await self._emit(
+                    "search_batch_completed",
+                    {
+                        "keyword": batch.keyword,
+                        "location": batch.location,
+                        "batch_jobs": len(batch.jobs),
+                        "total_unique": self._jobs_found,
+                    },
+                )
+                await self._emit_counters(
+                    jobs_found=self._jobs_found,
+                    total_queued=self._total_queued,
+                )
+
+                if batch.jobs and self._phase == "searching":
+                    self._phase = "searching_and_applying"
+                    log_success(
+                        f"Found {len(batch.jobs)} jobs for '{batch.keyword}' in "
+                        f"'{batch.location}'. Starting evaluation while searching continues..."
+                    )
+        finally:
+            await queue.put(None)
+            await self._emit("search_completed", {"jobs_found": self._jobs_found})
+            await self._emit_counters(jobs_found=self._jobs_found, total_queued=self._total_queued)
+            if not self._interrupted and self._total_queued > 0:
+                self._phase = "processing"
+
+    async def _apply_consumer(
+        self,
+        queue: asyncio.Queue[Job | None],
+        matcher: IJobMatcher,
+        applier: JobApplier,
+        searcher: JobSearcher,
+        vector_filter: VectorSimilarityFilter,
+        gate: BrowserGate,
+    ) -> None:
+        processed_count = 0
+
+        while True:
+            if self._interrupted:
+                break
+
+            job = await queue.get()
+            if job is None:
+                break
+
+            if self._is_cap_reached():
+                self._cap_reached = True
+                break
+
+            processed_count += 1
+            text_to_score = f"{job.title} {job.company} {job.skills}"
+            initial_score = vector_filter.get_similarity_score(text_to_score)
+
+            outcome = await self._process_one_job(
+                job,
+                initial_score=initial_score,
+                processed_count=processed_count,
+                total_queued=self._total_queued,
+                matcher=matcher,
+                applier=applier,
+                searcher=searcher,
+                vector_filter=vector_filter,
+                browser_gate=gate,
+            )
+
+            if outcome == ProcessOutcome.CAP_REACHED:
+                self._cap_reached = True
+                break
+            if outcome == ProcessOutcome.INTERRUPTED:
+                break
+
     async def _process_jobs(
         self,
         jobs: list[Job],
@@ -464,375 +595,354 @@ class NaukriAgent:
             "_process_jobs() requires a parsed resume profile; run() must "
             "check and return early before calling this."
         )
-        resume_profile = self._resume_profile
-        job_queue: list[tuple[float, int, Job]] = []
-        for idx, job in enumerate(jobs):
-            text_to_score = f"{job.title} {job.company} {job.skills}"
-            score = vector_filter.get_similarity_score(text_to_score)
 
-            posted = str(job.posted_date).lower()
-            if "just now" in posted or "hour" in posted or "today" in posted or "1 day" in posted:
-                score += 0.05
-
-            heapq.heappush(job_queue, (-score, idx, job))
-
-        total_jobs = len(job_queue)
-        self._daily_applied = await self._repo.get_today_application_count() if self._repo else 0
+        ranked_jobs = self._rank_batch_jobs(jobs, vector_filter)
+        total_jobs = len(ranked_jobs)
+        await self._init_daily_applied()
         processed_count = 0
 
-        for _, _, job in job_queue:
+        for job in ranked_jobs:
             await self._emit_job(job, "queued")
 
-        while job_queue:
+        for job in ranked_jobs:
             if self._interrupted:
                 break
 
-            neg_score, idx, job = heapq.heappop(job_queue)
-            initial_score = -neg_score
-
-            remaining = self._settings.application.daily_cap - self._daily_applied
-            if remaining <= 0:
+            if self._is_cap_reached():
                 log_warning(
-                    f"Daily application cap reached ({self._settings.application.daily_cap}). Stopping."
+                    f"Application cap reached ({self._settings.application.daily_cap}). Stopping."
                 )
                 break
 
             processed_count += 1
-            await self._emit_job(job, "processing", heuristic_score=initial_score)
+            text_to_score = f"{job.title} {job.company} {job.skills}"
+            initial_score = vector_filter.get_similarity_score(text_to_score)
+
+            outcome = await self._process_one_job(
+                job,
+                initial_score=initial_score,
+                processed_count=processed_count,
+                total_queued=total_jobs,
+                matcher=matcher,
+                applier=applier,
+                searcher=searcher,
+                vector_filter=vector_filter,
+            )
+
+            if outcome in (ProcessOutcome.CAP_REACHED, ProcessOutcome.INTERRUPTED):
+                break
+
+    async def _process_one_job(
+        self,
+        job: Job,
+        *,
+        initial_score: float,
+        processed_count: int,
+        total_queued: int,
+        matcher: IJobMatcher,
+        applier: JobApplier,
+        searcher: JobSearcher,
+        vector_filter: VectorSimilarityFilter,
+        browser_gate: BrowserGate | None = None,
+    ) -> ProcessOutcome:
+        assert self._resume_profile is not None
+        resume_profile = self._resume_profile
+
+        await self._emit_job(job, "processing", heuristic_score=initial_score)
+        await self._emit_counters(
+            jobs_found=self._jobs_found,
+            processed_count=processed_count,
+            total_queued=total_queued,
+        )
+        log_step(
+            processed_count,
+            total_queued,
+            f"{job.title} @ {job.company} (Heuristic: {initial_score:.2f})",
+        )
+
+        if self._repo and self._repo.is_already_applied(job.naukri_job_id):
+            self._jobs_skipped += 1
+            await self._emit_job(job, "skipped_already_applied", heuristic_score=initial_score)
             await self._emit_counters(
                 jobs_found=self._jobs_found,
                 processed_count=processed_count,
-                total_queued=total_jobs,
+                total_queued=total_queued,
             )
-            log_step(
-                processed_count,
-                total_jobs,
-                f"{job.title} @ {job.company} (Heuristic: {initial_score:.2f})",
+            return ProcessOutcome.CONTINUE
+
+        if self._is_excluded(job):
+            self._jobs_skipped += 1
+            await self._emit_job(
+                job,
+                "skipped_excluded",
+                heuristic_score=initial_score,
+                reason="Excluded by company/title/description filter",
             )
-
-            # Deduplication
-            if self._repo and self._repo.is_already_applied(job.naukri_job_id):
-                self._jobs_skipped += 1
-                await self._emit_job(job, "skipped_already_applied", heuristic_score=initial_score)
-                await self._emit_counters(
-                    jobs_found=self._jobs_found,
-                    processed_count=processed_count,
-                    total_queued=total_jobs,
-                )
-                continue
-
-            # Exclusion filters
-            if self._is_excluded(job):
-                self._jobs_skipped += 1
-                await self._emit_job(
-                    job,
-                    "skipped_excluded",
-                    heuristic_score=initial_score,
-                    reason="Excluded by company/title/description filter",
-                )
-                await self._emit_counters(
-                    jobs_found=self._jobs_found,
-                    processed_count=processed_count,
-                    total_queued=total_jobs,
-                )
-                continue
-
-            # Big-company allowlist gate
-            if not self._is_big_company(job):
-                self._jobs_skipped += 1
-                await self._emit_job(
-                    job,
-                    ApplicationStatus.SKIPPED_NOT_BIG_COMPANY,
-                    heuristic_score=initial_score,
-                    reason="Company not in big_companies allowlist",
-                )
-                await self._emit_counters(
-                    jobs_found=self._jobs_found,
-                    processed_count=processed_count,
-                    total_queued=total_jobs,
-                )
-                continue
-
-            # Check browser status before interacting
-            if not self._engine.is_alive():
-                log_warning("Browser disconnected! Restarting browser engine...")
-                with contextlib.suppress(Exception):
-                    await self._engine.close()
-                await self._engine.launch()
-                try:
-                    login_handler = self._login_handler
-                    if not login_handler:
-                        raise RuntimeError("LoginHandler not configured.")
-                    await login_handler.login()
-                except Exception as e:
-                    logger.error(f"Failed to re-login after restart: {e}")
-
-            # Get description, skills, quality metadata, and apply type from the job page
-            needs_detail_page = (
-                not job.description
-                or job.is_verified is None
-                or job.company_rating is None
-                or job.is_external_apply is None
-                or job.hiring_for is None
-                or job.is_consultant_post is None
+            await self._emit_counters(
+                jobs_found=self._jobs_found,
+                processed_count=processed_count,
+                total_queued=total_queued,
             )
-            if needs_detail_page:
-                details = await searcher.get_job_description(job.url)
-                if details.get("description"):
-                    job.description = details["description"]
-                if details.get("skills"):
-                    job.skills = details["skills"]
-                merge_job_metadata(
-                    job,
-                    rating=details.get("company_rating"),
-                    verified=details.get("is_verified"),
-                    is_external_apply=details.get("is_external_apply"),
-                    external_apply_url=details.get("external_apply_url"),
-                    hiring_for=details.get("hiring_for"),
-                    is_consultant_post=details.get("is_consultant_post"),
-                )
-                if not self._interactions:
-                    raise RuntimeError("BrowserInteractions not configured.")
-                await self._interactions.action_delay()
+            return ProcessOutcome.CONTINUE
 
-            if self._employer_filter:
-                passes_employer, employer_reason = await self._employer_filter.evaluate(job)
-                if not passes_employer:
-                    log_warning(
-                        f"Skipping {job.title} @ {job.company}: {employer_reason}"
-                    )
-                    self._jobs_skipped += 1
-                    await self._emit_job(
-                        job,
-                        ApplicationStatus.SKIPPED_CONSULTANCY_RECRUITER,
-                        heuristic_score=initial_score,
-                        reason=employer_reason,
-                    )
-                    await self._emit_counters(
-                        jobs_found=self._jobs_found,
-                        processed_count=processed_count,
-                        total_queued=total_jobs,
-                    )
-                    continue
-
-            if job.is_external_apply:
-                self._jobs_skipped += 1
-                await self._emit_job(
-                    job,
-                    ApplicationStatus.EXTERNAL_APPLY,
-                    heuristic_score=initial_score,
-                    reason="External apply — apply on company site",
-                )
-                await self._emit_counters(
-                    jobs_found=self._jobs_found,
-                    processed_count=processed_count,
-                    total_queued=total_jobs,
-                )
-                continue
-
-            if self._quality_filter:
-                passes_quality, skip_reason = self._quality_filter.evaluate(job)
-                if not passes_quality:
-                    log_warning(
-                        f"Skipping {job.title} @ {job.company}: {skip_reason}"
-                    )
-                    self._jobs_skipped += 1
-                    await self._emit_job(
-                        job,
-                        ApplicationStatus.SKIPPED_LOW_COMPANY_RATING
-                        if "rating" in skip_reason.lower()
-                        else "skipped_quality",
-                        heuristic_score=initial_score,
-                        reason=skip_reason,
-                    )
-                    await self._emit_counters(
-                        jobs_found=self._jobs_found,
-                        processed_count=processed_count,
-                        total_queued=total_jobs,
-                    )
-                    continue
-
-            # Second similarity filter (using description)
-            full_text = f"{job.title} {job.skills} {job.description}"
-            full_sim_score = vector_filter.get_similarity_score(full_text)
-
-            if full_sim_score < 0.03:
-                self._jobs_skipped += 1
-                await self._emit_job(
-                    job,
-                    "skipped_similarity",
-                    heuristic_score=initial_score,
-                    reason="TF-IDF similarity below threshold",
-                )
-                await self._emit_counters(
-                    jobs_found=self._jobs_found,
-                    processed_count=processed_count,
-                    total_queued=total_jobs,
-                )
-                continue
-
-            # AI Matching (pace to respect Gemini free tier limits)
-            await self._emit_job(job, "matching", heuristic_score=initial_score)
-            log_info("Pacing AI requests (waiting 6.5s) to avoid Google limits...")
-            await asyncio.sleep(6.5)
-
+        async def _ensure_browser_alive() -> None:
+            if self._engine.is_alive():
+                return
+            log_warning("Browser disconnected! Restarting browser engine...")
+            with contextlib.suppress(Exception):
+                await self._engine.close()
+            await self._engine.launch()
             try:
-                match_result = await matcher.match(resume_profile, job)
-            except (LLMQuotaExceededError, LLMAPIError) as e:
-                # Determine if it's a daily quota error or any general API failure (like 503)
-                is_daily = isinstance(e, LLMQuotaExceededError) and e.is_daily_quota
-
-                # Fallback to model if configured (works for both daily quota exhaustion and model failures/503s)
-                if self._settings.ai.fallback_model:
-                    fallback_model = self._settings.ai.fallback_model
-                    reason = (
-                        "daily request quota is exhausted"
-                        if is_daily
-                        else f"failed with error: {e}"
-                    )
-                    log_warning(f"⚠️  Primary model '{self._settings.ai.model}' {reason}.")
-                    log_success(
-                        f"✅ Switching to fallback model '{fallback_model}' and continuing run..."
-                    )
-
-                    # Update active model name
-                    llm_provider = self._llm
-                    if not llm_provider:
-                        raise RuntimeError("LLMProvider not configured.") from e
-                    if hasattr(llm_provider, "set_model"):
-                        llm_provider.set_model(fallback_model)
-
-                    # Update settings
-                    self._settings.ai.model = fallback_model
-                    self._settings.ai.fallback_model = None  # Prevent infinite fallback loop
-
-                    # Retry current match once
-                    try:
-                        match_result = await matcher.match(resume_profile, job)
-                    except Exception as fallback_err:
-                        logger.error(f"AI Match failed on fallback model: {fallback_err}")
-                        self._jobs_failed += 1
-                        continue
-                else:
-                    if isinstance(e, LLMQuotaExceededError):
-                        if e.is_daily_quota:
-                            log_error(str(e))
-                            if self._settings.ai.abort_on_quota:
-                                log_error(
-                                    "⚠️  Gemini's daily request quota is exhausted — stopping "
-                                    "the run here instead of marking every remaining job as a "
-                                    "non-match."
-                                )
-                                await self._send_alert(
-                                    "run",
-                                    e,
-                                    extra_context=(
-                                        f"Model: {self._settings.ai.model}\n"
-                                        f"Jobs processed so far: applied={self._jobs_applied}, "
-                                        f"failed={self._jobs_failed}, skipped={self._jobs_skipped}"
-                                    ),
-                                )
-                                self._interrupted = True
-                                break
-                            else:
-                                log_warning(
-                                    f"⚠️  Gemini's daily request quota is exhausted for model '{self._settings.ai.model}', "
-                                    "but continuing run (abort_on_quota is False)."
-                                )
-                                self._jobs_failed += 1
-                                continue
-                        else:
-                            log_error(
-                                "⚠️  Gemini rate limit hit repeatedly — stopping the run "
-                                "to avoid wasting further requests."
-                            )
-                            log_error(str(e))
-                            self._interrupted = True
-                            break
-                    else:
-                        log_error(f"⚠️  Gemini API error occurred: {e}")
-                        self._jobs_failed += 1
-                        continue
+                login_handler = self._login_handler
+                if not login_handler:
+                    raise RuntimeError("LoginHandler not configured.")
+                await login_handler.login()
             except Exception as e:
-                logger.error(f"AI Match failed: {e}")
+                logger.error(f"Failed to re-login after restart: {e}")
+
+        if browser_gate is not None:
+            async with browser_gate.hold():
+                await _ensure_browser_alive()
+        else:
+            await _ensure_browser_alive()
+
+        needs_detail_page = (
+            not job.description
+            or job.company_rating is None
+            or job.is_external_apply is None
+        )
+        if needs_detail_page:
+            raw_details = await searcher.get_job_description(job.url, browser_gate=browser_gate)
+            details = raw_details if isinstance(raw_details, dict) else {}
+            if details.get("description"):
+                job.description = details["description"]
+            if details.get("skills"):
+                job.skills = details["skills"]
+            merge_job_metadata(
+                job,
+                rating=details.get("company_rating"),
+                verified=details.get("is_verified"),
+                is_external_apply=details.get("is_external_apply"),
+                external_apply_url=details.get("external_apply_url"),
+            )
+            if not self._interactions:
+                raise RuntimeError("BrowserInteractions not configured.")
+            await self._interactions.action_delay()
+
+        if job.is_external_apply:
+            self._jobs_skipped += 1
+            await self._emit_job(
+                job,
+                ApplicationStatus.EXTERNAL_APPLY,
+                heuristic_score=initial_score,
+                reason="External apply — apply on company site",
+            )
+            await self._emit_counters(
+                jobs_found=self._jobs_found,
+                processed_count=processed_count,
+                total_queued=total_queued,
+            )
+            return ProcessOutcome.CONTINUE
+
+        if self._quality_filter:
+            passes_quality, skip_reason = self._quality_filter.evaluate(job)
+            if not passes_quality:
+                log_warning(f"Skipping {job.title} @ {job.company}: {skip_reason}")
+                self._jobs_skipped += 1
+                await self._emit_job(
+                    job,
+                    ApplicationStatus.SKIPPED_LOW_COMPANY_RATING
+                    if "rating" in skip_reason.lower()
+                    else "skipped_quality",
+                    heuristic_score=initial_score,
+                    reason=skip_reason,
+                )
+                await self._emit_counters(
+                    jobs_found=self._jobs_found,
+                    processed_count=processed_count,
+                    total_queued=total_queued,
+                )
+                return ProcessOutcome.CONTINUE
+
+        full_text = f"{job.title} {job.skills} {job.description}"
+        full_sim_score = vector_filter.get_similarity_score(full_text)
+
+        if full_sim_score < 0.03:
+            self._jobs_skipped += 1
+            await self._emit_job(
+                job,
+                "skipped_similarity",
+                heuristic_score=initial_score,
+                reason="TF-IDF similarity below threshold",
+            )
+            await self._emit_counters(
+                jobs_found=self._jobs_found,
+                processed_count=processed_count,
+                total_queued=total_queued,
+            )
+            return ProcessOutcome.CONTINUE
+
+        if self._is_cap_reached():
+            log_warning(
+                f"Application cap reached ({self._settings.application.daily_cap}). Stopping."
+            )
+            return ProcessOutcome.CAP_REACHED
+
+        await self._emit_job(job, "matching", heuristic_score=initial_score)
+        log_info("Pacing AI requests (waiting 6.5s) to avoid Google limits...")
+        await asyncio.sleep(6.5)
+
+        try:
+            match_result = await matcher.match(resume_profile, job)
+        except (LLMQuotaExceededError, LLMAPIError) as e:
+            is_daily = isinstance(e, LLMQuotaExceededError) and e.is_daily_quota
+
+            if self._settings.ai.fallback_model:
+                fallback_model = self._settings.ai.fallback_model
+                reason = (
+                    "daily request quota is exhausted"
+                    if is_daily
+                    else f"failed with error: {e}"
+                )
+                log_warning(f"⚠️  Primary model '{self._settings.ai.model}' {reason}.")
+                log_success(
+                    f"✅ Switching to fallback model '{fallback_model}' and continuing run..."
+                )
+
+                llm_provider = self._llm
+                if not llm_provider:
+                    raise RuntimeError("LLMProvider not configured.") from e
+                if hasattr(llm_provider, "set_model"):
+                    llm_provider.set_model(fallback_model)
+
+                self._settings.ai.model = fallback_model
+                self._settings.ai.fallback_model = None
+
+                try:
+                    match_result = await matcher.match(resume_profile, job)
+                except Exception as fallback_err:
+                    logger.error(f"AI Match failed on fallback model: {fallback_err}")
+                    self._jobs_failed += 1
+                    return ProcessOutcome.CONTINUE
+            else:
+                if isinstance(e, LLMQuotaExceededError):
+                    if e.is_daily_quota:
+                        log_error(str(e))
+                        if self._settings.ai.abort_on_quota:
+                            log_error(
+                                "⚠️  Gemini's daily request quota is exhausted — stopping "
+                                "the run here instead of marking every remaining job as a "
+                                "non-match."
+                            )
+                            await self._send_alert(
+                                "run",
+                                e,
+                                extra_context=(
+                                    f"Model: {self._settings.ai.model}\n"
+                                    f"Jobs processed so far: applied={self._jobs_applied}, "
+                                    f"failed={self._jobs_failed}, skipped={self._jobs_skipped}"
+                                ),
+                            )
+                            self._interrupted = True
+                            return ProcessOutcome.INTERRUPTED
+                        log_warning(
+                            f"⚠️  Gemini's daily request quota is exhausted for model "
+                            f"'{self._settings.ai.model}', but continuing run "
+                            "(abort_on_quota is False)."
+                        )
+                        self._jobs_failed += 1
+                        return ProcessOutcome.CONTINUE
+                    log_error(
+                        "⚠️  Gemini rate limit hit repeatedly — stopping the run "
+                        "to avoid wasting further requests."
+                    )
+                    log_error(str(e))
+                    self._interrupted = True
+                    return ProcessOutcome.INTERRUPTED
+                log_error(f"⚠️  Gemini API error occurred: {e}")
                 self._jobs_failed += 1
-                continue
+                return ProcessOutcome.CONTINUE
+        except Exception as e:
+            logger.error(f"AI Match failed: {e}")
+            self._jobs_failed += 1
+            return ProcessOutcome.CONTINUE
 
-            # Save job in database
-            db_job = None
-            if self._repo:
-                db_job = await self._repo.save_job(
-                    naukri_job_id=job.naukri_job_id,
-                    title=job.title,
-                    company=job.company,
-                    url=job.url,
-                    location=job.location,
-                    experience=job.experience,
-                    salary=job.salary,
-                    description=job.description,
-                    skills=job.skills,
-                    posted_date=job.posted_date,
-                )
+        db_job = None
+        if self._repo:
+            db_job = await self._repo.save_job(
+                naukri_job_id=job.naukri_job_id,
+                title=job.title,
+                company=job.company,
+                url=job.url,
+                location=job.location,
+                experience=job.experience,
+                salary=job.salary,
+                description=job.description,
+                skills=job.skills,
+                posted_date=job.posted_date,
+            )
+            assert db_job.id is not None
+
+        match_score = match_result.match_score
+        should_apply = match_result.should_apply
+
+        if not should_apply:
+            if self._repo and db_job:
                 assert db_job.id is not None
-
-            match_score = match_result.match_score
-            should_apply = match_result.should_apply
-
-            if not should_apply:
-                if self._repo and db_job:
-                    assert db_job.id is not None
-                    await self._repo.save_application(
-                        job_id=db_job.id,
-                        match_score=match_score,
-                        status=ApplicationStatus.SKIPPED_LOW_SCORE,
-                        match_reasoning=match_result.match_reasoning,
-                        matching_skills=match_result.matching_skills,
-                        missing_skills=match_result.missing_skills,
-                    )
-                self._jobs_skipped += 1
-                await self._emit_job(
-                    job,
-                    "skipped_low_score",
-                    heuristic_score=initial_score,
+                await self._repo.save_application(
+                    job_id=db_job.id,
                     match_score=match_score,
+                    status=ApplicationStatus.SKIPPED_LOW_SCORE,
                     match_reasoning=match_result.match_reasoning,
+                    matching_skills=match_result.matching_skills,
+                    missing_skills=match_result.missing_skills,
                 )
-                await self._emit_counters(
-                    jobs_found=self._jobs_found,
-                    processed_count=processed_count,
-                    total_queued=total_jobs,
-                )
-                continue
+            self._jobs_skipped += 1
+            await self._emit_job(
+                job,
+                "skipped_low_score",
+                heuristic_score=initial_score,
+                match_score=match_score,
+                match_reasoning=match_result.match_reasoning,
+            )
+            await self._emit_counters(
+                jobs_found=self._jobs_found,
+                processed_count=processed_count,
+                total_queued=total_queued,
+            )
+            return ProcessOutcome.CONTINUE
 
-            if self._settings.application.dry_run:
-                log_info(f"DRY RUN — would apply (score: {match_score})")
-                if self._repo and db_job:
-                    assert db_job.id is not None
-                    await self._repo.save_application(
-                        job_id=db_job.id,
-                        match_score=match_score,
-                        status=ApplicationStatus.SKIPPED_DRY_RUN,
-                        match_reasoning=match_result.match_reasoning,
-                        matching_skills=match_result.matching_skills,
-                        missing_skills=match_result.missing_skills,
-                    )
-                self._jobs_skipped += 1
-                await self._emit_job(
-                    job,
-                    "skipped_dry_run",
-                    heuristic_score=initial_score,
+        if self._settings.application.dry_run:
+            log_info(f"DRY RUN — would apply (score: {match_score})")
+            self._daily_applied += 1
+            if self._repo and db_job:
+                assert db_job.id is not None
+                await self._repo.save_application(
+                    job_id=db_job.id,
                     match_score=match_score,
+                    status=ApplicationStatus.SKIPPED_DRY_RUN,
                     match_reasoning=match_result.match_reasoning,
+                    matching_skills=match_result.matching_skills,
+                    missing_skills=match_result.missing_skills,
                 )
-                await self._emit_counters(
-                    jobs_found=self._jobs_found,
-                    processed_count=processed_count,
-                    total_queued=total_jobs,
-                )
-                continue
+            self._jobs_skipped += 1
+            await self._emit_job(
+                job,
+                "skipped_dry_run",
+                heuristic_score=initial_score,
+                match_score=match_score,
+                match_reasoning=match_result.match_reasoning,
+            )
+            await self._emit_counters(
+                jobs_found=self._jobs_found,
+                processed_count=processed_count,
+                total_queued=total_queued,
+            )
+            return ProcessOutcome.CONTINUE
 
-            # Navigation validation
-            page = self._engine.page
+        page = self._engine.page
+
+        async def _navigate_and_apply() -> dict:
             if job.url not in page.url:
                 try:
                     await page.goto(job.url, wait_until="domcontentloaded", timeout=60000)
@@ -864,11 +974,10 @@ class NaukriAgent:
                     await self._emit_counters(
                         jobs_found=self._jobs_found,
                         processed_count=processed_count,
-                        total_queued=total_jobs,
+                        total_queued=total_queued,
                     )
-                    continue
+                    return {"status": ApplicationStatus.FAILED, "error_message": str(e)}
 
-            # Run apply flow
             await self._emit_job(
                 job,
                 "applying",
@@ -876,85 +985,92 @@ class NaukriAgent:
                 match_score=match_score,
                 match_reasoning=match_result.match_reasoning,
             )
-            apply_result = await applier.apply_to_job(job)
-            status = apply_result.get("status", ApplicationStatus.FAILED)
-            error_msg = apply_result.get("error_message", "")
+            return await applier.apply_to_job(job)
 
-            if self._repo and db_job:
-                assert db_job.id is not None
-                await self._repo.save_application(
-                    job_id=db_job.id,
-                    match_score=match_score,
-                    status=status,
-                    match_reasoning=match_result.match_reasoning,
-                    matching_skills=match_result.matching_skills,
-                    missing_skills=match_result.missing_skills,
-                    error_message=error_msg,
-                )
+        if browser_gate is not None:
+            async with browser_gate.hold():
+                apply_result = await _navigate_and_apply()
+        else:
+            apply_result = await _navigate_and_apply()
 
-            if status == ApplicationStatus.APPLIED:
-                self._jobs_applied += 1
-                self._daily_applied += 1
-                await self._emit_job(
-                    job,
-                    "applied",
-                    heuristic_score=initial_score,
-                    match_score=match_score,
-                    match_reasoning=match_result.match_reasoning,
-                )
-                self._applied_jobs_this_run.append(
-                    {
-                        "title": job.title,
-                        "company": job.company,
-                        "location": job.location,
-                        "experience": job.experience,
-                        "salary": job.salary,
-                        "match_score": match_score,
-                        "url": job.url,
-                        "skills": job.skills,
-                    }
-                )
-                await TimeUtility.random_delay(
-                    self._settings.application.delay_between_applies_min,
-                    self._settings.application.delay_between_applies_max,
-                )
-            elif status.startswith("skipped"):
-                self._jobs_skipped += 1
-                await self._emit_job(
-                    job,
-                    status,
-                    heuristic_score=initial_score,
-                    match_score=match_score,
-                    match_reasoning=match_result.match_reasoning,
-                    reason=error_msg or None,
-                )
-            else:
-                self._jobs_failed += 1
-                await self._emit_job(
-                    job,
-                    "failed",
-                    heuristic_score=initial_score,
-                    match_score=match_score,
-                    match_reasoning=match_result.match_reasoning,
-                    reason=error_msg or None,
-                )
-            await self._emit_counters(
-                jobs_found=self._jobs_found,
-                processed_count=processed_count,
-                total_queued=total_jobs,
+        if apply_result.get("status") == ApplicationStatus.FAILED and "Navigation failed" in str(
+            apply_result.get("error_message", "")
+        ):
+            return ProcessOutcome.CONTINUE
+
+        status = apply_result.get("status", ApplicationStatus.FAILED)
+        error_msg = apply_result.get("error_message", "")
+
+        if self._repo and db_job:
+            assert db_job.id is not None
+            await self._repo.save_application(
+                job_id=db_job.id,
+                match_score=match_score,
+                status=status,
+                match_reasoning=match_result.match_reasoning,
+                matching_skills=match_result.matching_skills,
+                missing_skills=match_result.missing_skills,
+                error_message=error_msg,
             )
+
+        if status == ApplicationStatus.APPLIED:
+            self._jobs_applied += 1
+            self._daily_applied += 1
+            await self._emit_job(
+                job,
+                "applied",
+                heuristic_score=initial_score,
+                match_score=match_score,
+                match_reasoning=match_result.match_reasoning,
+            )
+            self._applied_jobs_this_run.append(
+                {
+                    "title": job.title,
+                    "company": job.company,
+                    "location": job.location,
+                    "experience": job.experience,
+                    "salary": job.salary,
+                    "match_score": match_score,
+                    "url": job.url,
+                    "skills": job.skills,
+                }
+            )
+            await TimeUtility.random_delay(
+                self._settings.application.delay_between_applies_min,
+                self._settings.application.delay_between_applies_max,
+            )
+        elif status.startswith("skipped"):
+            self._jobs_skipped += 1
+            await self._emit_job(
+                job,
+                status,
+                heuristic_score=initial_score,
+                match_score=match_score,
+                match_reasoning=match_result.match_reasoning,
+                reason=error_msg or None,
+            )
+        else:
+            self._jobs_failed += 1
+            await self._emit_job(
+                job,
+                "failed",
+                heuristic_score=initial_score,
+                match_score=match_score,
+                match_reasoning=match_result.match_reasoning,
+                reason=error_msg or None,
+            )
+        await self._emit_counters(
+            jobs_found=self._jobs_found,
+            processed_count=processed_count,
+            total_queued=total_queued,
+        )
+        return ProcessOutcome.CONTINUE
 
     def _is_excluded(self, job: Job) -> bool:
         """Check if a job matches any exclusion specifications."""
         if not self._exclusion_spec:
             return False
         return self._exclusion_spec.is_satisfied_by(job)
-
-    def _is_big_company(self, job: Job) -> bool:
-        """Check if a job's company is in the big-company allowlist."""
-        if not self._big_company_spec:
-            return False
-        return self._big_company_spec.is_satisfied_by(job)
 
     async def _cleanup(self) -> None:
         """Save state, update run log, print summary, and close browser."""

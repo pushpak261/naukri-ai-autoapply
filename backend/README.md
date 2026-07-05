@@ -42,7 +42,13 @@ Or use the Makefile: `make init`, `make run`, `make test`, `make lint`.
 
 ## FastAPI dashboard API
 
-From the **repository root** (no `PYTHONPATH` needed):
+From the **repository root**:
+
+```bash
+python -m backend
+```
+
+Or explicitly with uvicorn (must include the loop flag on Windows):
 
 ```bash
 python -m uvicorn backend.main:app --reload --host 127.0.0.1 --port 8000 --loop backend.loop:create_event_loop

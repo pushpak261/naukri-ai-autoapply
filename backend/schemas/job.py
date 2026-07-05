@@ -48,9 +48,7 @@ class ConfigSummary(BaseModel):
     daily_cap: int = 0
     match_score_threshold: int = 0
     dry_run: bool = False
-    require_verified_job: bool = False
     min_company_rating: float = 0.0
-    big_companies: list[str] = Field(default_factory=list)
     excluded_companies: list[str] = Field(default_factory=list)
     excluded_title_keywords: list[str] = Field(default_factory=list)
     ai_model: str = ""

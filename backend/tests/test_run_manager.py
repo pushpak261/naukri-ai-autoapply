@@ -44,17 +44,28 @@ async def test_run_manager_rejects_concurrent_start(monkeypatch):
 
     monkeypatch.setattr("backend.services.run_manager.init_db", fake_init_db)
     monkeypatch.setattr("backend.services.run_manager.create_agent", fake_create_agent)
+    class FakeSettings:
+        db_path = "data/test.db"
+        application = type("A", (), {"daily_cap": 10, "match_score_threshold": 70})()
+        run_cap_resets_daily = False
+
+        def validate_required(self):
+            return []
+
+        def copy_for_run(self, *, cap=None, threshold=None):
+            copied = FakeSettings()
+            if cap is not None:
+                copied.application = type("A", (), {"daily_cap": cap, "match_score_threshold": 70})()
+                copied.run_cap_resets_daily = True
+            if threshold is not None:
+                th = threshold if threshold is not None else 70
+                cap_val = cap if cap is not None else 10
+                copied.application = type("A", (), {"daily_cap": cap_val, "match_score_threshold": th})()
+            return copied
+
     monkeypatch.setattr(
         "backend.services.run_manager.get_settings",
-        lambda: type(
-            "Settings",
-            (),
-            {
-                "db_path": "data/test.db",
-                "application": type("A", (), {"daily_cap": 10, "match_score_threshold": 70})(),
-                "validate_required": lambda self: [],
-            },
-        )(),
+        lambda: FakeSettings(),
     )
 
     await manager.start(RunCreate(dry_run=True))

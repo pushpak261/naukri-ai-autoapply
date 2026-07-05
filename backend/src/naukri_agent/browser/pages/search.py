@@ -99,6 +99,41 @@ _JOB_CARD_JS = """
                 }
             }
 
+            let has_company_logo = null;
+            const isValidLogoSrc = (src) => {
+                if (!src || typeof src !== 'string') return false;
+                const trimmed = src.trim();
+                if (!trimmed || trimmed === '#' || trimmed.startsWith('data:image/svg')) return false;
+                const lower = trimmed.toLowerCase();
+                if (/placeholder|default|no-?logo|generic|blank|dummy|avatar/.test(lower)) return false;
+                return /\\.(png|jpe?g|webp|svg|gif)(\\?|$)/i.test(lower) || (lower.includes('logo') && !lower.includes('naukri'));
+            };
+            const logoSelectors = [
+                '[class*="comp-logo"] img',
+                '[class*="company-logo"] img',
+                '[class*="comp-name"] img',
+                '[class*="companyInfo"] img',
+                'img[class*="comp-logo"]',
+                'img[class*="company-logo"]',
+            ];
+            for (const selector of logoSelectors) {
+                const logoElem = card.querySelector(selector);
+                if (!logoElem) continue;
+                const src = logoElem.getAttribute('src') || logoElem.getAttribute('data-src') || '';
+                if (isValidLogoSrc(src)) {
+                    has_company_logo = true;
+                    break;
+                }
+            }
+            if (has_company_logo === null) {
+                for (const selector of logoSelectors) {
+                    if (card.querySelector(selector)) {
+                        has_company_logo = false;
+                        break;
+                    }
+                }
+            }
+
             jobs.push({
                 title,
                 company,
@@ -111,6 +146,7 @@ _JOB_CARD_JS = """
                 description: "",
                 company_rating,
                 is_verified,
+                has_company_logo,
             });
         } catch (e) {}
     }
@@ -181,7 +217,7 @@ class SearchPage(BasePage):
                     continue
 
                 naukri_job_id = extract_naukri_job_id(job["url"])
-                dom_rating, dom_verified = parse_dom_metadata(job)
+                dom_rating, dom_verified, dom_logo = parse_dom_metadata(job)
 
                 entity = Job(
                     naukri_job_id=naukri_job_id,
@@ -196,6 +232,7 @@ class SearchPage(BasePage):
                     posted_date=clean_text(job.get("posted_date", "")),
                     is_verified=dom_verified,
                     company_rating=dom_rating,
+                    has_company_logo=dom_logo,
                 )
 
                 api_job = self._api_jobs_by_id.get(naukri_job_id)

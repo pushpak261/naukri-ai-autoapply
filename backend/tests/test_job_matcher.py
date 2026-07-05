@@ -131,6 +131,37 @@ class TestJobMatcher:
         assert result.should_apply is False
 
     @pytest.mark.asyncio
+    async def test_cached_match_reapplies_current_threshold(
+        self, mock_settings, sample_resume, high_match_job, tmp_path
+    ):
+        """Cache hits must re-evaluate should_apply against the current threshold."""
+        cache_file = tmp_path / "data" / "match_cache.json"
+        cache_file.parent.mkdir(parents=True)
+        cache_file.write_text(
+            json.dumps(
+                {
+                    "test_hash_high_match_job_id": {
+                        "score": 75,
+                        "should_apply": True,
+                        "reasoning": "cached",
+                        "matching_skills": ["Python"],
+                        "missing_skills": [],
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        mock_settings.application.match_score_threshold = 80
+        mock_llm = AsyncMock()
+
+        matcher = JobMatcher(mock_llm, mock_settings)
+        result = await matcher.match(sample_resume, high_match_job)
+
+        mock_llm.generate_content.assert_not_awaited()
+        assert result.match_score == 75
+        assert result.should_apply is False
+
+    @pytest.mark.asyncio
     async def test_match_handles_malformed_json_gracefully(
         self, mock_settings, sample_resume, high_match_job
     ):

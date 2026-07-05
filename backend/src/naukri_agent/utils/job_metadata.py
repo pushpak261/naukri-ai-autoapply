@@ -10,6 +10,57 @@ from typing import Any
 from src.naukri_agent.core.domain.entities import Job
 
 _RATING_PATTERN = re.compile(r"(\d+(?:\.\d+)?)")
+_PLACEHOLDER_LOGO_PATTERN = re.compile(
+    r"(placeholder|default|no-?logo|generic|blank|dummy|avatar)",
+    re.IGNORECASE,
+)
+
+
+def _is_valid_logo_url(value: Any) -> bool:
+    """Return True when a logo URL/path looks like a real company logo."""
+    if value is None:
+        return False
+    text = str(value).strip()
+    if not text or text in {"#", "null", "undefined"}:
+        return False
+    lowered = text.lower()
+    if lowered.startswith("data:") and "image" not in lowered:
+        return False
+    if _PLACEHOLDER_LOGO_PATTERN.search(lowered):
+        return False
+    return bool(re.search(r"\.(png|jpe?g|webp|svg|gif)(\?|$)", lowered, re.IGNORECASE)) or (
+        "logo" in lowered and "naukri" not in lowered
+    )
+
+
+def extract_has_company_logo_from_api(api_job: dict[str, Any]) -> bool | None:
+    """Read company logo presence from a Naukri search/detail API payload."""
+    for key in ("companyLogo", "company_logo", "logoPath", "logoUrl", "logo"):
+        if _is_valid_logo_url(api_job.get(key)):
+            return True
+
+    company_detail = api_job.get("companyDetail")
+    if isinstance(company_detail, dict):
+        for key in ("logo", "logoUrl", "logoPath", "companyLogo"):
+            if _is_valid_logo_url(company_detail.get(key)):
+                return True
+
+    branding = api_job.get("jdBrandingDetails")
+    if isinstance(branding, dict):
+        for key in ("logo", "logoUrl", "companyLogo"):
+            if _is_valid_logo_url(branding.get(key)):
+                return True
+
+    return None
+
+
+def parse_dom_logo_flag(raw: Any) -> bool | None:
+    """Parse company logo presence from browser DOM extraction."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return raw
+    return bool(raw)
 
 
 def parse_company_rating(value: Any) -> float | None:
@@ -205,9 +256,13 @@ def apply_api_metadata(job: Job, api_job: dict[str, Any]) -> None:
     if consultant is not None and job.is_consultant_post is None:
         job.is_consultant_post = consultant
 
+    has_logo = extract_has_company_logo_from_api(api_job)
+    if has_logo is not None and job.has_company_logo is None:
+        job.has_company_logo = has_logo
 
-def parse_dom_metadata(raw: dict[str, Any]) -> tuple[float | None, bool | None]:
-    """Parse company rating and verified flag from browser DOM extraction."""
+
+def parse_dom_metadata(raw: dict[str, Any]) -> tuple[float | None, bool | None, bool | None]:
+    """Parse company rating, verified flag, and logo from browser DOM extraction."""
     rating = parse_company_rating(raw.get("company_rating"))
     verified_raw = raw.get("is_verified")
     verified: bool | None
@@ -215,7 +270,8 @@ def parse_dom_metadata(raw: dict[str, Any]) -> tuple[float | None, bool | None]:
         verified = None
     else:
         verified = bool(verified_raw)
-    return rating, verified
+    has_logo = parse_dom_logo_flag(raw.get("has_company_logo"))
+    return rating, verified, has_logo
 
 
 def merge_job_metadata(
@@ -227,6 +283,7 @@ def merge_job_metadata(
     external_apply_url: str | None = None,
     hiring_for: str | None = None,
     is_consultant_post: bool | None = None,
+    has_company_logo: bool | None = None,
 ) -> None:
     """Fill missing Job metadata without overwriting known values."""
     if job.company_rating is None and rating is not None:
@@ -241,3 +298,5 @@ def merge_job_metadata(
         job.hiring_for = hiring_for
     if job.is_consultant_post is None and is_consultant_post is not None:
         job.is_consultant_post = is_consultant_post
+    if job.has_company_logo is None and has_company_logo is not None:
+        job.has_company_logo = has_company_logo

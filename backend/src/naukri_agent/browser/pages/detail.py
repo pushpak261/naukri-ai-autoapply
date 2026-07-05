@@ -18,6 +18,7 @@ from src.naukri_agent.config.constants import (
 from src.naukri_agent.utils.helpers import clean_text
 from src.naukri_agent.utils.job_metadata import (
     extract_company_rating_from_api,
+    extract_has_company_logo_from_api,
     extract_hiring_for_from_api,
     extract_is_consultant_from_api,
     extract_is_verified_from_api,
@@ -226,12 +227,47 @@ class JobDetailPage(BasePage):
                     hiring_for = null;
                 }
 
-                return { company_rating, is_verified, hiring_for, is_consultant_post };
+                let has_company_logo = null;
+                const isValidLogoSrc = (src) => {
+                    if (!src || typeof src !== 'string') return false;
+                    const trimmed = src.trim();
+                    if (!trimmed || trimmed === '#' || trimmed.startsWith('data:image/svg')) return false;
+                    const lower = trimmed.toLowerCase();
+                    if (/placeholder|default|no-?logo|generic|blank|dummy|avatar/.test(lower)) return false;
+                    return /\\.(png|jpe?g|webp|svg|gif)(\\?|$)/i.test(lower) || (lower.includes('logo') && !lower.includes('naukri'));
+                };
+                const logoSelectors = [
+                    '[class*="comp-logo"] img',
+                    '[class*="company-logo"] img',
+                    '[class*="jd-header-comp"] img',
+                    '[class*="comp-name"] img',
+                    'img[class*="comp-logo"]',
+                    'img[class*="company-logo"]',
+                ];
+                for (const selector of logoSelectors) {
+                    const logoElem = document.querySelector(selector);
+                    if (!logoElem) continue;
+                    const src = logoElem.getAttribute('src') || logoElem.getAttribute('data-src') || '';
+                    if (isValidLogoSrc(src)) {
+                        has_company_logo = true;
+                        break;
+                    }
+                }
+                if (has_company_logo === null) {
+                    for (const selector of logoSelectors) {
+                        if (document.querySelector(selector)) {
+                            has_company_logo = false;
+                            break;
+                        }
+                    }
+                }
+
+                return { company_rating, is_verified, hiring_for, is_consultant_post, has_company_logo };
             }
             """
         )
 
-        dom_rating, dom_verified = parse_dom_metadata(dom_metadata)
+        dom_rating, dom_verified, dom_logo = parse_dom_metadata(dom_metadata)
 
         hiring_for = dom_metadata.get("hiring_for")
         if isinstance(hiring_for, str):
@@ -253,6 +289,7 @@ class JobDetailPage(BasePage):
             "is_verified": dom_verified,
             "hiring_for": hiring_for,
             "is_consultant_post": is_consultant_post,
+            "has_company_logo": dom_logo,
         }
 
         if self._detail_api_job:
@@ -264,6 +301,10 @@ class JobDetailPage(BasePage):
                 result["hiring_for"] = extract_hiring_for_from_api(self._detail_api_job)
             if result["is_consultant_post"] is None:
                 result["is_consultant_post"] = extract_is_consultant_from_api(
+                    self._detail_api_job
+                )
+            if result["has_company_logo"] is None:
+                result["has_company_logo"] = extract_has_company_logo_from_api(
                     self._detail_api_job
                 )
 

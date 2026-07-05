@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from backend.asyncio_windows import LoopBridgingProgressReporter, run_on_playwright_loop
 from backend.schemas.run import RunCreate, RunStatus
 from src.naukri_agent.config.settings import Settings, get_settings
 from src.naukri_agent.core.progress import InMemoryEventBus
@@ -108,51 +109,65 @@ class RunManager:
             if self._state.task and not self._state.task.done():
                 raise RuntimeError("A run is already in progress")
 
-            settings = get_settings()
-            if options.cap is not None:
-                settings.application.daily_cap = options.cap
-            if options.threshold is not None:
-                settings.application.match_score_threshold = options.threshold
+            base_settings = get_settings()
+            settings = base_settings.copy_for_run(
+                cap=options.cap,
+                threshold=options.threshold,
+                experience_min=options.experience_min,
+                experience_max=options.experience_max,
+            )
 
             problems = settings.validate_required()
             if problems:
                 raise ValueError("; ".join(problems))
 
-            session_factory = await self._ensure_db(settings)
-            agent = create_agent(settings, session_factory, progress_reporter=self._event_bus)
+            main_loop = asyncio.get_running_loop()
+            progress = LoopBridgingProgressReporter(self._event_bus, main_loop)
 
             self._state = _RunState(
-                agent=agent,
                 dry_run=options.dry_run,
                 phase="starting",
             )
 
+            async def _agent_work() -> NaukriAgent:
+                session_factory = await init_db(settings.db_path)
+                agent = create_agent(settings, session_factory, progress_reporter=progress)
+                self._state.agent = agent
+                await agent.run(dry_run=options.dry_run)
+                return agent
+
             async def _run_wrapper() -> None:
                 try:
-                    await agent.run(dry_run=options.dry_run)
+                    agent = await run_on_playwright_loop(_agent_work)
+                    self._state.agent = agent
                 except Exception as exc:
                     self._state.error = str(exc)
                     raise
                 finally:
-                    self._state.run_id = agent._run_log_id
-                    self._state.counters = {
-                        "jobs_found": agent._jobs_found,
-                        "jobs_applied": agent._jobs_applied,
-                        "jobs_skipped": agent._jobs_skipped,
-                        "jobs_failed": agent._jobs_failed,
-                    }
-                    if getattr(agent, "_run_errored", False) and not self._state.error:
-                        self._state.error = "Run failed — see agent logs for details"
+                    agent = self._state.agent
+                    if agent is not None:
+                        self._state.run_id = agent._run_log_id
+                        self._state.counters = {
+                            "jobs_found": agent._jobs_found,
+                            "jobs_applied": agent._jobs_applied,
+                            "jobs_skipped": agent._jobs_skipped,
+                            "jobs_failed": agent._jobs_failed,
+                        }
+                        if getattr(agent, "_run_errored", False) and not self._state.error:
+                            self._state.error = "Run failed — see agent logs for details"
 
             self._state.task = asyncio.create_task(_run_wrapper())
 
             # Wait briefly for run_log_id to be assigned
             for _ in range(50):
-                if agent._run_log_id is not None:
+                agent = self._state.agent
+                if agent is not None and agent._run_log_id is not None:
                     break
                 await asyncio.sleep(0.1)
 
-            self._state.run_id = agent._run_log_id
+            agent = self._state.agent
+            if agent is not None:
+                self._state.run_id = agent._run_log_id
             return self.get_status()
 
     async def stop(self) -> RunStatus:

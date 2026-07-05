@@ -15,6 +15,7 @@ const statusColors: Record<string, string> = {
   skipped_quality: 'bg-zinc-500/20 text-zinc-300',
   skipped_similarity: 'bg-zinc-500/20 text-zinc-300',
   skipped_not_big_company: 'bg-zinc-500/20 text-zinc-300',
+  skipped_not_direct_employer: 'bg-zinc-500/20 text-zinc-300',
   skipped_consultancy_recruiter: 'bg-rose-500/20 text-rose-300',
   skipped_low_company_rating: 'bg-orange-500/20 text-orange-300',
   skipped_external: 'bg-sky-500/20 text-sky-300',
