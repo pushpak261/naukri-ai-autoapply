@@ -1,0 +1,710 @@
+{
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_040824001512": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "python",
+      "java",
+      "full stack",
+      "html",
+      ".NET"
+    ],
+    "missing_skills": [],
+    "experience_fit": "strong",
+    "location_fit": "partial",
+    "reasoning": "Viraj possesses all the core technical skills required for the role, including Python, Java, and .NET, and has 4.5 years of relevant experience. His background in full-stack development and system automation aligns well with the OSPO team's requirements.",
+    "strengths": [
+      "Comprehensive full-stack development experience",
+      "Proven track record in automation and system scalability",
+      "Strong alignment with required technical stack"
+    ],
+    "concerns": [
+      "Location is hybrid in Delhi/NCR while candidate is currently based in Pune",
+      "No specific mention of open-source contributions in the resume"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_280626004073": {
+    "score": 70,
+    "should_apply": false,
+    "matching_skills": [
+      "React.js"
+    ],
+    "missing_skills": [
+      "Next.js",
+      "DSA"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "remote",
+    "reasoning": "The candidate is significantly overqualified for this entry-level, unpaid role, having 4.5 years of experience. While they possess strong React.js skills, they lack specific mention of Next.js and formal DSA expertise in their profile, and the role's unpaid nature is likely below their current professional level.",
+    "strengths": [
+      "Strong full-stack background with React.js",
+      "Proven experience in performance optimization and micro-services"
+    ],
+    "concerns": [
+      "Candidate is overqualified for an entry-level unpaid position",
+      "Next.js is not explicitly listed in the candidate's skills",
+      "Potential mismatch in salary expectations and career trajectory"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_290626002938": {
+    "score": 65,
+    "should_apply": false,
+    "matching_skills": [
+      "HTML5",
+      "CSS3",
+      "JavaScript (ES6+)",
+      "React.js"
+    ],
+    "missing_skills": [
+      "English",
+      "Hindi"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "mismatch",
+    "reasoning": "The candidate is significantly overqualified for an internship role, as they have over 4 years of professional experience as an Associate Software Engineer. While they possess all the required technical skills, their current seniority level makes this role a poor career progression step.",
+    "strengths": [
+      "Extensive full-stack development experience",
+      "Proven track record in building scalable applications",
+      "Strong proficiency in the required tech stack"
+    ],
+    "concerns": [
+      "Candidate is overqualified for an internship position",
+      "Significant salary gap likely between current experience level and internship stipend",
+      "Geographic location mismatch"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_290626002119": {
+    "score": 70,
+    "should_apply": false,
+    "matching_skills": [
+      "Java",
+      "C++",
+      "JavaScript",
+      "Python",
+      "Software Development",
+      "Software Engineering",
+      "AI"
+    ],
+    "missing_skills": [],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate possesses all the required technical skills and has a strong background in software development. However, the candidate is significantly overqualified for this entry-level position, as they have over 4.5 years of experience compared to the 0-2 years requested.",
+    "strengths": [
+      "Extensive technical stack matching all requirements",
+      "Proven experience in AI and full-stack development",
+      "Strong educational background"
+    ],
+    "concerns": [
+      "Candidate is overqualified for an entry-level role",
+      "Salary expectations may exceed the provided range"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626504618": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "C#",
+      "CSS",
+      "C++",
+      "JavaScript",
+      "SQL Server",
+      "SQL",
+      "Angular",
+      "Java",
+      ".NET",
+      "HTML",
+      "MySQL"
+    ],
+    "missing_skills": [
+      "OWASP",
+      "Bootstrap",
+      "AJAX",
+      "jQuery",
+      "LINQ",
+      "ASP.NET",
+      "MVC",
+      "AngularJS"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "mismatch",
+    "reasoning": "Viraj is a strong technical match for the .NET development requirements, possessing core experience in C# and .NET. While he is technically overqualified with 4.5 years of experience for a 0-2 year role and currently based in a different location, his skill set aligns perfectly with the technical stack requested.",
+    "strengths": [
+      "Strong proficiency in C# and .NET",
+      "Experience with full-stack development and microservices",
+      "Proven track record in automation and system scalability"
+    ],
+    "concerns": [
+      "Candidate is overqualified for a Junior position",
+      "Geographic location (Noida vs current location)",
+      "Missing specific legacy skills like AngularJS and jQuery"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626019694": {
+    "score": 70,
+    "should_apply": false,
+    "matching_skills": [
+      "Java",
+      "JavaScript",
+      "PHP",
+      "React.js",
+      "Node.js",
+      "TypeScript",
+      "MySQL",
+      "HTML",
+      "CSS",
+      "Object-Oriented Programming (OOP)"
+    ],
+    "missing_skills": [
+      "Spring Boot",
+      "Laravel",
+      "Bootstrap"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "mismatch",
+    "reasoning": "The candidate is highly qualified for this entry-level role, possessing over 4 years of experience compared to the 0-2 years requested. While the candidate has strong technical overlap, the significant difference in experience level and the location mismatch make this a moderate match.",
+    "strengths": [
+      "Extensive full-stack development experience",
+      "Strong proficiency in required core languages like Java, JavaScript, and PHP"
+    ],
+    "concerns": [
+      "Candidate is overqualified for an entry-level position",
+      "Location mismatch as the candidate is based in Pune and the job is in Indore",
+      "Salary expectations may exceed the provided budget of 1.5-2.5 Lacs PA"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626506753": {
+    "score": 65,
+    "should_apply": false,
+    "matching_skills": [
+      "C/C++",
+      "C",
+      "OOPS",
+      "Programming",
+      "Data structures"
+    ],
+    "missing_skills": [
+      "Android"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "mismatch",
+    "reasoning": "The candidate has strong foundational programming skills in C/C++ and OOPS, which aligns with the technical requirements. However, the candidate lacks specific Android development experience and is overqualified for a role targeting freshers, plus the location is a mismatch.",
+    "strengths": [
+      "Strong proficiency in C/C++ and OOPS",
+      "Solid software engineering background with 4.5 years of experience",
+      "Proven track record in full-stack development and system design"
+    ],
+    "concerns": [
+      "No professional experience in Android development",
+      "Candidate is overqualified for a 'Freshers' role",
+      "Location mismatch as the candidate is likely based in Pune while the job is in Indore"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_110323003865": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "Software Development",
+      "Java",
+      "Javascript",
+      "Full Stack",
+      "HTML",
+      "Python"
+    ],
+    "missing_skills": [
+      "Hadoop",
+      "Codeigniter"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "partial",
+    "reasoning": "Viraj has 4.5 years of relevant experience, fitting perfectly within the 0-5 year requirement. He possesses strong proficiency in most core technical skills listed, including full-stack development, Java, and Python, making him a highly qualified candidate for this role.",
+    "strengths": [
+      "Relevant years of experience within the specified range",
+      "Strong full-stack development background",
+      "Proven track record of automation and system scalability"
+    ],
+    "concerns": [
+      "Lack of specific experience with Hadoop and Codeigniter",
+      "Current location is not explicitly stated as Bangalore, Hyderabad, or Chennai"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626501819": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "css",
+      "c++",
+      "sql",
+      "java",
+      "html",
+      "mysql",
+      "c#",
+      "python",
+      "software development",
+      "javascript",
+      "sql server",
+      "angular",
+      "troubleshooting"
+    ],
+    "missing_skills": [
+      "hibernate",
+      "spring",
+      "spring boot",
+      "plsql",
+      "manual testing",
+      "dbms",
+      "data structures"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "partial",
+    "reasoning": "Viraj is a strong candidate with 4.5 years of experience, exceeding the 0-3 year requirement. He possesses most of the core programming languages requested, though he lacks specific experience with the Java/Spring ecosystem mentioned in the job description.",
+    "strengths": [
+      "Strong full-stack development background",
+      "Proven experience in software engineering and CI/CD",
+      "Relevant degree in Computer Science"
+    ],
+    "concerns": [
+      "Candidate is slightly overqualified for a 0-3 year role",
+      "Lack of specific experience with Spring/Hibernate frameworks",
+      "Location mismatch (Candidate is likely based in Pune, job is in Mumbai)"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626907355": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "C#",
+      "SQL Server",
+      "MySQL",
+      "ASP.NET",
+      "Web API",
+      "HTML",
+      "CSS",
+      "JavaScript",
+      "Java",
+      "Design Patterns",
+      "Database Design",
+      "Software Development"
+    ],
+    "missing_skills": [
+      "ADO.NET",
+      "jQuery",
+      "Software Configuration Management"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "mismatch",
+    "reasoning": "Viraj is a strong match for the technical requirements, possessing extensive experience in C#, .NET, and database management. While he is slightly overqualified regarding years of experience and his current location is not Faridabad, his skill set aligns perfectly with the core development needs of the role.",
+    "strengths": [
+      "Strong proficiency in C# and .NET ecosystem",
+      "Experience with full-stack development and database design",
+      "Proven track record in software development and SDLC"
+    ],
+    "concerns": [
+      "Candidate is based in Pune, while the job is in Faridabad",
+      "Candidate has 4.5 years of experience, exceeding the 0-3 year requirement",
+      "Lack of specific mention of ADO.NET and jQuery in resume"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626909706": {
+    "score": 95,
+    "should_apply": true,
+    "matching_skills": [
+      "Node.js",
+      "Java",
+      "Python",
+      "PHP",
+      "MongoDB",
+      "SQL",
+      "REST APIs",
+      "API Development",
+      "Back-End Development"
+    ],
+    "missing_skills": [],
+    "experience_fit": "strong",
+    "location_fit": "partial",
+    "reasoning": "Viraj is an excellent match for this role as he possesses all the required backend technical skills, including Node.js, Java, Python, and database expertise. His 4.5 years of experience aligns perfectly with the 0-5 year requirement, and his background in building scalable APIs and microservices directly addresses the job's core responsibilities.",
+    "strengths": [
+      "Comprehensive proficiency in all listed backend languages",
+      "Proven experience in building scalable APIs and microservices",
+      "Strong database management skills across both SQL and NoSQL",
+      "Relevant experience in full-stack development and system optimization"
+    ],
+    "concerns": [
+      "Candidate is currently based in Pune while the job is in Bengaluru, which may require relocation"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_090924014779": {
+    "score": 90,
+    "should_apply": true,
+    "matching_skills": [
+      "HTML5",
+      "PHP",
+      "Web Development"
+    ],
+    "missing_skills": [],
+    "experience_fit": "strong",
+    "location_fit": "partial",
+    "reasoning": "The candidate possesses all the core required skills (PHP, HTML, Web Development) and has 4.5 years of relevant experience, which falls perfectly within the 0-5 year requirement. Their background in full-stack development and enterprise-level software engineering makes them an excellent fit for this role.",
+    "strengths": [
+      "Direct experience in PHP and HTML",
+      "Strong full-stack development background",
+      "Experience with enterprise ERP workflows and system scalability"
+    ],
+    "concerns": [
+      "The job location is specified as Hyderabad, Chennai, or Bengaluru, and the candidate's current location is not explicitly stated as one of these hubs"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_270626006635": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "Java",
+      "SQL",
+      "Software Engineering"
+    ],
+    "missing_skills": [
+      "Spring Boot"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate possesses strong proficiency in the core required technologies including Java, SQL, and various full-stack frameworks. While the candidate has more experience than the 0-2 year requirement, their background in microservices and cloud deployment makes them an excellent fit for the role.",
+    "strengths": [
+      "Extensive experience with microservices and REST APIs",
+      "Strong proficiency in multiple required languages (Java, Python, C#, JavaScript)",
+      "Hands-on experience with CI/CD and cloud platforms (AWS/GCP)"
+    ],
+    "concerns": [
+      "Candidate is overqualified for a 0-2 year experience role",
+      "Missing specific experience with Spring Boot framework"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626924829": {
+    "score": 45,
+    "should_apply": false,
+    "matching_skills": [
+      "C#",
+      "Git",
+      "CI/CD",
+      "Agile",
+      "Object-Oriented Programming (OOP)",
+      "Performance Optimization",
+      "Debugging"
+    ],
+    "missing_skills": [
+      "Unity 3D",
+      "AR/VR Development",
+      "Game Physics",
+      "Particle Systems",
+      "Unity URP/HDRP",
+      "GPU Instancing",
+      "Multiplayer development"
+    ],
+    "experience_fit": "weak",
+    "location_fit": "match",
+    "reasoning": "The candidate has a strong background in full-stack web development and AI integration, but lacks the specialized Unity 3D, AR/VR, and game engine experience required for this role. Furthermore, the job requires 7-10 years of experience, while the candidate has 4.5 years, making this a significant mismatch in domain expertise.",
+    "strengths": [
+      "Strong foundation in C# and OOP principles",
+      "Experience with CI/CD and modern software development workflows",
+      "Proven ability to learn and implement new technologies like AI agents"
+    ],
+    "concerns": [
+      "Complete lack of professional Unity 3D or AR/VR development experience",
+      "Experience level is below the 7-10 year requirement specified in the job description",
+      "Candidate's background is focused on web/ERP systems rather than graphics or game engine architecture"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_240626036139": {
+    "score": 65,
+    "should_apply": false,
+    "matching_skills": [
+      "Java",
+      "JavaScript",
+      "MySQL",
+      "HTML5",
+      "CSS3",
+      "Web Services",
+      "Microservices"
+    ],
+    "missing_skills": [
+      "Spring Boot",
+      "Hibernate",
+      "J2EE Technologies"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "mismatch",
+    "reasoning": "The candidate is overqualified with 4.5 years of experience for a role specifically targeting freshers (0-1 years). While they possess strong core technical skills, they lack specific experience with the Spring/Hibernate stack requested by the employer.",
+    "strengths": [
+      "Strong full-stack development background",
+      "Experience with microservices and API development",
+      "Proven track record of automating workflows"
+    ],
+    "concerns": [
+      "Candidate is significantly overqualified for a fresher-level role",
+      "Lack of specific Spring and Hibernate experience",
+      "Location mismatch as the candidate is based in Pune and the role is in Udaipur"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_280626004605": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "Fullstack Development",
+      "Java",
+      "MySQL",
+      "Python",
+      "React.js",
+      "Node.js",
+      "RESTful APIs",
+      "Git",
+      "Docker",
+      "AWS"
+    ],
+    "missing_skills": [
+      "Jest",
+      "Mocha",
+      "Selenium"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "partial",
+    "reasoning": "Viraj is an excellent match for the technical requirements, possessing deep experience in the full stack technologies requested. While he is technically overqualified given his 4.5 years of experience compared to the 0-2 year requirement, his skillset aligns perfectly with the job's core responsibilities.",
+    "strengths": [
+      "Extensive full-stack experience with React, Node.js, and .NET",
+      "Proven track record in AI agent integration and system scalability",
+      "Strong background in database management and cloud deployment"
+    ],
+    "concerns": [
+      "Candidate is overqualified for the 0-1 year experience bracket",
+      "Salary range offered is significantly lower than typical expectations for a candidate with 4.5 years of experience"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626021588": {
+    "score": 90,
+    "should_apply": true,
+    "matching_skills": [
+      "Python",
+      "Fullstack Development",
+      "Java",
+      "Angular",
+      "SQL",
+      "Backend Development",
+      "Frontend Development",
+      "Javascript",
+      "React.Js",
+      "Web Development",
+      "Software Design"
+    ],
+    "missing_skills": [
+      "Software Testing (Formal/Selenium)"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "partial",
+    "reasoning": "Viraj is an excellent match for this role, possessing extensive full-stack experience in React, Java, Python, and SQL. His background aligns perfectly with the required technical stack, and his 4.5 years of experience falls well within the 0-5 year requirement.",
+    "strengths": [
+      "Strong full-stack development background with React and .NET/Node.js",
+      "Proven experience in automation and AI integration",
+      "Solid educational background in Computer Science"
+    ],
+    "concerns": [
+      "Resume does not explicitly highlight formal Software Testing or Selenium experience",
+      "Candidate is currently based in Pune, while the role is in Chennai (though remote options are mentioned)"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626006703": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "Java",
+      "C++",
+      "Python",
+      "PHP",
+      "Node.js",
+      "JavaScript",
+      "SQL",
+      "MongoDB",
+      "Docker",
+      "Git",
+      "Agile",
+      "OOPS",
+      "Design Patterns"
+    ],
+    "missing_skills": [
+      "Data Structures",
+      "OWASP Security",
+      "Unit Testing Frameworks"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate is a strong match for the role, possessing almost all required technical skills including proficiency in multiple required programming languages and DevOps tools. Although the candidate has 4.5 years of experience compared to the 0-2 year requirement, their background in full-stack development and AI integration makes them a highly capable candidate for this position.",
+    "strengths": [
+      "Extensive full-stack development experience",
+      "Proven experience with Docker and CI/CD pipelines",
+      "Strong background in Agile/Scrum environments"
+    ],
+    "concerns": [
+      "Candidate is overqualified for a 0-2 year experience role",
+      "Missing explicit mention of OWASP security knowledge in resume"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_290626002141": {
+    "score": 70,
+    "should_apply": false,
+    "matching_skills": [
+      "Java",
+      "Docker",
+      "Microservices",
+      "RESTful API",
+      "AWS"
+    ],
+    "missing_skills": [
+      "Spring Boot",
+      "Multithreading",
+      "Collections"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "match",
+    "reasoning": "The candidate has strong experience with microservices, Docker, and REST APIs, which are core requirements. However, the resume lacks explicit mention of Spring Boot, which is a primary requirement for this Java-focused role.",
+    "strengths": [
+      "Proven experience with microservices architecture",
+      "Strong background in containerization with Docker",
+      "Relevant years of experience within the 0-5 year range"
+    ],
+    "concerns": [
+      "No explicit mention of Spring Boot framework experience",
+      "Core Java concepts like multithreading and collections are not highlighted in work experience"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_260626021933": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "Java",
+      "Python",
+      "AWS"
+    ],
+    "missing_skills": [
+      "Azure",
+      "Ai Platform"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "Viraj is a strong match for the role as he possesses the core required skills of Java, Python, and AWS. Although he is technically overqualified with 4.5 years of experience for a 0-year requirement, his technical background and AI experience make him a highly competitive candidate.",
+    "strengths": [
+      "Extensive full-stack development experience",
+      "Proven experience with AI agent integration",
+      "Strong proficiency in required core languages (Java, Python)"
+    ],
+    "concerns": [
+      "Candidate may be overqualified for an entry-level position",
+      "Lack of specific Azure experience"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_290626016056": {
+    "score": 70,
+    "should_apply": true,
+    "matching_skills": [
+      "Python",
+      "SQL",
+      "ETL",
+      "AWS",
+      "Data Engineering"
+    ],
+    "missing_skills": [
+      "Pyspark",
+      "Spark",
+      "Hadoop",
+      "Data Warehousing",
+      "Azure Cloud"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "partial",
+    "reasoning": "The candidate is overqualified with 4.5 years of experience compared to the 0-1 year requirement, but possesses strong transferable skills in data pipelines and SQL. While they lack specific big data tools like Spark and Hadoop, their background in building automated data processing pipelines makes them a viable candidate for a Data Engineering role.",
+    "strengths": [
+      "Strong background in building automated data pipelines",
+      "Proven experience with SQL and Python",
+      "Experience with cloud platforms (AWS)"
+    ],
+    "concerns": [
+      "Candidate is significantly overqualified for a fresher-level role",
+      "Lack of specific experience with big data frameworks like Spark and Hadoop"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_290626506042": {
+    "score": 55,
+    "should_apply": true,
+    "matching_skills": [
+      "Project Management",
+      "Data analysis",
+      "Excel"
+    ],
+    "missing_skills": [
+      "MS Project",
+      "PowerPoint"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "partial",
+    "reasoning": "The candidate has strong project management and data analysis experience, but they are overqualified for this entry-level role and lack the mandatory MS Project experience. While they possess transferable skills, the role is a significant step down from their current software engineering career path.",
+    "strengths": [
+      "Strong background in data analysis and automated reporting",
+      "Proven experience in project management and workflow streamlining"
+    ],
+    "concerns": [
+      "Missing mandatory MS Project experience",
+      "Candidate is overqualified for an entry-level 0-1 year role",
+      "Candidate's primary expertise is in software engineering, not project coordination"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_270626006313": {
+    "score": 15,
+    "should_apply": false,
+    "matching_skills": [],
+    "missing_skills": [
+      "QMS",
+      "ISO 9001",
+      "IATF 16949",
+      "APQP",
+      "PPAP",
+      "FMEA",
+      "Root Cause Analysis",
+      "Quality Assurance"
+    ],
+    "experience_fit": "weak",
+    "location_fit": "partial",
+    "reasoning": "The candidate is a software engineer with a background in full-stack development and AI, whereas the job is for a Quality Assurance Engineer in the manufacturing/plastics industry. There is no overlap between the candidate's technical skill set and the specialized quality management requirements of the role.",
+    "strengths": [
+      "Strong technical background in software development",
+      "Experience with data analysis and process automation"
+    ],
+    "concerns": [
+      "Complete lack of domain expertise in manufacturing quality standards (ISO, APQP, FMEA)",
+      "Candidate's career path is focused on software engineering, not industrial quality assurance",
+      "Educational background is in Computer Science, not Mechanical or Mechatronics Engineering as required"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_010726011129": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "Java",
+      "Node.js",
+      "PostgreSQL",
+      "MySQL",
+      "JavaScript (ES6+)",
+      "MongoDB",
+      "React.js",
+      "Python"
+    ],
+    "missing_skills": [],
+    "experience_fit": "overqualified",
+    "location_fit": "partial",
+    "reasoning": "Viraj Kale is an excellent technical match for the required skill set, possessing all requested technologies. However, he is significantly overqualified for a 'Trainee' position given his 4.5 years of professional experience and current role as an Associate Software Engineer.",
+    "strengths": [
+      "Full-stack proficiency matching all job requirements",
+      "Proven experience in AI agent integration and automation",
+      "Strong background in database management and microservices"
+    ],
+    "concerns": [
+      "Candidate is overqualified for a Trainee role",
+      "Potential salary expectations may exceed the 5-6 LPA range",
+      "Location preference is not explicitly stated as Mumbai or Chennai"
+    ]
+  }
+}
