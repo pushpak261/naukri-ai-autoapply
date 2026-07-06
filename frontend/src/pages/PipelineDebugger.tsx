@@ -9,7 +9,6 @@ import {
   type Node,
   type Edge,
 } from '@xyflow/react';
-import '@xyflow/react/dist/style.css';
 import { Search, Filter, BarChart3, Send, Activity } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { api } from '../lib/api';
@@ -90,6 +89,8 @@ export default function PipelineDebugger() {
     id: stage.id,
     type: 'custom',
     position: { x: 0, y: i * 160 },
+    width: 200,
+    height: expandedId === stage.id ? 150 : 110,
     data: {
       ...stage,
       status: stage.id === 'score' ? 'active' : stage.id === 'search' || stage.id === 'filter' ? 'completed' : 'pending',
@@ -106,8 +107,22 @@ export default function PipelineDebugger() {
     style: { stroke: '#38bdf8', strokeWidth: 2 },
   })), []);
 
-  const nodeTypes = useMemo(() => ({ custom: PipelineNode }), []);
+  const getMiniMapNodeColor = (node: Node) => {
+    const status = node.data?.status as 'active' | 'completed' | 'pending' | 'error';
+    switch (status) {
+      case 'completed':
+        return '#22c55e';
+      case 'active':
+        return '#38bdf8';
+      case 'error':
+        return '#ef4444';
+      case 'pending':
+      default:
+        return '#475569';
+    }
+  };
 
+  const nodeTypes = useMemo(() => ({ custom: PipelineNode }), []);
   const stageDetails = selectedStage && PIPELINE_STAGES.find(s => s.id === selectedStage);
 
   return (
@@ -183,12 +198,8 @@ export default function PipelineDebugger() {
           attributionPosition="bottom-left"
         >
           <Background color="#334155" gap={20} />
-          <Controls style={{ background: '#1e293b', border: '1px solid #334155', color: '#94a3b8' }} />
-          <MiniMap
-            style={{ background: '#1e293b', border: '1px solid #334155' }}
-            nodeColor="#38bdf8"
-            maskColor="rgba(15, 23, 42, 0.8)"
-          />
+          <Controls />
+          <MiniMap nodeColor={getMiniMapNodeColor} />
         </ReactFlow>
       </div>
     </div>

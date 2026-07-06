@@ -32,7 +32,6 @@ export default function SkillsGap() {
   const keywordDensity = data?.keyword_density ?? [];
   const skillBreakdown = data?.skill_breakdown ?? [];
   const summary = data?.summary ?? { total_applications: 0, total_jobs: 0, total_skills_analyzed: 0, has_resume: false };
-  const resumeInfo = data?.resume;
 
   if (loading) {
     return (

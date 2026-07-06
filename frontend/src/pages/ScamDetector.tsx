@@ -35,7 +35,6 @@ export default function ScamDetector() {
 
   const distribution = data?.risk_distribution.filter(d => d.value > 0) ?? [];
   const sorted = data?.score_distribution ?? [];
-  const summary = data?.summary;
 
   if (loading) {
     return (
@@ -67,7 +66,7 @@ export default function ScamDetector() {
     );
   }
 
-  if (!data || summary?.total_jobs === 0) {
+  if (!data || !data.summary || data.summary.total_jobs === 0) {
     return (
       <div className="space-y-6">
         <div>
@@ -95,6 +94,8 @@ export default function ScamDetector() {
       </div>
     );
   }
+
+  const summary = data.summary;
 
   return (
     <div className="space-y-6">
