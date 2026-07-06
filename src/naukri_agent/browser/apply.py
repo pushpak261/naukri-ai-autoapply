@@ -240,6 +240,17 @@ class JobApplier:
                 return {"status": ApplicationStatus.APPLIED, "error_message": ""}
 
         # If we get here, we're not sure if the application went through
+        # If a form is still visible and we have answer_questions_with_pdf = False, assume it's a screening form we couldn't parse
+        if not getattr(self._settings.application, "answer_questions_with_pdf", True):
+            if await self._detail_page._find_active_form_container():
+                log_warning(
+                    f"Unsubmitted form detected but 'answer_questions_with_pdf' is false. Skipping job: {job.title}"
+                )
+                return {
+                    "status": ApplicationStatus.SKIPPED_SCREENING,
+                    "error_message": "Skipped: Unsubmitted form detected and answer_questions_with_pdf is false",
+                }
+
         log_warning(f"Application status uncertain: {job.title}")
         return {
             "status": ApplicationStatus.UNCERTAIN,
@@ -316,10 +327,15 @@ class JobApplier:
         """
         Extract, answer, and fill screening questions iteratively.
         Handles dynamic follow-up questions and validates mandatory fields.
+        Optimized to avoid wasting AI tokens on questions that resolve
+        deterministically or don't change between iterations.
         """
         try:
             max_attempts = 5
             attempt = 0
+            seen_questions: set[str] = set()
+            last_unfilled_count = 0
+            stale_iterations = 0
 
             while attempt < max_attempts:
                 attempt += 1
@@ -343,12 +359,54 @@ class JobApplier:
                     logger.info("All screening questions are filled.")
                     break
 
+                current_unfilled = len(unfilled_questions)
+                if current_unfilled == last_unfilled_count:
+                    stale_iterations += 1
+                else:
+                    stale_iterations = 0
+                last_unfilled_count = current_unfilled
+
+                if stale_iterations >= 2:
+                    logger.info(
+                        f"Unfilled question count unchanged for {stale_iterations} iterations. "
+                        "Falling back to safe defaults without AI."
+                    )
+                    for q in unfilled_questions:
+                        fallback = self._generate_safe_fallback_for_question(q)
+                        if fallback:
+                            await self._detail_page.fill_answer_by_metadata(q, fallback)
+                            await self._detail_page.action_delay()
+                    break
+
+                # Skip questions we've already tried (waste of AI tokens)
+                fresh_questions = [
+                    q
+                    for q in unfilled_questions
+                    if q.get("id") or q.get("question", "") not in seen_questions
+                ]
+                if not fresh_questions:
+                    logger.info(
+                        "All unfilled questions previously attempted. Using safe fallbacks."
+                    )
+                    for q in unfilled_questions:
+                        fallback = self._generate_safe_fallback_for_question(q)
+                        if fallback:
+                            await self._detail_page.fill_answer_by_metadata(q, fallback)
+                            await self._detail_page.action_delay()
+                    break
+
+                for q in fresh_questions:
+                    qid = q.get("id") or q.get("question", "")
+                    if qid:
+                        seen_questions.add(qid)
+
                 logger.info(
-                    f"Found {len(unfilled_questions)} unfilled questions. Generating answers..."
+                    f"Found {len(unfilled_questions)} unfilled questions "
+                    f"({len(fresh_questions)} new). Generating answers..."
                 )
 
-                # Answer them
-                answers = await self._qa.answer_questions(unfilled_questions, job)
+                # Answer them (only fresh ones)
+                answers = await self._qa.answer_questions(fresh_questions, job)
 
                 filled_any = False
                 for ans in answers:
@@ -383,25 +441,26 @@ class JobApplier:
                 if filled_any and await self._detail_page.is_chatbot_flow():
                     await self._detail_page.submit_application()
                 elif not filled_any:
-                    # If we couldn't fill anything new, break
                     break
 
-                # Short delay for dynamic pages
                 await asyncio.sleep(2)
 
-            # Final validation check
+            # Final validation check (use safe fallbacks for any remaining required questions)
             final_questions = await self._detail_page.extract_screening_questions()
-            unanswered_required = []
-            for q in final_questions:
-                if q.get("required"):
-                    val = (q.get("value") or "").strip()
-                    is_unfilled = not val or val.lower() in ("select", "--select--", "choose")
-                    if is_unfilled:
-                        unanswered_required.append(q)
+            unanswered_required = [
+                q
+                for q in final_questions
+                if q.get("required")
+                and (
+                    not (q.get("value") or "").strip()
+                    or (q.get("value") or "").strip().lower() in ("select", "--select--", "choose")
+                )
+            ]
 
             if unanswered_required:
                 logger.warning(
-                    f"Validation: {len(unanswered_required)} required questions are still unanswered. Applying safe fallbacks..."
+                    f"Validation: {len(unanswered_required)} required questions still unanswered. "
+                    "Applying safe fallbacks..."
                 )
                 for q in unanswered_required:
                     fallback = self._generate_safe_fallback_for_question(q)
@@ -411,20 +470,21 @@ class JobApplier:
                     await self._detail_page.fill_answer_by_metadata(q, fallback)
                     await self._detail_page.action_delay()
 
-                # Re-verify
                 final_check = await self._detail_page.extract_screening_questions()
                 still_empty = [
                     q
                     for q in final_check
                     if q.get("required")
                     and (
-                        not q.get("value")
-                        or q.get("value").lower() in ("select", "--select--", "choose")
+                        not (q.get("value") or "").strip()
+                        or (q.get("value") or "").strip().lower()
+                        in ("select", "--select--", "choose")
                     )
                 ]
                 if still_empty:
                     logger.error(
-                        f"Validation FAILED: Required questions still empty: {[q.get('question') for q in still_empty]}"
+                        f"Validation FAILED: Required questions still empty: "
+                        f"{[q.get('question') for q in still_empty]}"
                     )
                     return False
 

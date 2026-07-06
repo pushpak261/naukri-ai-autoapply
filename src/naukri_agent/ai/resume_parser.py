@@ -285,6 +285,39 @@ class ResumeParser(IResumeParser):
 
         self._aho_matcher = AhoCorasick(DEFAULT_TECH_SKILLS)
 
+    def _extract_docx_text(self, docx_path: str | Path) -> str:
+        """
+        Extract text from a DOCX file using built-in zipfile and xml parser.
+        """
+        import zipfile
+        import xml.etree.ElementTree as ET
+
+        path = Path(docx_path)
+        if not path.exists():
+            raise FileNotFoundError(f"Resume file not found: {path}")
+
+        try:
+            with zipfile.ZipFile(path) as z:
+                xml_content = z.read("word/document.xml")
+            root = ET.fromstring(xml_content)
+            ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+            text_parts = []
+            for p in root.findall(".//w:p", ns):
+                p_text = []
+                for t in p.findall(".//w:r/w:t", ns):
+                    if t.text:
+                        p_text.append(t.text)
+                if p_text:
+                    text_parts.append("".join(p_text))
+
+            full_text = "\n".join(text_parts).strip()
+            if not full_text:
+                raise ValueError("DOCX file extracted text is empty")
+            logger.debug(f"Extracted {len(full_text)} characters from {path.name}")
+            return full_text
+        except Exception as e:
+            raise ValueError(f"Failed to extract text from DOCX file: {e}")
+
     def _extract_pdf_text(self, pdf_path: str | Path) -> str:
         """
         Extract raw text from a PDF file using PyMuPDF, falling back to
@@ -431,32 +464,7 @@ class ResumeParser(IResumeParser):
         path = Path(pdf_path)
         file_hash = hash_file(path)
 
-        # 1. Check if a local plaintext resume_profile.json exists
         profile_json_path = self._settings.project_root / "resume_profile.json"
-        if isinstance(profile_json_path, Path) and profile_json_path.exists():
-            try:
-                profile = json.loads(profile_json_path.read_text(encoding="utf-8"))
-                log_info(f"Using local resume profile from {profile_json_path.name}")
-                domain_profile = _map_to_domain_profile(profile, file_hash)
-
-                # If feature enabled but raw_text is missing, retroactively extract and save it
-                if (
-                    self._settings.application.answer_questions_with_pdf
-                    and not domain_profile.raw_text
-                ):
-                    log_info("Extracting raw resume text to support AI question answering...")
-                    resume_text = self._extract_pdf_text(path)
-                    domain_profile.raw_text = resume_text
-                    profile["raw_text"] = resume_text
-                    profile_json_path.write_text(
-                        json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
-                    )
-
-                return domain_profile
-            except Exception as e:
-                log_warning(
-                    f"Failed to read local {profile_json_path.name}: {e}. Falling back to default parsing."
-                )
 
         # Check database cache
         if self._repo:
@@ -480,10 +488,25 @@ class ResumeParser(IResumeParser):
                     logger.warning(f"Failed to write local resume_profile.json: {e}")
                 return domain_cached
 
+        # When Gemini is disabled, check the local resume_profile.json first.
+        # This allows users to edit the local file and have it take effect
+        # without going through the PDF extraction + local parsing pipeline.
+        if not self._settings.ai.use_gemini and profile_json_path.exists():
+            try:
+                local_data = json.loads(profile_json_path.read_text(encoding="utf-8"))
+                local_data.setdefault("file_hash", file_hash)
+                log_info(f"Using local {profile_json_path.name}")
+                return _map_to_domain_profile(local_data, file_hash)
+            except Exception as e:
+                logger.warning(f"Failed to read local resume_profile.json: {e}")
+
         log_info(f"Parsing resume: {path.name}")
 
         # Extract text
-        resume_text = self._extract_pdf_text(path)
+        if path.suffix.lower() == ".docx":
+            resume_text = self._extract_docx_text(path)
+        else:
+            resume_text = self._extract_pdf_text(path)
         truncated_text = truncate_text(resume_text, max_length=15000)
 
         # Call Gemini or parse locally
@@ -531,8 +554,9 @@ class ResumeParser(IResumeParser):
                 f"{profile.get('total_experience_years', '?')} years experience"
             )
 
-            # Embed the raw resume text so QuestionAnswerer can use it for screening questions
+            # Embed the raw resume text and file hash so QuestionAnswerer can use it for screening questions and caching works correctly
             profile["raw_text"] = resume_text
+            profile["file_hash"] = file_hash
 
             # Write to local resume_profile.json
             try:
@@ -607,6 +631,7 @@ class ResumeParser(IResumeParser):
             "certifications": [],
             "languages": [],
             "key_achievements": [],
+            "file_hash": file_hash,
         }
 
         try:

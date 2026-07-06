@@ -51,4 +51,12 @@ coverage.xml
 vibe_output.md
 debug_artifacts/
 debug_*.png
-debug_screenshot.png
+debug_screenshot.png
+terminal_output/
+scratch_*.log
+
+# Test / debug artifacts at project root
+api_test_*.txt
+api_final2_*.txt
+test_*.txt
+test_curl.txt

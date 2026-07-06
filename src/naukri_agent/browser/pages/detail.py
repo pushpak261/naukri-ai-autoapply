@@ -272,6 +272,10 @@ class JobDetailPage(BasePage):
         if "naukri.com/myapply" in url or "saveapply" in url or "postapply" in url:
             return True
 
+        # If it's a chatbot flow, it represents a screening questionnaire
+        if await self.is_chatbot_flow():
+            return True
+
         # Check using our robust extraction script
         questions = await self.extract_screening_questions()
         return len(questions) > 0
@@ -670,7 +674,7 @@ class JobDetailPage(BasePage):
             """
             result_json = await page.evaluate(js_script)
             questions = json.loads(result_json)
-            logger.info(f"Extracted {len(questions)} screening questions")
+            logger.info(f"Detected {len(questions)} screening questions")
             return questions
         except Exception as e:
             logger.error(f"Error during JS-based question extraction: {e}")

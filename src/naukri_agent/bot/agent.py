@@ -210,7 +210,7 @@ class NaukriAgent:
         self._resume_profile = None
         self._run_log_id: int | None = None
         self._interrupted = False
-        self._external_jobs: list[tuple[Job, str]] = []
+        self._external_jobs: list[tuple[Job, str | None]] = []
 
         # Counters
         self._jobs_found = 0
@@ -423,8 +423,11 @@ class NaukriAgent:
                     continue
 
             if self._settings.search.enable_heuristics:
+                logger.debug(f"Heuristics ENABLED for job: {job.title} @ {job.company}")
                 text_to_score = f"{job.title} {job.company} {job.skills}"
-                score = vector_filter.get_similarity_score(text_to_score)
+                base_score = vector_filter.get_similarity_score(text_to_score)
+                score = base_score
+                logger.debug(f"  - Base TF-IDF score: {base_score:.3f}")
 
                 # Recalibrate heuristics: Boost for search keywords and resume skills in title
                 title_lower = (job.title or "").lower()
@@ -438,6 +441,9 @@ class NaukriAgent:
 
                 if title_words & search_kw_words:
                     score += 0.15
+                    logger.debug(
+                        f"  - Boost (+0.15): Title matches search keywords ({title_words & search_kw_words})"
+                    )
 
                 # Word-based overlap between title and top resume technical skills
                 tech_skills_words = set()
@@ -446,14 +452,22 @@ class NaukriAgent:
 
                 if title_words & tech_skills_words:
                     score += 0.10
+                    logger.debug(
+                        f"  - Boost (+0.10): Title matches technical skills ({title_words & tech_skills_words})"
+                    )
 
                 # Boost for very fresh jobs
                 posted = str(job.posted_date).lower()
                 if "just now" in posted or "hour" in posted or "today" in posted:
                     score += 0.10
+                    logger.debug(f"  - Boost (+0.10): Very fresh job ({posted})")
                 elif "1 day" in posted or "2 days" in posted:
                     score += 0.05
+                    logger.debug(f"  - Boost (+0.05): Fresh job ({posted})")
+
+                logger.debug(f"  -> Final heuristic score: {score:.3f}")
             else:
+                logger.debug(f"Heuristics DISABLED for job: {job.title}. Defaulting score to 0.0")
                 score = 0.0
 
             heapq.heappush(job_queue, (-score, idx, job))
@@ -760,6 +774,9 @@ class NaukriAgent:
                     self._external_jobs.append((job, ext_url))
                 elif status == ApplicationStatus.SKIPPED_SCREENING:
                     log_warning(f"Screening questions skipped: {job.title} @ {job.company}")
+                    if not getattr(self._settings.application, "answer_questions_with_pdf", True):
+                        # Treat it like an external job so it gets emailed to the user
+                        self._external_jobs.append((job, None))
                 log_info(f"Job application skipped: {job.title} @ {job.company} — Status: {status}")
                 self._jobs_skipped += 1
             else:
@@ -767,6 +784,9 @@ class NaukriAgent:
                     f"Job application failed: {job.title} @ {job.company} — Error: {error_msg}"
                 )
                 self._jobs_failed += 1
+                if getattr(self._settings.application, "collect_external_jobs", False):
+                    # Add failed jobs to the email list so the user can manually check/apply
+                    self._external_jobs.append((job, None))
 
         # Log the jobs that successfully passed the initial exclusion and scam filters
         logger.info(

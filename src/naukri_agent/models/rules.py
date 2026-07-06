@@ -7,11 +7,129 @@ from __future__ import annotations
 
 import re
 from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
 
 from src.naukri_agent.models.entities import Job
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class ScamScoreResult:
+    """Result of a scam score computation."""
+
+    score: int = 0
+    raw_score: int = 0
+    reasons: list[str] = field(default_factory=list)
+    level: str = "safe"
+
+
+def compute_scam_score(job: Job) -> ScamScoreResult:
+    """
+    Compute a scam risk score for a job listing using the v4 heuristic algorithm.
+    Returns a ScamScoreResult with normalized 0-100 score, raw score, reasons, and category level.
+    """
+    raw_score = 0
+    reasons: list[str] = []
+
+    # Whitelist Shield (-500 pts)
+    whitelist_regex = re.compile(
+        r"(?i)\b("
+        r"tata consultancy services|tcs|wipro|infosys|accenture|cognizant|"
+        r"capgemini|ibm|deloitte|kpmg|pwc|ey|ernst & young|amazon|google|"
+        r"microsoft|meta|apple|netflix|oracle|cisco|intel|nvidia|muthoot finance"
+        r")\b"
+    )
+    if job.company and whitelist_regex.search(job.company):
+        raw_score -= 500
+        reasons.append("Whitelist Shield (-500)")
+
+    # Level 1: Financial Scams (Check Description)
+    level_1_regex = re.compile(
+        r"(?i)\b("
+        r"registration fee|security deposit|training charges|laptop charges|"
+        r"refundable amount|pay before joining|consultancy charges|"
+        r"direct selection without interview|pay amount"
+        r")\b"
+    )
+    if job.description and level_1_regex.search(job.description):
+        raw_score += 100
+        reasons.append("Financial Scam terms in Description (+100)")
+
+    # Level 1B: Contact Info (Check Title and Company only)
+    level_1_contact_regex = re.compile(
+        r"(?i)("
+        r"(?:(?:\+91|91)[\s-]?)?[6-9]\d{2}[\s-]?\d{3}[\s-]?\d{4}|"
+        r"\b[A-Za-z0-9._%+-]+@(gmail|yahoo|hotmail|outlook|rediffmail)\.com\b"
+        r")"
+    )
+    text_to_check_contact = f"{job.title} {job.company}"
+    if level_1_contact_regex.search(text_to_check_contact):
+        raw_score += 100
+        reasons.append("Contact Info aggressively stuffed in Title/Company (+100)")
+
+    # Level 1C: Agency/Consultancy/Staffing (Check Title and Company)
+    level_1_agency_regex = re.compile(
+        r"(?i)\b("
+        r"consultanc(y|ies)|consultncy|consultant|placement|staffing|manpower|"
+        r"recruitment|hr solutions|hr services|outsourcing"
+        r")\b"
+    )
+    text_to_check_agency = f"{job.title} {job.company}"
+    if level_1_agency_regex.search(text_to_check_agency):
+        raw_score += 100
+        reasons.append("Third-party Agency/Consultancy/Placement firm (+100)")
+
+    # Level 2: High Suspicion (Check Title, Company)
+    level_2_regex = re.compile(
+        r"(?i)\b("
+        r"bpo|kpo|voice process|international voice|night shift|outbound|inbound|"
+        r"data entry|typist|typing job|telecaller|customer support"
+        r")\b"
+    )
+    text_to_check_l2 = f"{job.title} {job.company}"
+    if level_2_regex.search(text_to_check_l2):
+        raw_score += 70
+        reasons.append("BPO/Staffing terms (+70)")
+
+    # Level 3: Medium Suspicion (Check Title for spam keywords)
+    level_3_title_regex = re.compile(
+        r"(?i)\b("
+        r"walk-?in|walk in|direct joining|urgent(ly)? (hiring|required)|"
+        r"mega drive|freshers?|any graduate|no interview|"
+        r"bulk hiring|mass recruitment|spot offer|overseas"
+        r")\b"
+    )
+    if job.title and level_3_title_regex.search(job.title):
+        raw_score += 40
+        reasons.append("Spam/Walk-in terms in Title (+40)")
+
+    # Level 4: Low Suspicion (Check Company name)
+    level_4_company_regex = re.compile(
+        r"(?i)\b(" r"associates|enterprises|ventures|synergies|solutions pvt ltd" r")\b|\bhr\b$"
+    )
+    if job.company and level_4_company_regex.search(job.company):
+        raw_score += 30
+        reasons.append("Suspicious Company Name suffix (+30)")
+
+    # Normalize to 0-100 for display
+    display_score = max(0, min(100, raw_score))
+
+    # Determine category
+    if raw_score >= 100:
+        level = "suspicious"
+    elif raw_score >= 30:
+        level = "moderate"
+    else:
+        level = "safe"
+
+    return ScamScoreResult(
+        score=display_score,
+        raw_score=raw_score,
+        reasons=reasons,
+        level=level,
+    )
 
 
 class JobSpecification(ABC):
@@ -152,114 +270,14 @@ class ConsultancyScamSpecification(JobSpecification):
 
     SCAM_THRESHOLD = 100
 
-    def __init__(self) -> None:
-        # Level 1: Absolute Scams (100 pts) - Instant Reject
-        self._level_1_regex = re.compile(
-            r"(?i)\b("
-            r"registration fee|security deposit|training charges|laptop charges|"
-            r"refundable amount|pay before joining|consultancy charges|"
-            r"direct selection without interview|pay amount"
-            r")\b"
-        )
-
-        # Level 1B: Contact Info in Title/Company (100 pts) - Instant Reject
-        # Genuine companies NEVER put Gmail addresses or phone numbers directly in the Job Title or Company Name.
-        self._level_1_contact_regex = re.compile(
-            r"(?i)("
-            r"(?:(?:\+91|91)[\s-]?)?[6-9]\d{2}[\s-]?\d{3}[\s-]?\d{4}|"
-            r"\b[A-Za-z0-9._%+-]+@(gmail|yahoo|hotmail|outlook|rediffmail)\.com\b"
-            r")"
-        )
-
-        # Level 1C: Agency/Consultancy/Staffing (100 pts) - Instant Reject
-        # Blocks third-party recruiters unless they are in the whitelist
-        self._level_1_agency_regex = re.compile(
-            r"(?i)\b("
-            r"consultanc(y|ies)|consultncy|consultant|placement|staffing|manpower|"
-            r"recruitment|hr solutions|hr services|outsourcing"
-            r")\b"
-        )
-
-        # Level 2: High Suspicion (70 pts)
-        self._level_2_regex = re.compile(
-            r"(?i)\b("
-            r"bpo|kpo|voice process|international voice|night shift|outbound|inbound|"
-            r"data entry|typist|typing job|telecaller|customer support"
-            r")\b"
-        )
-
-        # Level 3: Medium Suspicion (40 pts)
-        self._level_3_title_regex = re.compile(
-            r"(?i)\b("
-            r"walk-?in|walk in|direct joining|urgent(ly)? (hiring|required)|"
-            r"mega drive|freshers?|any graduate|no interview|"
-            r"bulk hiring|mass recruitment|spot offer|overseas"
-            r")\b"
-        )
-
-        # Level 4: Low Suspicion (30 pts)
-        self._level_4_company_regex = re.compile(
-            r"(?i)\b(" r"associates|enterprises|ventures|synergies|solutions pvt ltd" r")\b|\bhr\b$"
-        )
-
-        # Whitelist Shield (-500 pts)
-        self._whitelist_regex = re.compile(
-            r"(?i)\b("
-            r"tata consultancy services|tcs|wipro|infosys|accenture|cognizant|"
-            r"capgemini|ibm|deloitte|kpmg|pwc|ey|ernst & young|amazon|google|"
-            r"microsoft|meta|apple|netflix|oracle|cisco|intel|nvidia|muthoot finance"
-            r")\b"
-        )
-
     def is_satisfied_by(self, job: Job) -> bool:
-        score = 0
-        reasons = []
-
-        # Check Whitelist
-        if job.company and self._whitelist_regex.search(job.company):
-            score -= 500
-            reasons.append("Whitelist Shield (-500)")
-
-        # Level 1: Financial Scams (Check Description)
-        if job.description and self._level_1_regex.search(job.description):
-            score += 100
-            reasons.append("Financial Scam terms in Description (+100)")
-
-        # Level 1B: Contact Info (Check Title and Company only)
-        text_to_check_contact = f"{job.title} {job.company}"
-        if self._level_1_contact_regex.search(text_to_check_contact):
-            score += 100
-            reasons.append("Contact Info aggressively stuffed in Title/Company (+100)")
-
-        # Level 1C: Agency/Consultancy/Staffing (Check Title and Company)
-        text_to_check_agency = f"{job.title} {job.company}"
-        if self._level_1_agency_regex.search(text_to_check_agency):
-            score += 100
-            reasons.append("Third-party Agency/Consultancy/Placement firm (+100)")
-
-        # Level 2: High Suspicion (Check Title, Company)
-        text_to_check_l2 = f"{job.title} {job.company}"
-        if self._level_2_regex.search(text_to_check_l2):
-            score += 70
-            reasons.append("BPO/Staffing terms (+70)")
-
-        # Level 3: Medium Suspicion (Check Title for spam keywords)
-        if job.title and self._level_3_title_regex.search(job.title):
-            score += 40
-            reasons.append("Spam/Walk-in terms in Title (+40)")
-
-        # Level 4: Low Suspicion (Check Company name)
-        if job.company and self._level_4_company_regex.search(job.company):
-            score += 30
-            reasons.append("Suspicious Company Name suffix (+30)")
-
-        if score >= self.SCAM_THRESHOLD:
-            reason_str = ", ".join(reasons)
+        result = compute_scam_score(job)
+        if result.raw_score >= self.SCAM_THRESHOLD:
+            reason_str = ", ".join(result.reasons)
             logger.info(
-                f"Excluded by Scam Detector v4 (Score: {score}): {job.title} @ {job.company}. Reasons: {reason_str}"
+                f"Excluded by Scam Detector v4 (Score: {result.raw_score}): {job.title} @ {job.company}. Reasons: {reason_str}"
             )
             return True
-
         return False
 
 

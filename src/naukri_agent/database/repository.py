@@ -445,6 +445,32 @@ class SQLAlchemyRepository(IRepository):
             ]
 
     @with_failover
+    async def get_all_applications(self) -> list[dict]:
+        """Fetch all applications with job details for export."""
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
+            result = await session.execute(
+                select(DBApplication, DBJob.title, DBJob.company, DBJob.location)
+                .join(DBJob, DBApplication.job_id == DBJob.id)
+                .order_by(DBApplication.applied_at.desc())
+            )
+            items = []
+            for app, title, company, location in result.all():
+                items.append(
+                    {
+                        "id": app.id,
+                        "job_title": title or "",
+                        "company": company or "",
+                        "location": location or "",
+                        "match_score": app.match_score or 0,
+                        "status": app.status or "",
+                        "applied_at": app.applied_at.isoformat() if app.applied_at else "",
+                        "error_message": app.error_message or "",
+                    }
+                )
+            return items
+
+    @with_failover
     async def get_all_job_descriptions(self) -> list[str]:
         """Fetch all stored job descriptions to construct a TF-IDF reference corpus."""
         session_factory = await self._db_manager.get_session_factory()

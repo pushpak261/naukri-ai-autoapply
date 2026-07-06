@@ -138,6 +138,11 @@ class Settings(BaseModel):
     exclusions: ExclusionSettings = Field(default_factory=ExclusionSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
+    # Dashboard API key for frontend authentication
+    dashboard_api_key: str = ""
+    # Session encryption key (auto-derived from project_root if not set)
+    session_encryption_key: str = ""
+
     # Computed paths
     project_root: Path = PROJECT_ROOT
     data_dir: Path = PROJECT_ROOT / "data"
@@ -184,7 +189,7 @@ class Settings(BaseModel):
                     "Naukri password is not set. Set NAUKRI_PASSWORD in your .env "
                     "or naukri.password in config.yaml."
                 )
-        if not self.ai.gemini_api_key:
+        if self.ai.use_gemini and not self.ai.gemini_api_key:
             problems.append(
                 "Gemini API key is not set. Set GEMINI_API_KEY in your .env "
                 "file or ai.gemini_api_key in config.yaml."
@@ -227,7 +232,7 @@ def _apply_env_overrides(config: dict) -> dict:
     if env_path.exists():
         from dotenv import load_dotenv
 
-        load_dotenv(env_path)
+        load_dotenv(env_path, override=True)
 
     # Apply overrides
     env_map = {
@@ -239,14 +244,22 @@ def _apply_env_overrides(config: dict) -> dict:
         ("naukri", "use_otp_login"): "NAUKRI_USE_OTP_LOGIN",
         ("ai", "use_gemini"): "USE_GEMINI",
         ("ai", "gemini_api_key"): "GEMINI_API_KEY",
+        ("dashboard_api_key",): "DASHBOARD_API_KEY",
+        ("session_encryption_key",): "SESSION_ENCRYPTION_KEY",
     }
 
     # Keys whose values must be coerced from env-var strings to booleans
     _bool_keys = {("naukri", "use_otp_login"), ("ai", "use_gemini")}
 
-    for (section, key), env_var in env_map.items():
+    for keys, env_var in env_map.items():
         env_val = os.environ.get(env_var)
-        if env_val:
+        if not env_val:
+            continue
+        if len(keys) == 1:
+            # Flat key directly on config dict
+            config[keys[0]] = env_val
+        else:
+            section, key = keys[0], keys[1]
             if section not in config:
                 config[section] = {}
             # Boolean env vars: "true"/"1"/"yes" → True, anything else → False

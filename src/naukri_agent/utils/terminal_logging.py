@@ -30,6 +30,14 @@ class DualStream:
             with self.lock:
                 self.log_file.write(clean_data)
                 self.log_file.flush()
+
+        # Flush original stream if data contains a newline.
+        # This ensures real-time delivery through the pipe to the API's reader thread.
+        # Without this, Python's block buffering (default for non-TTY / pipe)
+        # would hold output in the child process's stdio buffer indefinitely.
+        if "\n" in data:
+            self.original_stream.flush()
+
         return written
 
     def flush(self) -> None:
@@ -69,3 +77,15 @@ def setup_terminal_logging() -> None:
     # Wrap sys.stdout and sys.stderr
     sys.stdout = DualStream(sys.stdout, log_file, lock)
     sys.stderr = DualStream(sys.stderr, log_file, lock)
+
+    # Update Rich console so it writes through the new DualStream wrapper.
+    # logger.py creates its module-level Console() object at import time,
+    # which captures sys.stdout *before* this function wraps it. Without
+    # this update, all console.print() calls bypass DualStream and write
+    # directly to the block-buffered pipe, never reaching the parent process.
+    try:
+        from src.naukri_agent.utils.logger import console
+
+        console._file = sys.stdout
+    except (ImportError, AttributeError):
+        pass

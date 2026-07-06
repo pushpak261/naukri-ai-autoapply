@@ -1,0 +1,47 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import Layout from './components/Layout';
+import Dashboard from './pages/Dashboard';
+import Jobs from './pages/Jobs';
+import JobDetail from './pages/JobDetail';
+import Applications from './pages/Applications';
+import RunLogs from './pages/RunLogs';
+import Config from './pages/Config';
+import Resume from './pages/Resume';
+import Analytics from './pages/Analytics';
+import SkillsGap from './pages/SkillsGap';
+import ScamDetector from './pages/ScamDetector';
+import AgentControl from './pages/AgentControl';
+import CacheExplorer from './pages/CacheExplorer';
+import LogViewer from './pages/LogViewer';
+import Backups from './pages/Backups';
+import MarketIntelligence from './pages/MarketIntelligence';
+import AutoPilot from './pages/AutoPilot';
+import PipelineDebugger from './pages/PipelineDebugger';
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<Layout />}>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/market-intelligence" element={<MarketIntelligence />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/skills-gap" element={<SkillsGap />} />
+          <Route path="/autopilot" element={<AutoPilot />} />
+          <Route path="/pipeline-debugger" element={<PipelineDebugger />} />
+          <Route path="/scam-detector" element={<ScamDetector />} />
+          <Route path="/agent-control" element={<AgentControl />} />
+          <Route path="/jobs" element={<Jobs />} />
+          <Route path="/jobs/:id" element={<JobDetail />} />
+          <Route path="/applications" element={<Applications />} />
+          <Route path="/run-logs" element={<RunLogs />} />
+          <Route path="/cache-explorer" element={<CacheExplorer />} />
+          <Route path="/log-viewer" element={<LogViewer />} />
+          <Route path="/backups" element={<Backups />} />
+          <Route path="/config" element={<Config />} />
+          <Route path="/resume" element={<Resume />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}

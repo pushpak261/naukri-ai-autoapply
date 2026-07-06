@@ -163,6 +163,12 @@ async def setup_database_manager(db_path: Path) -> "DatabaseManager":
         connect_args={"check_same_thread": False},
     )
 
+    # Enable WAL mode for concurrent read/write safety
+    async with engine.connect() as conn:
+        await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
+        await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
+        await conn.commit()
+
     # Sync schema for SQLite
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

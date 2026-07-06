@@ -135,12 +135,3 @@ class PlaywrightStealthPatcher(IStealthPatcher):
         combined_script = "\n".join(self.scripts)
         await page.add_init_script(combined_script)
         logger.debug("Stealth scripts applied successfully")
-
-
-async def apply_stealth_scripts(page: Page) -> None:
-    """
-    Deprecated procedural wrapper for PlaywrightStealthPatcher.
-    Use PlaywrightStealthPatcher.apply() instead.
-    """
-    patcher = PlaywrightStealthPatcher()
-    await patcher.apply(page)

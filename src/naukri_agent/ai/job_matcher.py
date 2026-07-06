@@ -198,6 +198,11 @@ class JobMatcher(IJobMatcher):
         if not self._settings.ai.use_gemini:
             logger.info("Gemini AI is disabled. Using local deterministic matching.")
             return self._match_locally(resume_profile, job)
+        if not self._settings.ai.enable_matching:
+            logger.info(
+                "Gemini matching is disabled via enable_matching: false. Using local deterministic matching."
+            )
+            return self._match_locally(resume_profile, job)
 
         # Clean and truncate job description
         description = clean_text(job.description)

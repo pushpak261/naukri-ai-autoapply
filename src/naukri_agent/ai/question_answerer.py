@@ -35,27 +35,22 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 QUESTION_ANSWER_PROMPT = """You are an ultra-precise job application assistant. Your task is to extract exact answers for screening questions based on the candidate's profile. You MUST follow the strict formatting and reasoning rules below.
 
-CANDIDATE DETAILS (from resume_profile.json and resume):
-- Full Name: Pushpak Pandharpatte
-- Email: pushpak262001@gmail.com
-- Phone: 9921626877
-- Current Title: Software Engineer
+CANDIDATE DETAILS (from resume profile):
+- Full Name: {candidate_name}
+- Email: {candidate_email}
+- Phone: {candidate_phone}
+- Current Title: {current_title}
 - Current Location: {current_location}
-- Preferred Locations: Pune, Mumbai, Bangalore, Remote (Willing to relocate: Yes)
-- Total Experience: {total_experience} (12 months)
-- Current CTC: {current_ctc} (4,40,000 INR per annum)
-- Expected CTC: {expected_ctc} (6,00,000 INR per annum, negotiable)
-- Notice Period: {notice_period} (serving notice / 0 days / ready to join immediately)
+- Preferred Locations: {preferred_locations} (Willing to relocate: Yes)
+- Total Experience: {total_experience}
+- Current CTC: {current_ctc}
+- Expected CTC: {expected_ctc} (negotiable)
+- Notice Period: {notice_period}
 - Technical Skills: {skills}
 - Education:
-  * Post Graduate Diploma in Advanced Computing (PG-DAC) from Centre for Development of Advanced Computing (CDAC), Mumbai/Pune
-  * Bachelor of Mechanical Engineering from D.Y. Patil College of Engineering, Pune
-  * Higher Secondary Certificate (HSC) from New English High School & Jr. College, Mumbai
+{education_summary}
 - Work Experience:
-  * Software Engineer at Mastek (Pune): Working on client project for Morrisons using Java, Spring Boot, AWS, REST APIs, Microservices.
-  * Associate Software Engineer at Pletra Technologies (Pune): ERP System, React, TypeScript, .NET, C#, MongoDB, Kubernetes.
-  * Software Developer at VestalCode Softwares (Pune): Review Management System, Angular, Spring Boot, Valkey, PostgreSQL, OAuth2, Cron.
-  * Python Intern at Pantech Solutions: Python, AI projects, Face Recognition.
+{work_summary}
 
 {raw_text_section}
 
@@ -395,6 +390,18 @@ class QuestionAnswerer(IQuestionAnswerer):
                     }
                     for q in ai_questions
                 ]
+            elif not self._settings.application.answer_questions_with_pdf:
+                logger.info(
+                    "Skipping Gemini question answering because answer_questions_with_pdf is false."
+                )
+                ai_answers = [
+                    {
+                        "question": q.get("question", ""),
+                        "answer": "",
+                        "confidence": "low",
+                    }
+                    for q in ai_questions
+                ]
             else:
                 ai_answers = await self._ask_ai(ai_questions, job)
             # Map original index back to AI answers
@@ -406,6 +413,43 @@ class QuestionAnswerer(IQuestionAnswerer):
         # Sort by original index
         answers.sort(key=lambda x: x.get("index", 0))
         return answers
+
+    @staticmethod
+    def _format_education(education_list: list[dict]) -> str:
+        if not education_list:
+            return "  * No formal education listed"
+        lines = []
+        for edu in education_list:
+            degree = edu.get("degree", edu.get("qualification", ""))
+            institution = edu.get("institution", edu.get("university", ""))
+            year = edu.get("year", edu.get("graduation_year", ""))
+            parts = [f"  * {degree}"] if degree else []
+            if institution:
+                parts.append(f"from {institution}")
+            if year:
+                parts.append(f"({year})")
+            lines.append(" ".join(parts) if parts else "  * Unknown")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_work_experience(work_list: list[dict]) -> str:
+        if not work_list:
+            return "  * No work experience listed"
+        lines = []
+        for exp in work_list:
+            title = exp.get("title", exp.get("role", exp.get("position", "")))
+            company = exp.get("company", exp.get("organization", ""))
+            location = exp.get("location", "")
+            description = exp.get("description", exp.get("summary", ""))
+            parts = [f"  * {title}"] if title else ["  * Position"]
+            if company:
+                parts.append(f"at {company}")
+            if location:
+                parts.append(f"({location})")
+            if description:
+                parts.append(f": {description}")
+            lines.append(" ".join(parts))
+        return "\n".join(lines)
 
     async def _ask_ai(
         self,
@@ -442,13 +486,26 @@ class QuestionAnswerer(IQuestionAnswerer):
                 "---"
             )
 
+        preferred_locations = (
+            ", ".join(self._settings.profile.preferred_locations)
+            if self._settings.profile.preferred_locations
+            else "Not specified"
+        )
+
         prompt = QUESTION_ANSWER_PROMPT.format(
+            candidate_name=self._profile.name or "Not specified",
+            candidate_email=self._profile.email or "Not specified",
+            candidate_phone=self._profile.phone or "Not specified",
+            current_title=self._profile.current_title or "Not specified",
             current_ctc=self._settings.profile.current_ctc or "Not specified",
             expected_ctc=self._settings.profile.expected_ctc or "Not specified",
             notice_period=self._settings.profile.notice_period or "Not specified",
             total_experience=self._settings.profile.total_experience or "Not specified",
             current_location=self._settings.profile.current_location or "Not specified",
+            preferred_locations=preferred_locations,
             skills=skills_list,
+            education_summary=self._format_education(self._profile.education),
+            work_summary=self._format_work_experience(self._profile.work_experience),
             raw_text_section=raw_text_section,
             job_title=job.title or "Unknown",
             job_company=job.company or "Unknown",

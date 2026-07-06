@@ -16,7 +16,9 @@ from src.naukri_agent.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-def send_external_jobs_email(jobs_data: list[tuple["Job", str]], settings: "Settings") -> None:
+def send_external_jobs_email(
+    jobs_data: list[tuple["Job", str | None]], settings: "Settings"
+) -> None:
     """
     Send an email containing a list of external jobs to apply to.
 
@@ -41,8 +43,9 @@ def send_external_jobs_email(jobs_data: list[tuple["Job", str]], settings: "Sett
     logger.info(f"Sending email report for {len(jobs_data)} external jobs to {recipient}...")
 
     msg = EmailMessage()
+    timestamp = datetime.now().strftime("%Y-%m-%d")
     msg["Subject"] = (
-        f"Action Required: Naukri External Jobs ({datetime.now().strftime('%Y-%m-%d')})"
+        f"[{timestamp}] Naukri Job Search - {len(jobs_data)} Jobs Require Manual Application"
     )
     msg["From"] = sender_email
     msg["To"] = recipient
@@ -51,9 +54,8 @@ def send_external_jobs_email(jobs_data: list[tuple["Job", str]], settings: "Sett
     html_content = f"""
     <html>
       <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-        <h2 style="color: #2c3e50;">Naukri Agent - External Jobs Report</h2>
-        <p>The agent found <strong>{len(jobs_data)}</strong> jobs during the run that require you to apply directly on the company website.</p>
-        <p>Please click the links below to apply to these roles:</p>
+        <h2 style="color: #2c3e50;">Naukri Manual Application Jobs</h2>
+        <p>The bot found {len(jobs_data)} jobs that require manual application (redirecting to an external website, requiring a manual screening questionnaire, or the automated application failed). Please apply to them manually.</p>
         <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
           <thead>
             <tr style="background-color: #f8f9fa;">

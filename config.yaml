@@ -16,7 +16,7 @@ naukri:
 # ---------------------------------------------------------------------------
 ai:
   use_gemini: true   # Set to true to use AI, false to use local deterministic algorithms
-  enable_matching: false # Set to false to skip the entire match scoring step and apply to everything
+  enable_matching: true # Set to false to skip the entire match scoring step and apply to everything
   gemini_api_key: "" # Override with GEMINI_API_KEY env var
   model: "gemini-3.1-flash-lite"
   fallback_model: "gemini-3.5-flash"  # Optional secondary model when primary model hits daily 429 quota
@@ -42,18 +42,21 @@ search:
     - "Backend Developer"
     - "Software Engineer"
     - "Software Developer"
+    - "Associate Software Developer"
+    - "Junior Software Developer"
+    - "Application Developer"
   locations:
     - "Pune"
     - "Mumbai"
     - "Bangalore"
     - "Remote"
   experience_min: 0        # Minimum years of experience filter
-  experience_max: 1        # Maximum years of experience filter
+  experience_max: 2        # Maximum years of experience filter
   salary_min: 0            # Minimum salary in LPA (0 = any)
   freshness: 7            # Job posting age in days (1, 3, 7, 15, 30)
   max_pages: 10            # Max search result pages to scan per keyword
   sort_by: "relevance"     # "relevance" or "date"
-  enable_heuristics: false  # Set to true to prioritize/rank jobs based on resume relevancy and freshness, or false to process sequentially without ranking
+  enable_heuristics: true  # Set to true to prioritize/rank jobs based on resume relevancy and freshness, or false to process sequentially without ranking
 
 # ---------------------------------------------------------------------------
 # Application Controls
@@ -215,6 +218,7 @@ exclusions:
     - "registration"
     - "registration fee"
     - "paid training"
+    - "house keeping"
 
     # Non-Software Roles
     - "civil"
@@ -234,49 +238,30 @@ exclusions:
 
   description_keywords: [] # Skip jobs with these words in description
 
-  title_whitelist:         # Only process jobs containing these keywords (case-insensitive)
-    # Confirmed from Naukri URL patterns
-    - "software developer"
-    - "software engineer"
-    - "full stack developer"
-    - "junior software developer"
-    
-    # Broad software engineering keywords (will match any title containing these)
-    - "developer"
-    - "engineer"
-    - "programmer"
-    - "coder"
-    - "sde"
-    - "fullstack"
-    - "frontend"
-    - "backend"
-    - "web"
-    - "java"
-    - "python"
-    - "react"
-    - "node"
-    - "mern"
-    
-    # Fresher / Entry Level specific
-    - "fresher"
-    - "trainee"
-    - "junior"
-    - "associate"
-    # - "intern"
-    # - "graduate"
-    
-    # Confirmed big IT fresher titles (publicly documented)
-    # - "programmer analyst"         # Cognizant — GenC program
-    # - "technology analyst"         # Infosys — InfyTQ/InStep program
-    # - "systems engineer"           # TCS / Wipro
-    - "associate engineer"         # HCL / Capgemini / Accenture (confirmed)
-    # - "assistant system engineer"  # TCS exact fresher title (confirmed)
-    # - "it analyst"                 # TCS trainee variant (confirmed)
-    - "engineer trainee"           # Wipro Elite NTH exact title (confirmed)
-    # - "software analyst"           # Tech Mahindra / IBM pattern
-    - "application developer"      # Oracle / IBM fresher title
-    # - "associate consultant"       # Accenture / Deloitte fresher title
-    # - "get"                        # Graduate Engineer Trainee
+title_whitelist:
+  - "software engineer"
+  - "software developer"
+  - "java developer"
+  - "backend developer"
+  - "full stack developer"
+  - "associate software engineer"
+  - "associate software developer"
+  - "junior software engineer"
+  - "junior software developer"
+  - "software engineer trainee"
+  - "trainee software engineer"
+  - "graduate software engineer"
+  - "graduate software developer"
+  - "graduate engineer trainee"
+  - "engineer trainee"
+  - "software development engineer"
+  - "sde"
+  - "sde 1"
+  - "application developer"
+  - "associate engineer"
+  - "systems engineer"
+  - "java software engineer"
+  - "java backend developer"
 
 # ---------------------------------------------------------------------------
 # Logging
