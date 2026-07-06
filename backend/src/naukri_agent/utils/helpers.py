@@ -157,24 +157,108 @@ class NaukriURLUtility:
         page: int = 1,
     ) -> str:
         """Build a Naukri.com job search URL from parameters."""
-        from urllib.parse import quote_plus
 
-        clean_k = re.sub(r"[^a-zA-Z0-9]+", " ", keywords)
-        slug = "-".join(clean_k.lower().split())
+        def _create_slug(text: str) -> str:
+            if not text:
+                return ""
+            slug = text.lower().strip()
+            # Mapping common programming/tech skills with special characters
+            mappings = [
+                (r"c/c\+\+(?!\w)", "c-c-plus-plus"),
+                (r"c\+\+(?!\w)", "c-plus-plus"),
+                (r"c#(?!\w)", "c-sharp"),
+                (r"f#(?!\w)", "f-sharp"),
+                (r"j#(?!\w)", "j-sharp"),
+                (r"asp\.net(?!\w)", "asp-dot-net"),
+                (r"\.net(?!\w)", "dot-net"),
+                (r"pl/sql(?!\w)", "pl-sql"),
+                (r"t-sql(?!\w)", "t-sql"),
+                (r"no-sql(?!\w)", "no-sql"),
+                (r"ui/ux(?!\w)", "ui-ux"),
+                (r"html/css(?!\w)", "html-css"),
+                (r"tcp/ip(?!\w)", "tcp-ip"),
+                (r"react\.js(?!\w)", "react-js"),
+                (r"node\.js(?!\w)", "node-js"),
+                (r"vue\.js(?!\w)", "vue-js"),
+                (r"angular\.js(?!\w)", "angular-js"),
+                (r"next\.js(?!\w)", "next-js"),
+                (r"nuxt\.js(?!\w)", "nuxt-js"),
+                (r"nest\.js(?!\w)", "nest-js"),
+                (r"three\.js(?!\w)", "three-js"),
+                (r"d3\.js(?!\w)", "d3-js"),
+                (r"backbone\.js(?!\w)", "backbone-js"),
+                (r"ember\.js(?!\w)", "ember-js"),
+            ]
+            for pattern, replacement in mappings:
+                slug = re.sub(pattern, replacement, slug)
+
+            # Catch other generic *.js variants
+            slug = re.sub(r"\b(\w+)\.js(?!\w)", r"\1-js", slug)
+            # Replace remaining non-alphanumeric (except hyphens) with a space
+            slug = re.sub(r"[^a-zA-Z0-9\-]+", " ", slug)
+            return "-".join(slug.split())
+
+        # Coerce types to prevent TypeErrors from dynamic config inputs
+        try:
+            experience_min = int(experience_min)
+        except (ValueError, TypeError):
+            experience_min = 0
+
+        try:
+            experience_max = int(experience_max)
+        except (ValueError, TypeError):
+            experience_max = 50
+
+        try:
+            salary_min = int(salary_min)
+        except (ValueError, TypeError):
+            salary_min = 0
+
+        try:
+            freshness = int(freshness) if freshness is not None else 7
+        except (ValueError, TypeError):
+            freshness = 7
+
+        try:
+            page = int(page)
+        except (ValueError, TypeError):
+            page = 1
+
+        # Bound page number between 1 and 100 to prevent out-of-bounds routing
+        bounded_page = max(1, min(100, page))
+
+        slug = _create_slug(keywords)
         if location:
-            clean_l = re.sub(r"[^a-zA-Z0-9]+", " ", location)
-            loc_slug = "-".join(clean_l.lower().split())
-            path = f"{slug}-jobs-in-{loc_slug}"
+            loc_slug = _create_slug(location)
+            path = f"{slug}-jobs-in-{loc_slug}" if slug else f"jobs-in-{loc_slug}"
         else:
-            path = f"{slug}-jobs"
-        if page > 1:
-            path = f"{path}-{page}"
+            path = f"{slug}-jobs" if slug else "jobs"
+
+        # Append page suffix directly to URL path slug for SEO/pagination router
+        if bounded_page > 1:
+            path = f"{path}-{bounded_page}"
+
         base_url = f"https://www.naukri.com/{path}"
         params = []
-        params.append(f"k={quote_plus(keywords)}")
+
+        # Explicitly append search keywords & location query parameters for backend reliability
+        from urllib.parse import quote
+
+        if keywords:
+            params.append(f"k={quote(keywords)}")
         if location:
-            params.append(f"l={quote_plus(location)}")
+            params.append(f"l={quote(location)}")
+        if bounded_page > 1:
+            params.append(f"pageNo={bounded_page}")
+
+        # Naukri's frontend has a bug where `experiencemax` is ignored in the UI slider.
+        # We must ALWAYS pass `experience={experience_min}` to ensure the backend at least returns the correct minimum.
+        # We also pass `experiencemax` just in case the backend respects it, even if the UI slider breaks.
         params.append(f"experience={experience_min}")
+
+        if experience_max <= experience_min:
+            experience_max = experience_min + 1
+
         if experience_max < 50:
             params.append(f"experiencemax={experience_max}")
         if salary_min > 0:
@@ -182,9 +266,7 @@ class NaukriURLUtility:
         if freshness:
             params.append(f"jobAge={freshness}")
         if sort_by == "date":
-            params.append("sort=r")
-        if page > 1:
-            params.append(f"pageNo={page}")
+            params.append("sort=d")
         params.append("nignbevent_src=jobsearchDeskGNB")
         query_string = "&".join(params)
         return f"{base_url}?{query_string}"

@@ -85,11 +85,10 @@ class TestBuildSearchUrl:
     def test_basic_url(self):
         url = build_search_url("Python Developer")
         assert "python-developer-jobs" in url
-        assert "k=Python" in url
 
     def test_with_location(self):
         url = build_search_url("Python Developer", location="Bangalore")
-        assert "l=Bangalore" in url
+        assert "jobs-in-bangalore" in url
 
     def test_with_experience(self):
         url = build_search_url("Developer", experience_min=3, experience_max=5)
@@ -97,20 +96,79 @@ class TestBuildSearchUrl:
 
     def test_pagination(self):
         url = build_search_url("Developer", page=3)
+        assert "developer-jobs-3" in url
         assert "pageNo=3" in url
 
     def test_sort_by_date(self):
         url = build_search_url("Developer", sort_by="date")
-        # Naukri's actual query param for "sort by date" is sort=r, not sort=date.
-        assert "sort=r" in url
+        # Naukri's actual query param for "sort by date" is sort=d.
+        assert "sort=d" in url
 
     def test_sort_by_relevance_omits_sort_param(self):
         url = build_search_url("Developer", sort_by="relevance")
         assert "sort=" not in url
 
-    def test_page_1_no_pageno(self):
+    def test_page_1_no_page_suffix(self):
         url = build_search_url("Developer", page=1)
+        assert "developer-jobs-1" not in url
         assert "pageNo" not in url
+
+    def test_special_character_keywords(self):
+        # C++
+        url = build_search_url("C++ Developer")
+        assert "c-plus-plus-developer-jobs" in url
+
+        # C#
+        url = build_search_url("C# Developer")
+        assert "c-sharp-developer-jobs" in url
+
+        # .NET
+        url = build_search_url(".NET Core Developer")
+        assert "dot-net-core-developer-jobs" in url
+
+    def test_suffix_patterns(self):
+        # React.js
+        url = build_search_url("React.js Developer")
+        assert "react-js-developer-jobs" in url
+
+        # Node.js
+        url = build_search_url("Node.js Developer")
+        assert "node-js-developer-jobs" in url
+
+    def test_page_bounds(self):
+        # Page < 1 should be bounded to 1 (no page suffix)
+        url_low = build_search_url("Developer", page=-5)
+        assert "developer-jobs-5" not in url_low
+        assert "developer-jobs-1" not in url_low
+        assert "pageNo" not in url_low
+
+        # Page > 100 should be bounded to 100
+        url_high = build_search_url("Developer", page=120)
+        assert "developer-jobs-100" in url_high
+        assert "pageNo=100" in url_high
+
+    def test_query_params_k_and_l(self):
+        # Should include k and l parameters
+        url = build_search_url("Python Developer", location="Pune")
+        assert "k=Python%20Developer" in url
+        assert "l=Pune" in url
+
+    def test_type_coercion(self):
+        # Passing string values instead of integers should be handled gracefully
+        url = build_search_url(
+            "Developer",
+            experience_min="3",
+            experience_max="5",
+            salary_min="10",
+            freshness="15",
+            page="4",
+        )
+        assert "experience=3" in url
+        assert "experiencemax=5" in url
+        assert "salary=10" in url
+        assert "jobAge=15" in url
+        assert "pageNo=4" in url
+        assert "developer-jobs-4" in url
 
 
 class TestHashFile:

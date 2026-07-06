@@ -5,7 +5,7 @@ Provides access to browser engine and human interactions.
 
 from __future__ import annotations
 
-from src.naukri_agent.core.interfaces import IBrowserEngine, IBrowserInteractions
+from src.naukri_agent.bot.interfaces import IBrowserEngine, IBrowserInteractions
 
 
 class BasePage:

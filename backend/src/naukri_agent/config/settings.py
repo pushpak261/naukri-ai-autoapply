@@ -8,7 +8,6 @@ overrides. Provides typed, validated access to all settings.
 from __future__ import annotations
 
 import os
-import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -16,9 +15,9 @@ import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
-# Backend root (config.yaml, data/, .env live here)
+# Project root is two levels up from this file (src/config/settings.py)
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parents[3]
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 
 
 # ---------------------------------------------------------------------------
@@ -38,9 +37,11 @@ class NaukriCredentials(BaseModel):
 class AISettings(BaseModel):
     """Gemini AI configuration."""
 
+    use_gemini: bool = False
     gemini_api_key: str = ""
     model: str = "gemini-2.5-flash"
     fallback_model: str | None = None
+    enable_matching: bool = True
     abort_on_quota: bool = True
     temperature: float = 0.3
     max_output_tokens: int = 4096
@@ -63,6 +64,7 @@ class SearchSettings(BaseModel):
     freshness: int = 7
     max_pages: int = 3
     sort_by: str = "relevance"
+    enable_heuristics: bool = True
 
     @field_validator("sort_by")
     @classmethod
@@ -74,17 +76,20 @@ class SearchSettings(BaseModel):
 
 
 class ApplicationSettings(BaseModel):
-    """Application control settings."""
+    """Application behavior controls."""
 
     daily_cap: int = 25
     match_score_threshold: int = 70
+    answer_questions_with_pdf: bool = True
     delay_between_applies_min: int = 30
     delay_between_applies_max: int = 90
     delay_between_actions_min: float = 1.0
     delay_between_actions_max: float = 3.0
     skip_external_apply: bool = True
+    collect_external_jobs: bool = True
+    email_recipient: str = ""
     dry_run: bool = False
-    min_company_rating: float = 3.0
+    enable_project_indexer: bool = False
 
 
 class ProfileSettings(BaseModel):
@@ -101,6 +106,9 @@ class ProfileSettings(BaseModel):
 class ExclusionSettings(BaseModel):
     """Filters to skip certain jobs."""
 
+    enable_scam_filter: bool = True
+    fake_company_blocklist: list[str] = Field(default_factory=list)
+    max_openings_without_logo: int = 50
     companies: list[str] = Field(default_factory=list)
     title_keywords: list[str] = Field(default_factory=list)
     description_keywords: list[str] = Field(default_factory=list)
@@ -113,14 +121,6 @@ class LoggingSettings(BaseModel):
     level: str = "INFO"
     log_to_file: bool = True
     log_dir: str = "data/logs"
-
-
-class AlertSettings(BaseModel):
-    """Email alert configuration for failure notifications."""
-
-    enabled: bool = True
-    recipient_email: str = ""  # Defaults to GMAIL_OTP_EMAIL if blank
-    cooldown_minutes: int = 15  # Suppress duplicate alerts within this window
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +137,11 @@ class Settings(BaseModel):
     profile: ProfileSettings = Field(default_factory=ProfileSettings)
     exclusions: ExclusionSettings = Field(default_factory=ExclusionSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
-    alerts: AlertSettings = Field(default_factory=AlertSettings)
+
+    # Dashboard API key for frontend authentication
+    dashboard_api_key: str = ""
+    # Session encryption key (auto-derived from project_root if not set)
+    session_encryption_key: str = ""
 
     # Computed paths
     project_root: Path = PROJECT_ROOT
@@ -146,31 +150,7 @@ class Settings(BaseModel):
     resumes_dir: Path = PROJECT_ROOT / "data" / "resumes"
     db_path: Path = PROJECT_ROOT / "data" / "naukri_agent.db"
 
-    # Per-run flag: when True, daily_cap applies only to this run (UI/CLI override).
-    run_cap_resets_daily: bool = False
-
     model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    def copy_for_run(
-        self,
-        *,
-        cap: int | None = None,
-        threshold: int | None = None,
-        experience_min: int | None = None,
-        experience_max: int | None = None,
-    ) -> Settings:
-        """Deep-copy settings and apply optional per-run overrides without mutating the cache."""
-        run_settings = self.model_copy(deep=True)
-        if cap is not None:
-            run_settings.application.daily_cap = cap
-            run_settings.run_cap_resets_daily = True
-        if threshold is not None:
-            run_settings.application.match_score_threshold = threshold
-        if experience_min is not None:
-            run_settings.search.experience_min = experience_min
-        if experience_max is not None:
-            run_settings.search.experience_max = experience_max
-        return run_settings
 
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
@@ -186,7 +166,7 @@ class Settings(BaseModel):
         present, and return a list of human-readable problem descriptions.
 
         Returns an empty list if everything required is present. Intended to
-        be called once at startup (see `src.naukri_agent.main`) so the agent fails fast
+        be called once at startup (see `src.main`) so the agent fails fast
         with an actionable message instead of crashing deep inside the
         browser-login or AI layers with a confusing stack trace.
         """
@@ -209,7 +189,7 @@ class Settings(BaseModel):
                     "Naukri password is not set. Set NAUKRI_PASSWORD in your .env "
                     "or naukri.password in config.yaml."
                 )
-        if not self.ai.gemini_api_key:
+        if self.ai.use_gemini and not self.ai.gemini_api_key:
             problems.append(
                 "Gemini API key is not set. Set GEMINI_API_KEY in your .env "
                 "file or ai.gemini_api_key in config.yaml."
@@ -219,20 +199,7 @@ class Settings(BaseModel):
         if not resume_path:
             problems.append("Resume path is not configured (resume.path in config.yaml).")
         elif not resume_path.exists():
-            enc_path = self.project_root / "resume.pdf.enc"
-            if enc_path.exists():
-                problems.append(
-                    f"Resume file not found at: {resume_path}. "
-                    "Only resume.pdf.enc is present — decrypt it with "
-                    "`python scripts/decrypt_secrets.py` (needs resume_key.txt or "
-                    "RESUME_KEY), or place resume.pdf in the backend directory."
-                )
-            else:
-                problems.append(
-                    f"Resume file not found at: {resume_path}. "
-                    "Place your PDF at that path, or run "
-                    "`python scripts/update_resume.py` after adding resume.pdf."
-                )
+            problems.append(f"Resume file not found at: {resume_path}")
 
         if self.search.experience_min > self.search.experience_max:
             problems.append(
@@ -244,20 +211,13 @@ class Settings(BaseModel):
 
 
 def _load_yaml_config() -> dict:
-    """Load the config.yaml file from the backend directory."""
+    """Load the config.yaml file from the project root."""
     config_path = PROJECT_ROOT / "config.yaml"
     if not config_path.exists():
         return {}
     with open(config_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
     return data if isinstance(data, dict) else {}
-
-
-def _parse_env_value(env_var: str, raw: str) -> str | bool | int | float:
-    """Coerce common environment variable string forms into Python types."""
-    if env_var == "NAUKRI_USE_OTP_LOGIN":
-        return raw.strip().lower() in {"1", "true", "yes", "on"}
-    return raw
 
 
 def _apply_env_overrides(config: dict) -> dict:
@@ -272,7 +232,7 @@ def _apply_env_overrides(config: dict) -> dict:
     if env_path.exists():
         from dotenv import load_dotenv
 
-        load_dotenv(env_path)
+        load_dotenv(env_path, override=True)
 
     # Apply overrides
     env_map = {
@@ -282,54 +242,33 @@ def _apply_env_overrides(config: dict) -> dict:
         ("naukri", "gmail_app_password"): "GMAIL_APP_PASSWORD",
         ("naukri", "mobile_number"): "NAUKRI_MOBILE_NUMBER",
         ("naukri", "use_otp_login"): "NAUKRI_USE_OTP_LOGIN",
+        ("ai", "use_gemini"): "USE_GEMINI",
         ("ai", "gemini_api_key"): "GEMINI_API_KEY",
-        ("alerts", "recipient_email"): "ALERT_EMAIL_TO",
+        ("dashboard_api_key",): "DASHBOARD_API_KEY",
+        ("session_encryption_key",): "SESSION_ENCRYPTION_KEY",
     }
 
-    for (section, key), env_var in env_map.items():
+    # Keys whose values must be coerced from env-var strings to booleans
+    _bool_keys = {("naukri", "use_otp_login"), ("ai", "use_gemini")}
+
+    for keys, env_var in env_map.items():
         env_val = os.environ.get(env_var)
-        if env_val is not None and env_val != "":
+        if not env_val:
+            continue
+        if len(keys) == 1:
+            # Flat key directly on config dict
+            config[keys[0]] = env_val
+        else:
+            section, key = keys[0], keys[1]
             if section not in config:
                 config[section] = {}
-            config[section][key] = _parse_env_value(env_var, env_val)
+            # Boolean env vars: "true"/"1"/"yes" → True, anything else → False
+            if (section, key) in _bool_keys:
+                config[section][key] = env_val.strip().lower() in ("true", "1", "yes")
+            else:
+                config[section][key] = env_val
 
     return config
-
-
-def save_search_experience(experience_min: int, experience_max: int) -> Settings:
-    """Persist search experience range to config.yaml and reload settings."""
-    if experience_min > experience_max:
-        raise ValueError(
-            f"experience_min ({experience_min}) cannot be greater than "
-            f"experience_max ({experience_max})."
-        )
-
-    config_path = PROJECT_ROOT / "config.yaml"
-    if not config_path.exists():
-        raise FileNotFoundError(f"Config file not found: {config_path}")
-
-    text = config_path.read_text(encoding="utf-8")
-    updated = _replace_yaml_int_value(text, "experience_min", experience_min)
-    updated = _replace_yaml_int_value(updated, "experience_max", experience_max)
-    if updated == text:
-        config = _load_yaml_config()
-        config.setdefault("search", {})
-        config["search"]["experience_min"] = experience_min
-        config["search"]["experience_max"] = experience_max
-        with open(config_path, "w", encoding="utf-8") as f:
-            yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    else:
-        config_path.write_text(updated, encoding="utf-8")
-
-    get_settings.cache_clear()
-    return get_settings()
-
-
-def _replace_yaml_int_value(text: str, key: str, value: int) -> str:
-    """Replace a top-level YAML int value while preserving trailing comments."""
-    pattern = rf"^(\s*{re.escape(key)}:\s*)\d+(.*)$"
-    replacement = rf"\g<1>{value}\g<2>"
-    return re.sub(pattern, replacement, text, count=1, flags=re.MULTILINE)
 
 
 @lru_cache(maxsize=1)

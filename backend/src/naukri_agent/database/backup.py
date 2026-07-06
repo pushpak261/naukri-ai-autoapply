@@ -50,9 +50,5 @@ class DatabaseBackupService:
 
 
 def backup_database(db_path: Path) -> None:
-    """
-    Deprecated procedural wrapper for DatabaseBackupService.
-    Use DatabaseBackupService(db_path).backup() instead.
-    """
-    service = DatabaseBackupService(db_path)
-    service.backup()
+    """Convenience wrapper that creates a DatabaseBackupService and runs a backup."""
+    DatabaseBackupService(db_path).backup()

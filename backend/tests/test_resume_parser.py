@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.naukri_agent.ai.resume_parser import ResumeParser
-from src.naukri_agent.core.domain.entities import ResumeProfile
+from src.naukri_agent.models.entities import ResumeProfile
 
 
 @pytest.fixture
@@ -106,3 +106,93 @@ class TestResumeParser:
     def test_experience_is_number(self, sample_profile):
         """Test that experience years is numeric."""
         assert isinstance(sample_profile.total_experience_years, (int, float))
+
+    def test_extract_docx_text(self, mock_settings, mock_repo, tmp_path):
+        """Test that docx files can be parsed successfully using Python's zip/xml modules."""
+        import zipfile
+
+        mock_llm = AsyncMock()
+        parser = ResumeParser(mock_llm, mock_repo, mock_settings)
+
+        # Create a mock docx zip file
+        docx_file = tmp_path / "resume.docx"
+        with zipfile.ZipFile(docx_file, "w") as z:
+            xml_content = (
+                '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">\n'
+                "<w:body>\n"
+                "<w:p><w:r><w:t>John Doe Resume Content</w:t></w:r></w:p>\n"
+                "<w:p><w:r><w:t>Skills: Python, Javascript</w:t></w:r></w:p>\n"
+                "</w:body>\n"
+                "</w:document>"
+            )
+            z.writestr("word/document.xml", xml_content)
+
+        extracted_text = parser._extract_docx_text(docx_file)
+        assert "John Doe Resume Content" in extracted_text
+        assert "Skills: Python, Javascript" in extracted_text
+
+    @pytest.mark.asyncio
+    async def test_local_profile_ignored_during_parsing(
+        self, mock_settings, mock_repo, sample_profile, tmp_path
+    ):
+        """Even if resume_profile.json exists, we ignore it and parse the file directly."""
+        import json
+        from src.naukri_agent.utils.helpers import hash_file
+
+        mock_llm = AsyncMock()
+        # Mock Gemini provider returning a dummy parsed JSON response
+        mock_llm.generate_content.return_value = json.dumps(
+            {
+                "name": "Jane Doe",
+                "email": "jane@example.com",
+                "phone": "+91-9999999999",
+                "current_title": "Software Engineer",
+                "summary": "Jane's resume parsed from LLM",
+                "total_experience_years": 2.0,
+                "skills": ["Python"],
+                "technical_skills": ["Python"],
+                "soft_skills": [],
+                "job_titles_held": [],
+                "education": [],
+                "work_experience": [],
+                "certifications": [],
+                "languages": [],
+                "key_achievements": [],
+            }
+        )
+
+        mock_settings.project_root = tmp_path
+        mock_settings.application.answer_questions_with_pdf = False
+        mock_settings.ai.use_gemini = True
+
+        parser = ResumeParser(mock_llm, mock_repo, mock_settings)
+
+        # Create a local resume_profile.json
+        local_profile_file = tmp_path / "resume_profile.json"
+        local_profile_file.write_text(
+            json.dumps({"name": "Old John", "file_hash": "some_hash"}), encoding="utf-8"
+        )
+
+        # Create a new resume to parse
+        new_resume = tmp_path / "new_resume.pdf"
+        new_resume.write_bytes(b"%PDF-1.4 new resume contents")
+        new_hash = hash_file(new_resume)
+
+        # Ensure the mock repo also returns None for cache (db cache miss)
+        mock_repo.get_cached_profile = AsyncMock(return_value=None)
+        mock_repo.save_resume_profile = AsyncMock()
+
+        # Mock pdf text extraction to avoid actually parsing a fake PDF with PyMuPDF
+        parser._extract_pdf_text = MagicMock(return_value="Jane Doe Resume Content. Python.")
+
+        # Trigger parse
+        result = await parser.parse(new_resume)
+
+        # It should ignore "Old John" and parse using LLM
+        assert result.name == "Jane Doe"
+        mock_llm.generate_content.assert_called_once()
+        # It should write the newly parsed profile to the local file
+        updated_profile = json.loads(local_profile_file.read_text(encoding="utf-8"))
+        assert updated_profile["name"] == "Jane Doe"
+        assert updated_profile["file_hash"] == new_hash

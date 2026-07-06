@@ -1,7 +1,7 @@
 import pytest
 
-from src.naukri_agent.core.domain.entities import Job
-from src.naukri_agent.core.domain.specifications import (
+from src.naukri_agent.models.entities import Job
+from src.naukri_agent.models.rules import (
     AndSpecification,
     CompanyExclusionSpecification,
     DescriptionExclusionSpecification,

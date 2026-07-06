@@ -12,7 +12,7 @@ import re
 import time
 from email.header import decode_header
 
-from src.naukri_agent.core.interfaces import IOTPProvider
+from src.naukri_agent.bot.interfaces import IOTPProvider
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -130,7 +130,7 @@ class GmailOTPProvider(IOTPProvider):
                     match = re.search(r"\b\d{6}\b", body)
                     if match:
                         otp = match.group(0)
-                        logger.info(f"Successfully retrieved Naukri OTP: {otp}")
+                        logger.info(f"Successfully retrieved Naukri OTP: ****{otp[-2:]}")
 
                         # Mark the processed email as read
                         try:
@@ -170,9 +170,21 @@ def fetch_naukri_otp(
     timeout_seconds: int = 120,
     poll_interval_seconds: int = 5,
 ) -> str | None:
+    """Synchronous convenience wrapper around GmailOTPProvider.
+
+    Args:
+        gmail_email: Gmail address to log into.
+        app_password: Gmail app password.
+        timeout_seconds: Maximum time to keep polling.
+        poll_interval_seconds: Delay between poll attempts.
+
+    Returns:
+        The 6-digit OTP string, or None if not found within the timeout.
     """
-    Deprecated procedural wrapper for GmailOTPProvider.
-    Use GmailOTPProvider.retrieve_otp() instead.
-    """
-    provider = GmailOTPProvider(gmail_email, app_password, timeout_seconds, poll_interval_seconds)
+    provider = GmailOTPProvider(
+        gmail_email=gmail_email,
+        app_password=app_password,
+        timeout_seconds=timeout_seconds,
+        poll_interval_seconds=poll_interval_seconds,
+    )
     return provider._fetch_otp_sync()

@@ -10,9 +10,9 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.domain.entities import Job, ResumeProfile
-from src.naukri_agent.orchestrator.agent import NaukriAgent
-from src.naukri_agent.ai.similarity import VectorSimilarityFilter
+from src.naukri_agent.models.entities import Job, ResumeProfile
+from src.naukri_agent.bot.agent import NaukriAgent
+from src.naukri_agent.utils.similarity import VectorSimilarityFilter
 
 
 def test_title_whitelist_filtering() -> None:
@@ -116,3 +116,44 @@ def test_recalibrated_heuristics_boost() -> None:
     # job_low gets +0.10 (freshness) only
     assert score_high > score_low
     assert score_high >= 0.35
+
+
+def test_freshness_filter_refinements() -> None:
+    """Validate that JobFilter._passes_freshness_filter handles relative ages accurately."""
+    from src.naukri_agent.utils.filters import JobFilter
+
+    # Test under 7 days limit
+    filter_7 = JobFilter(max_experience=5, max_freshness_days=7)
+
+    # 3 days ago should pass
+    assert filter_7._passes_freshness_filter("3 Days Ago") is True
+    # 7 days ago should pass
+    assert filter_7._passes_freshness_filter("7 days ago") is True
+    # 1 week ago (which is 7 days) should pass
+    assert filter_7._passes_freshness_filter("1 week ago") is True
+    # Few hours ago (0 days) should pass
+    assert filter_7._passes_freshness_filter("Few hours ago") is True
+    # yesterday (1 day) should pass
+    assert filter_7._passes_freshness_filter("yesterday") is True
+    # a day ago (1 day) should pass
+    assert filter_7._passes_freshness_filter("a day ago") is True
+    # 2 weeks ago (14 days) should fail
+    assert filter_7._passes_freshness_filter("2 weeks ago") is False
+    # 30+ days ago should fail
+    assert filter_7._passes_freshness_filter("30+ Days Ago") is False
+
+    # Test under 15 days limit
+    filter_15 = JobFilter(max_experience=5, max_freshness_days=15)
+    # 1 week ago (7 days) should pass
+    assert filter_15._passes_freshness_filter("1 week ago") is True
+    # 2 weeks ago (14 days) should pass
+    assert filter_15._passes_freshness_filter("2 weeks ago") is True
+    # 3 weeks ago (21 days) should fail
+    assert filter_15._passes_freshness_filter("3 weeks ago") is False
+    # 1 month ago (30 days) should fail
+    assert filter_15._passes_freshness_filter("1 month ago") is False
+
+    # Test disabled freshness limit (0)
+    filter_disabled = JobFilter(max_experience=5, max_freshness_days=0)
+    assert filter_disabled._passes_freshness_filter("30+ Days Ago") is True
+    assert filter_disabled._passes_freshness_filter("3 weeks ago") is True

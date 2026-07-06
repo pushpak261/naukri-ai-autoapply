@@ -1,0 +1,432 @@
+const BASE_URL = '/api';
+
+async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(`${BASE_URL}${url}`, {
+    ...options,
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
+  const res = await fetch(`${BASE_URL}${url}`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function fetchText(url: string): Promise<string> {
+  const res = await fetch(`${BASE_URL}${url}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+export interface StatsResponse {
+  stats: { total: number; applied: number; skipped: number; failed: number };
+  today_applied: number;
+  total_jobs_found: number;
+  total_applied: number;
+  total_skipped: number;
+  total_failed: number;
+  recent_applications: RecentApplication[];
+  recent_runs: RunLog[];
+  daily_cap: number;
+  match_threshold: number;
+}
+
+export interface RecentApplication {
+  job_title: string;
+  company: string;
+  location: string;
+  match_score: number;
+  status: string;
+  applied_at: string;
+  url: string;
+  error_message: string;
+}
+
+export interface RunLog {
+  id: number;
+  started_at: string;
+  ended_at: string;
+  keywords: string;
+  found: number;
+  applied: number;
+  skipped: number;
+  failed: number;
+  status: string;
+}
+
+export interface JobItem {
+  id: number;
+  naukri_job_id: string;
+  title: string;
+  company: string;
+  location: string;
+  experience: string;
+  salary: string;
+  skills: string;
+  url: string;
+  posted_date: string;
+  openings: number;
+  has_company_logo: boolean;
+  scraped_at: string;
+  application_status: string | null;
+  match_score: number | null;
+}
+
+export interface JobDetail extends JobItem {
+  description: string;
+  application: {
+    match_score: number;
+    status: string;
+    match_reasoning: string;
+    matching_skills: string;
+    missing_skills: string;
+    error_message: string;
+    applied_at: string;
+  } | null;
+}
+
+export interface ApplicationItem {
+  id: number;
+  job_id: number;
+  job_title: string;
+  company: string;
+  location: string;
+  url: string;
+  match_score: number;
+  status: string;
+  match_reasoning: string;
+  matching_skills: string;
+  missing_skills: string;
+  error_message: string;
+  applied_at: string;
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export interface ConfigResponse {
+  naukri: { email: string; has_password: boolean; use_otp_login: boolean; mobile_number: string };
+  ai: { use_gemini: boolean; enable_matching: boolean; has_api_key: boolean; model: string; fallback_model: string | null; abort_on_quota: boolean; temperature: number; max_output_tokens: number };
+  resume: { path: string };
+  search: { keywords: string[]; locations: string[]; experience_min: number; experience_max: number; salary_min: number; freshness: number; max_pages: number; sort_by: string; enable_heuristics: boolean };
+  application: { daily_cap: number; match_score_threshold: number; answer_questions_with_pdf: boolean; delay_between_applies_min: number; delay_between_applies_max: number; skip_external_apply: boolean; dry_run: boolean; enable_project_indexer: boolean };
+  profile: { current_ctc: string; expected_ctc: string; notice_period: string; current_location: string; preferred_locations: string[]; total_experience: string };
+  logging: { level: string; log_to_file: boolean };
+}
+
+export interface StatusInfo {
+  value: string;
+  label: string;
+  color: string;
+}
+
+export interface CompanyDistribution {
+  company: string;
+  count: number;
+}
+
+export interface LocationDistribution {
+  location: string;
+  count: number;
+}
+
+export interface KeywordPerformance {
+  keyword: string;
+  found: number;
+  applied: number;
+  skipped: number;
+  failed: number;
+}
+
+export interface DailyTimeline {
+  date: string;
+  applied: number;
+  skipped: number;
+  failed: number;
+  total: number;
+}
+
+export interface SuccessRateTrend {
+  date: string;
+  total: number;
+  applied: number;
+  success_rate: number;
+}
+
+export interface AgentStatus {
+  running: boolean;
+  pid: number | null;
+  started_at: string | null;
+  uptime_seconds: number | null;
+  last_run: RunLog | null;
+}
+
+export interface MatchCacheEntry {
+  key: string;
+  resume_hash: string;
+  job_id: string;
+  score: number;
+  should_apply: boolean;
+  matching_skills: string[];
+  missing_skills: string[];
+  reasoning: string;
+}
+
+export interface MatchCacheStats {
+  total_entries: number;
+  avg_score: number;
+  would_apply: number;
+  would_skip: number;
+}
+
+export interface MetricsResponse {
+  total_runs: number;
+  jobs_applied: number;
+  jobs_failed: number;
+  api_calls: number;
+  duration_seconds: number;
+}
+
+export interface LogFile {
+  name: string;
+  path: string;
+  size: number;
+  modified: string;
+  type: string;
+}
+
+export interface LogContent {
+  content: string;
+  total_lines: number;
+  showing: number;
+  name: string;
+}
+
+export interface SessionStatus {
+  exists: boolean;
+  valid: boolean;
+  cookie_count: number;
+  last_modified: string;
+  message: string;
+}
+
+export interface BackupItem {
+  name: string;
+  size: number;
+  created: string;
+}
+
+// New types for the innovative features
+
+export interface SalaryBenchmark {
+  title: string;
+  company: string;
+  location: string;
+  low: number;
+  high: number;
+  avg: number;
+  raw: string;
+}
+
+export interface SkillDemandItem {
+  skill: string;
+  count: number;
+  avg_score: number;
+  max_score: number;
+}
+
+export interface CompetitorCompany {
+  company: string;
+  avg_match_score: number;
+  application_count: number;
+}
+
+export interface WinRateBracket {
+  bracket: string;
+  total: number;
+  applied: number;
+  success_rate: number;
+}
+
+export interface AutopilotConfig {
+  enabled: boolean;
+  schedule: { type: string; time: string; days: string[] };
+  throttle: { top_tier_daily: number; startup_daily: number; default_daily: number };
+  priority_rules: { condition: string; action: string; enabled: boolean }[];
+  company_blacklist: string[];
+  company_whitelist: string[];
+  tier_map: Record<string, string>;
+}
+
+export interface ScamAnalysisItem {
+  job_id: number;
+  job_title: string;
+  company: string;
+  location: string;
+  skills: string;
+  score: number;
+  raw_score: number;
+  category: string;
+  reasons: string[];
+}
+
+export interface ScamAnalysisResponse {
+  risk_distribution: { name: string; value: number; color: string }[];
+  score_distribution: ScamAnalysisItem[];
+  highest_risk: ScamAnalysisItem[];
+  summary: {
+    total_jobs: number;
+    avg_score: number;
+    safe_count: number;
+    moderate_count: number;
+    suspicious_count: number;
+  };
+}
+
+export interface ResumeOptimizationItem {
+  skill: string;
+  matching: number;
+  missing: number;
+  total: number;
+  matchRate: number;
+}
+
+export interface KeywordDensityItem {
+  keyword: string;
+  count: number;
+  avgInListings: number;
+  yourCount: number;
+  gap: number;
+}
+
+export interface SkillBreakdownItem {
+  name: string;
+  count: number;
+  color: string;
+}
+
+export interface ResumeOptimizationResponse {
+  resume: { exists: boolean; name: string; email: string; skills_count: number; total_experience_years: number };
+  skills_data: ResumeOptimizationItem[];
+  keyword_density: KeywordDensityItem[];
+  skill_breakdown: SkillBreakdownItem[];
+  ats: { score: number; label: string };
+  summary: { total_applications: number; total_jobs: number; total_skills_analyzed: number; has_resume: boolean };
+}
+
+export const SSE_BASE = BASE_URL;
+
+export const api = {
+  health: () => fetchJSON<{ status: string }>('/health'),
+  stats: (days = 7) => fetchJSON<StatsResponse>(`/stats?days=${days}`),
+  jobs: (page = 1, perPage = 20, search = '', status = '', sort = 'newest', matchScoreMin = 0, matchScoreMax = 100) =>
+    fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}`),
+  job: (id: number) => fetchJSON<JobDetail>(`/jobs/${id}`),
+  applications: (page = 1, perPage = 20, status = '', sort = 'newest') =>
+    fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}`),
+  runLogs: (limit = 20) => fetchJSON<{ items: RunLog[] }>(`/run-logs?limit=${limit}`),
+  runJobs: (runId: number) => fetchJSON<{ items: ApplicationItem[]; run: RunLog }>(`/run-logs/${runId}/jobs`),
+  config: () => fetchJSON<ConfigResponse>('/config'),
+  updateConfig: (data: Record<string, unknown>) =>
+    fetchJSON<{ status: string; message: string }>('/config', { method: 'PUT', body: JSON.stringify(data) }),
+  resumeProfile: () => fetchJSON<{ exists: boolean; profile: Record<string, unknown> | null }>('/resume-profile'),
+  applicationStatuses: () => fetchJSON<{ statuses: StatusInfo[] }>('/application-statuses'),
+
+  resume: {
+    upload: (file: File) => {
+      const fd = new FormData();
+      fd.append('file', file);
+      return fetchFormData<{ status: string; profile: Record<string, unknown>; file_path: string }>('/resume/upload', fd);
+    },
+    saveProfile: (data: Record<string, unknown>) =>
+      fetchJSON<{ status: string; profile: Record<string, unknown> }>('/resume/profile', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
+  analytics: {
+    companyDistribution: (limit = 15) => fetchJSON<{ items: CompanyDistribution[] }>(`/analytics/company-distribution?limit=${limit}`),
+    locationDistribution: () => fetchJSON<{ items: LocationDistribution[] }>('/analytics/location-distribution'),
+    keywordPerformance: () => fetchJSON<{ items: KeywordPerformance[] }>('/analytics/keyword-performance'),
+    dailyTimeline: (days = 30) => fetchJSON<{ items: DailyTimeline[] }>(`/analytics/daily-timeline?days=${days}`),
+    successRateTrend: (days = 30) => fetchJSON<{ items: SuccessRateTrend[] }>(`/analytics/success-rate-trend?days=${days}`),
+  },
+
+  agent: {
+    start: () => fetchJSON<{ status: string; message: string; pid?: number; command?: string }>('/agent/start', { method: 'POST' }),
+    stop: () => fetchJSON<{ status: string; message: string }>('/agent/stop', { method: 'POST' }),
+    status: () => fetchJSON<AgentStatus>('/agent/status'),
+    output: (lines = 50) => fetchText(`/agent/output?lines=${lines}`),
+    outputStreamUrl: () => `${SSE_BASE}/agent/output/stream`,
+  },
+
+  cache: {
+    matchCache: (search = '') => fetchJSON<{ items: MatchCacheEntry[]; total: number }>(`/cache/match-cache?search=${encodeURIComponent(search)}`),
+    matchCacheStats: () => fetchJSON<MatchCacheStats>('/cache/match-cache/stats'),
+    clearMatchCache: () => fetchJSON<{ status: string; message: string }>('/cache/match-cache', { method: 'DELETE' }),
+  },
+
+  metrics: () => fetchJSON<MetricsResponse>('/metrics'),
+
+  logs: {
+    list: () => fetchJSON<{ items: LogFile[] }>('/logs'),
+    read: (logPath: string, maxLines = 200) => fetchJSON<LogContent>(`/logs/read?log_path=${encodeURIComponent(logPath)}&max_lines=${maxLines}`),
+  },
+
+  session: {
+    status: () => fetchJSON<SessionStatus>('/session/status'),
+    clear: () => fetchJSON<{ status: string; message: string }>('/session', { method: 'DELETE' }),
+  },
+
+  backups: {
+    list: () => fetchJSON<{ items: BackupItem[] }>('/backups'),
+    create: () => fetchJSON<{ status: string; message: string }>('/backups/create', { method: 'POST' }),
+  },
+
+  scamAnalysis: () => fetchJSON<ScamAnalysisResponse>('/scam-detector/analysis'),
+  resumeOptimization: () => fetchJSON<ResumeOptimizationResponse>('/resume-optimization/analysis'),
+
+  // ---- New feature endpoints ----
+
+  marketIntel: {
+    salaryBenchmarks: () => fetchJSON<{ items: SalaryBenchmark[]; summary: { total_listings: number; average_market_ctc: number; min_market_ctc: number; max_market_ctc: number } }>('/market-intel/salary-benchmarks'),
+    skillDemand: () => fetchJSON<{ items: SkillDemandItem[] }>('/market-intel/skill-demand'),
+    competitorCompanies: () => fetchJSON<{ items: CompetitorCompany[] }>('/market-intel/competitor-companies'),
+    winRatePrediction: () => fetchJSON<{ items: WinRateBracket[] }>('/market-intel/win-rate-prediction'),
+  },
+
+  autopilot: {
+    config: () => fetchJSON<AutopilotConfig>('/autopilot/config'),
+    updateConfig: (data: Record<string, unknown>) =>
+      fetchJSON<{ status: string; message: string }>('/autopilot/config', { method: 'PUT', body: JSON.stringify(data) }),
+    blacklist: () => fetchJSON<{ blacklist: string[]; whitelist: string[] }>('/autopilot/blacklist'),
+    addToBlacklist: (company: string) =>
+      fetchJSON<{ status: string; company: string; blacklist: string[] }>('/autopilot/blacklist', { method: 'POST', body: JSON.stringify({ company }) }),
+    removeFromBlacklist: (company: string) =>
+      fetchJSON<{ status: string; company: string; blacklist: string[] }>('/autopilot/blacklist', { method: 'DELETE', body: JSON.stringify({ company }) }),
+    addToWhitelist: (company: string) =>
+      fetchJSON<{ status: string; company: string; whitelist: string[] }>('/autopilot/whitelist', { method: 'POST', body: JSON.stringify({ company }) }),
+    removeFromWhitelist: (company: string) =>
+      fetchJSON<{ status: string; company: string; whitelist: string[] }>('/autopilot/whitelist', { method: 'DELETE', body: JSON.stringify({ company }) }),
+  },
+
+  exportData: {
+    applicationsCsv: () => `${SSE_BASE}/export/applications/csv`,
+    jobsCsv: () => `${SSE_BASE}/export/jobs/csv`,
+    statsJson: () => `${SSE_BASE}/export/stats/json`,
+  },
+};

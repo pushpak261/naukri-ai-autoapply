@@ -5,77 +5,24 @@ Provides subcommands for running the agent, viewing status, parsing
 resumes, and testing job matching.
 
 Usage:
-    python -m src.naukri_agent.main run [--dry-run]
-    python -m src.naukri_agent.main status
-    python -m src.naukri_agent.main parse-resume <path>
-    python -m src.naukri_agent.main test-match <job_url>
+    python -m src.main run [--dry-run]
+    python -m src.main status
+    python -m src.main parse-resume <path>
+    python -m src.main test-match <job_url>
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import click
 
 from src.naukri_agent.config.settings import get_settings
-from src.naukri_agent.utils.logger import console, get_logger
+from src.naukri_agent.utils.logger import console
 
 if TYPE_CHECKING:
-    from src.naukri_agent.orchestrator.agent import NaukriAgent
-
-logger = get_logger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Alert helpers
-# ---------------------------------------------------------------------------
-def _create_notifier(settings):
-    """Construct an ``EmailAlertNotifier`` from the current settings.
-
-    Returns ``None`` when alerts are disabled or SMTP credentials are
-    missing — callers must handle a ``None`` return.
-    """
-    if not settings.alerts.enabled:
-        return None
-
-    sender = settings.naukri.gmail_otp_email
-    password = settings.naukri.gmail_app_password
-    if not sender or not password:
-        return None
-
-    from src.naukri_agent.utils.email_notifier import EmailAlertNotifier
-
-    return EmailAlertNotifier(
-        sender_email=sender,
-        app_password=password,
-        recipient_email=settings.alerts.recipient_email,
-        cooldown_minutes=settings.alerts.cooldown_minutes,
-        cooldown_dir=str(settings.project_root / settings.logging.log_dir),
-    )
-
-
-async def _run_with_alerts(task_name: str, coro: Coroutine[Any, Any, Any]) -> Any:
-    """Run *coro* and send an email alert if it raises an exception.
-
-    The exception is always re-raised so existing error handling (log +
-    exit code) continues to work as before.
-    """
-    try:
-        return await coro
-    except (SystemExit, KeyboardInterrupt):
-        raise  # Never alert on intentional exits
-    except Exception as exc:
-        # Best-effort alert — must not mask the original error
-        try:
-            settings = get_settings()
-            notifier = _create_notifier(settings)
-            if notifier:
-                await notifier.send_alert(task_name, exc)
-        except Exception as alert_err:
-            logger.warning(f"Could not send failure alert: {alert_err}")
-        raise
+    from src.naukri_agent.bot.agent import NaukriAgent
 
 
 @click.group()
@@ -99,16 +46,27 @@ def cli():
     default=None,
     help="Override minimum match score threshold (0-100)",
 )
-def run(dry_run: bool, cap: int | None, threshold: int | None):
+@click.option(
+    "--keyword",
+    type=str,
+    default=None,
+    help="Override search keywords with a single keyword (useful for Matrix builds)",
+)
+def run(
+    dry_run: bool,
+    cap: int | None,
+    threshold: int | None,
+    keyword: str | None,
+):
     """Start the job application agent."""
-    asyncio.run(_run_with_alerts("run", _run(dry_run, cap, threshold)))
+    asyncio.run(_run(dry_run, cap, threshold, keyword))
 
 
-def create_agent(settings, session_factory, progress_reporter=None) -> NaukriAgent:
-    from src.naukri_agent.orchestrator.agent import NaukriAgent
-    from src.naukri_agent.orchestrator.factory import DependencyFactory
+def create_agent(settings, db_manager) -> NaukriAgent:
+    from src.naukri_agent.bot.agent import NaukriAgent
+    from src.naukri_agent.bot.factory import DependencyFactory
 
-    factory = DependencyFactory(settings, session_factory=session_factory)
+    factory = DependencyFactory(settings, db_manager=db_manager)
     return NaukriAgent(
         settings=factory.get_settings(),
         repository=factory.get_repository(),
@@ -122,14 +80,26 @@ def create_agent(settings, session_factory, progress_reporter=None) -> NaukriAge
         question_answerer_factory=lambda profile: factory.create_question_answerer(profile),
         job_applier_factory=lambda qa: factory.create_job_applier(qa),
         profile_refresher=factory.create_profile_refresher(),
-        progress_reporter=progress_reporter,
     )
 
 
-async def _run(dry_run: bool, cap: int | None, threshold: int | None):
-    from src.naukri_agent.database.models import init_db
+async def _run(
+    dry_run: bool,
+    cap: int | None,
+    threshold: int | None,
+    keyword: str | None,
+):
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
-    settings = get_settings().copy_for_run(cap=cap, threshold=threshold)
+    settings = get_settings()
+
+    # Apply CLI overrides
+    if cap is not None:
+        settings.application.daily_cap = cap
+    if threshold is not None:
+        settings.application.match_score_threshold = threshold
+    if keyword is not None:
+        settings.search.keywords = [keyword]
 
     problems = settings.validate_required()
     if problems:
@@ -139,23 +109,41 @@ async def _run(dry_run: bool, cap: int | None, threshold: int | None):
         console.print("\n[dim]See .env.example and config.yaml for what needs to be set.[/dim]")
         raise SystemExit(1)
 
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+
+    # Start the incremental project indexer in the background
+    if settings.application.enable_project_indexer:
+        try:
+            import subprocess
+            import sys
+
+            script_path = settings.project_root / "scripts" / "vibe_context.py"
+            if script_path.exists():
+                subprocess.Popen(
+                    [sys.executable, str(script_path), "--watch"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                console.print("[dim]Started background project indexer for AI context...[/dim]")
+        except Exception as e:
+            console.print(f"[dim]Note: Could not start background indexer ({e})[/dim]")
+
+    agent = create_agent(settings, db_manager)
     await agent.run(dry_run=dry_run)
 
 
 @cli.command()
 def status():
     """Show application statistics and recent history."""
-    asyncio.run(_run_with_alerts("status", _status()))
+    asyncio.run(_status())
 
 
 async def _status():
-    from src.naukri_agent.database.models import init_db
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+    agent = create_agent(settings, db_manager)
     await agent.show_status()
 
 
@@ -163,15 +151,15 @@ async def _status():
 @click.argument("resume_path", type=click.Path(exists=True))
 def parse_resume(resume_path: str):
     """Parse a resume PDF and display the structured profile."""
-    asyncio.run(_run_with_alerts("parse-resume", _parse_resume(resume_path)))
+    asyncio.run(_parse_resume(resume_path))
 
 
 async def _parse_resume(resume_path: str):
-    from src.naukri_agent.database.models import init_db
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+    agent = create_agent(settings, db_manager)
     await agent.parse_resume_only(resume_path)
 
 
@@ -179,30 +167,30 @@ async def _parse_resume(resume_path: str):
 @click.argument("job_url")
 def test_match(job_url: str):
     """Test job matching against a specific Naukri job URL."""
-    asyncio.run(_run_with_alerts("test-match", _test_match(job_url)))
+    asyncio.run(_test_match(job_url))
 
 
 async def _test_match(job_url: str):
-    from src.naukri_agent.database.models import init_db
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+    agent = create_agent(settings, db_manager)
     await agent.test_match(job_url)
 
 
 @cli.command("refresh-profile")
 def refresh_profile():
     """Automated task to refresh the user profile."""
-    asyncio.run(_run_with_alerts("refresh-profile", _refresh_profile()))
+    asyncio.run(_refresh_profile())
 
 
 async def _refresh_profile():
-    from src.naukri_agent.database.models import init_db
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+    agent = create_agent(settings, db_manager)
     await agent.refresh_profile()
 
 
@@ -210,8 +198,6 @@ async def _refresh_profile():
 def init():
     """Initialize configuration files and data directories."""
     import shutil
-
-    from src.naukri_agent.utils.secrets import decrypt_local_secrets
 
     settings = get_settings()
     settings.ensure_dirs()
@@ -227,38 +213,19 @@ def init():
     elif env_path.exists():
         console.print("  ℹ️  .env already exists")
 
-    decrypt_messages = decrypt_local_secrets(settings.project_root)
-    if decrypt_messages:
-        console.print("  🔐 Encrypted assets:")
-        for message in decrypt_messages:
-            if message.startswith("No decryption key"):
-                console.print(f"  ℹ️  {message}")
-            elif "Could not decrypt" in message:
-                console.print(f"  ⚠️  {message}")
-            elif message.startswith("Skipped"):
-                console.print(f"  ℹ️  {message}")
-            else:
-                console.print(f"  ✅ {message}")
-
-    resume_path = settings.project_root / settings.resume.path
-    if not resume_path.exists():
-        console.print(
-            "  ⚠️  resume.pdf is missing — add it to the backend directory, or run "
-            "[bold]python scripts/decrypt_secrets.py[/bold] if you have resume_key.txt"
-        )
-    else:
-        console.print("  ✅ Resume file found")
-
     console.print("  ✅ Data directories created")
     console.print()
     console.print("[bold cyan]Next steps:[/bold cyan]")
     console.print("  1. Edit [bold].env[/bold] with your Naukri credentials and Gemini API key")
     console.print("  2. Edit [bold]config.yaml[/bold] with your job preferences")
-    console.print("  3. Run [bold]python -m src.naukri_agent.main run --dry-run[/bold] to test")
+    console.print("  3. Run [bold]python -m src.main run --dry-run[/bold] to test")
 
 
 def main():
     """Entry point."""
+    from src.naukri_agent.utils.terminal_logging import setup_terminal_logging
+
+    setup_terminal_logging()
     cli()
 
 

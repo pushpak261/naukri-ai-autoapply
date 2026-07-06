@@ -14,7 +14,14 @@ from playwright.async_api import (
     Page,
     Playwright,
     async_playwright,
+    Error as PlaywrightError,
 )
+
+import base64
+import hashlib
+import json
+
+from cryptography.fernet import Fernet
 
 from src.naukri_agent.config.constants import (
     DEFAULT_LOCALE,
@@ -23,8 +30,8 @@ from src.naukri_agent.config.constants import (
     DEFAULT_USER_AGENT,
 )
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.exceptions import BrowserAutomationError
-from src.naukri_agent.core.interfaces import IBrowserEngine, IStealthPatcher
+from src.naukri_agent.utils.exceptions import BrowserAutomationError
+from src.naukri_agent.bot.interfaces import IBrowserEngine, IStealthPatcher
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -53,6 +60,33 @@ class PlaywrightEngine(IBrowserEngine):
         self._context: BrowserContext | None = None
         self._page: Page | None = None
         self._session_path = settings.sessions_dir / "naukri_session.json"
+        self._fernet = self._init_fernet(settings)
+
+    @staticmethod
+    def _init_fernet(settings: Settings) -> Fernet | None:
+        key_str = settings.session_encryption_key
+        if not key_str:
+            seed = str(settings.project_root).encode("utf-8")
+            key_str = base64.urlsafe_b64encode(hashlib.sha256(seed).digest()).decode()
+        try:
+            return Fernet(key_str.encode() if isinstance(key_str, str) else key_str)
+        except Exception:
+            logger.warning("Invalid session encryption key, falling back to plaintext storage")
+            return None
+
+    def _encrypt(self, data: bytes) -> bytes:
+        if self._fernet:
+            return self._fernet.encrypt(data)
+        return data
+
+    def _decrypt(self, data: bytes) -> bytes:
+        if self._fernet:
+            try:
+                return self._fernet.decrypt(data)
+            except Exception:
+                logger.warning("Failed to decrypt session file, treating as plaintext")
+                return data
+        return data
 
     @property
     def page(self) -> Page:
@@ -108,10 +142,18 @@ class PlaywrightEngine(IBrowserEngine):
                 "ignore_https_errors": False,
             }
 
-            # Restore session state if available
+            # Restore session state if available (handles encrypted files)
             if self._session_path.exists():
                 logger.info("Restoring previous session state...")
-                context_options["storage_state"] = str(self._session_path)
+                try:
+                    raw = self._session_path.read_bytes()
+                    decrypted = self._decrypt(raw)
+                    state = json.loads(decrypted.decode("utf-8"))
+                    if state.get("cookies") or state.get("origins"):
+                        context_options["storage_state"] = state
+                except Exception:
+                    logger.warning("Failed to load session state, treating as plaintext path")
+                    context_options["storage_state"] = str(self._session_path)
 
             # NOTE: Playwright's new_context() has a long overloaded signature;
             # mypy can't verify a dynamically-built kwargs dict against it.
@@ -130,20 +172,18 @@ class PlaywrightEngine(IBrowserEngine):
 
             logger.info("Browser launched successfully")
             return self._page
-        except Exception as e:
+        except PlaywrightError as e:
             logger.error(f"Failed to launch browser: {e}")
             await self.close()
             raise BrowserAutomationError(f"Playwright failed to start: {e}") from e
 
     async def save_session(self) -> None:
-        """Save the current browser session state (cookies, local storage)."""
+        """Save the current browser session state (cookies, local storage) — encrypted at rest."""
         if self._context:
             self._session_path.parent.mkdir(parents=True, exist_ok=True)
             state = await self._context.storage_state()
-            import json
-
-            with open(self._session_path, "w", encoding="utf-8") as f:
-                json.dump(state, f)
+            raw = json.dumps(state, ensure_ascii=False).encode("utf-8")
+            self._session_path.write_bytes(self._encrypt(raw))
             logger.debug("Session state saved")
 
     async def close(self) -> None:
@@ -153,14 +193,17 @@ class PlaywrightEngine(IBrowserEngine):
         except Exception as e:
             logger.warning(f"Failed to save session state: {e}")
 
-        if self._page:
-            await self._page.close()
-        if self._context:
-            await self._context.close()
-        if self._browser:
-            await self._browser.close()
-        if self._playwright:
-            await self._playwright.stop()
+        try:
+            if self._page:
+                await self._page.close()
+            if self._context:
+                await self._context.close()
+            if self._browser:
+                await self._browser.close()
+            if self._playwright:
+                await self._playwright.stop()
+        except Exception as e:
+            logger.debug(f"Ignored error during browser cleanup: {e}")
 
         logger.info("Browser closed")
 

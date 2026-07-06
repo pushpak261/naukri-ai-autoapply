@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.naukri_agent.ai.question_answerer import QuestionAnswerer
-from src.naukri_agent.core.domain.entities import Job, ResumeProfile
+from src.naukri_agent.models.entities import Job, ResumeProfile
 
 
 @pytest.fixture

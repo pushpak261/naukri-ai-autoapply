@@ -15,9 +15,9 @@ from pathlib import Path
 from pydantic import BaseModel
 
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
-from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
-from src.naukri_agent.core.interfaces import IJobMatcher, ILLMProvider
+from src.naukri_agent.models.entities import Job, JobApplication, ResumeProfile
+from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.naukri_agent.bot.interfaces import IJobMatcher, ILLMProvider
 from src.naukri_agent.utils.helpers import clean_text, truncate_text
 from src.naukri_agent.utils.logger import get_logger, log_match
 
@@ -77,13 +77,25 @@ SCORING GUIDELINES:
 - 60-74: Moderate match — some skill gaps but transferable experience
 - 40-59: Weak match — significant gaps, stretch role
 - 0-39: Poor match — fundamentally different role or experience level
+- 0: AUTOMATIC ZERO — assign score 0 and should_apply false if ANY of the RED FLAGS below are detected
+
+RED FLAGS (score = 0, should_apply = false):
+1. FAKE / MISLEADING JOBS: The description is extremely vague with no specific technical requirements, the company name is missing or generic (e.g. "Confidential", "A Leading MNC", "Company Name"), or the salary is unrealistically high for the role.
+2. STAFFING / CONSULTANCY / RECRUITMENT AGENCY: The posting is from a staffing firm, recruitment agency, consultancy, manpower company, or talent solutions provider — NOT from the actual hiring company. Look for phrases like "hiring for client", "deputation", "contract staffing", "payroll of [agency]", "C2H", "contract to hire", "walk-in interview", "urgent requirement", "bulk hiring", "immediate joiners only", or the company name contains words like "consultancy", "consulting", "staffing", "manpower", "solutions", "services", "recruitment", "HR", "talent", "placement".
+3. DUPLICATE / REPOSTED: The job description is nearly identical to another listing but with a different title or slight rewording.
+4. WRONG ROLE: The title says one thing but the description is for a completely different role (e.g. title says "Python Developer" but description is for a manual testing role).
+5. EXPIRED / UNAVAILABLE: The description mentions the position is filled, closed, or no longer available.
 
 RULES:
-1. Be realistic and honest in scoring. Don't inflate scores.
-2. Consider transferable skills and related technologies.
-3. If experience requirement is significantly higher than candidate's, reduce score.
-4. "should_apply" should be true if score >= {threshold}.
-5. Return ONLY the JSON object. No explanations outside the JSON."""
+1. Be extremely realistic and honest in scoring. Do NOT inflate scores.
+2. You MUST cross-reference the CANDIDATE RESUME PROFILE against the JOB SKILLS REQUIRED. If the candidate lacks core required skills, the score MUST be below {threshold}.
+3. STRICT ROLE & EXPERIENCE MATCHING:
+   - If the candidate's experience level does not match the job's requirements (e.g., candidate is junior but job wants senior/lead, or candidate has experience but job is for intern/fresher), assign a score below 40.
+   - If the candidate's core role (e.g., Software Developer) fundamentally differs from the job (e.g., Testing, QA, Support, BPO, Sales), assign a score below 30.
+4. "should_apply" MUST be true ONLY if score >= {threshold} AND NO red flags are detected.
+5. FAKE JOB DETECTION IS YOUR TOP PRIORITY. If a job looks even slightly suspicious (e.g., generic consulting firm, no client mentioned, vague description), you MUST assign score 0.
+6. Return ONLY the JSON object. No explanations outside the JSON.
+7. ALWAYS check for red flags FIRST before scoring skills match."""
 
 
 class MatchCache:
@@ -181,6 +193,16 @@ class JobMatcher(IJobMatcher):
                     missing_skills=", ".join(cached_result.get("missing_skills", [])),
                     should_apply=should_apply,
                 )
+
+        # Check if we should use Gemini
+        if not self._settings.ai.use_gemini:
+            logger.info("Gemini AI is disabled. Using local deterministic matching.")
+            return self._match_locally(resume_profile, job)
+        if not self._settings.ai.enable_matching:
+            logger.info(
+                "Gemini matching is disabled via enable_matching: false. Using local deterministic matching."
+            )
+            return self._match_locally(resume_profile, job)
 
         # Clean and truncate job description
         description = clean_text(job.description)
@@ -293,3 +315,51 @@ class JobMatcher(IJobMatcher):
                 should_apply=False,
                 error_message=str(e),
             )
+
+    def _match_locally(self, resume_profile: ResumeProfile, job: Job) -> JobApplication:
+        from src.naukri_agent.utils.trie import AhoCorasick
+        from src.naukri_agent.ai.resume_parser import DEFAULT_TECH_SKILLS
+
+        matcher = AhoCorasick(DEFAULT_TECH_SKILLS)
+
+        job_text = f"{job.title or ''} {job.description or ''} {job.skills or ''}".lower()
+        job_skills = set(matcher.search(job_text).keys())
+
+        if job.skills:
+            explicit_skills = [s.strip().lower() for s in job.skills.split(",")]
+            job_skills.update(explicit_skills)
+
+        resume_skills = {s.lower() for s in resume_profile.skills}
+
+        matching_skills = list(job_skills.intersection(resume_skills))
+        missing_skills = list(job_skills.difference(resume_skills))
+
+        if not job_skills:
+            score = 80.0
+        else:
+            score = (len(matching_skills) / len(job_skills)) * 100.0
+
+        should_apply = score >= self._threshold
+
+        log_match(
+            score=score,
+            title=job.title or "Unknown",
+            company=job.company or "Unknown",
+            should_apply=should_apply,
+        )
+
+        logger.info(
+            f"Local Match: {score:.1f}/100 | "
+            f"Apply: {should_apply} | "
+            f"Skills: +{len(matching_skills)} "
+            f"-{len(missing_skills)}"
+        )
+
+        return JobApplication(
+            match_score=score,
+            status="applied" if should_apply else "skipped_low_score",
+            match_reasoning="Calculated using local deterministic algorithm based on skill overlap.",
+            matching_skills=", ".join(matching_skills),
+            missing_skills=", ".join(missing_skills),
+            should_apply=should_apply,
+        )

@@ -1,32 +1,25 @@
-# Frontend — React Dashboard
+# Naukri AI Agent Dashboard
 
-Vite + React + TypeScript dashboard for starting/stopping the agent and viewing live job progress.
+React dashboard for monitoring and configuring the Naukri AI job application agent.
 
-## Install
+## Setup
 
 ```bash
 npm install
 ```
 
-## Run
-
-Start the API first (from repo root — see [backend/README.md](../backend/README.md)), then:
+## Development
 
 ```bash
 npm run dev
 ```
 
-Open http://127.0.0.1:5173 (proxies `/api` to the backend on port 8000).
+Starts the dev server on http://localhost:5173 with API proxy to http://localhost:8000.
 
-## Layout
+## Production Build
 
+```bash
+npm run build
 ```
-frontend/
-  src/
-    api/         # REST client
-    app/         # Router, providers
-    components/  # Shared UI (shadcn-style)
-    features/    # Dashboard, jobs, history, settings
-    hooks/       # SSE event stream
-    store/       # Zustand live state
-```
+
+Output goes to `dist/`. Serve with any static file server or the FastAPI backend.

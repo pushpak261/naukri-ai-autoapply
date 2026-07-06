@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from playwright.async_api import Page
 
-from src.naukri_agent.core.interfaces import IStealthPatcher
+from src.naukri_agent.bot.interfaces import IStealthPatcher
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -135,12 +135,3 @@ class PlaywrightStealthPatcher(IStealthPatcher):
         combined_script = "\n".join(self.scripts)
         await page.add_init_script(combined_script)
         logger.debug("Stealth scripts applied successfully")
-
-
-async def apply_stealth_scripts(page: Page) -> None:
-    """
-    Deprecated procedural wrapper for PlaywrightStealthPatcher.
-    Use PlaywrightStealthPatcher.apply() instead.
-    """
-    patcher = PlaywrightStealthPatcher()
-    await patcher.apply(page)

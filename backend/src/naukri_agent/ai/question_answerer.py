@@ -9,14 +9,16 @@ and Gemini AI to generate contextually appropriate answers.
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
+
 
 from pydantic import BaseModel
 
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.domain.entities import Job, ResumeProfile
-from src.naukri_agent.core.exceptions import LLMAPIError, LLMQuotaExceededError
-from src.naukri_agent.core.interfaces import ILLMProvider, IQuestionAnswerer
+from src.naukri_agent.models.entities import Job, ResumeProfile
+from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.naukri_agent.bot.interfaces import ILLMProvider, IQuestionAnswerer
 from src.naukri_agent.utils.logger import get_logger, log_info
 
 
@@ -31,44 +33,60 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Question answering prompt
 # ---------------------------------------------------------------------------
-QUESTION_ANSWER_PROMPT = """You are helping a job applicant fill in screening questions on a job application form. Use the candidate's profile information to answer each question accurately and professionally.
+QUESTION_ANSWER_PROMPT = """You are an ultra-precise job application assistant. Your task is to extract exact answers for screening questions based on the candidate's profile. You MUST follow the strict formatting and reasoning rules below.
 
-CANDIDATE PROFILE:
-- Current CTC: {current_ctc}
-- Expected CTC: {expected_ctc}
-- Notice Period: {notice_period}
-- Total Experience: {total_experience}
+CANDIDATE DETAILS (from resume profile):
+- Full Name: {candidate_name}
+- Email: {candidate_email}
+- Phone: {candidate_phone}
+- Current Title: {current_title}
 - Current Location: {current_location}
-- Skills: {skills}
+- Preferred Locations: {preferred_locations} (Willing to relocate: Yes)
+- Total Experience: {total_experience}
+- Current CTC: {current_ctc}
+- Expected CTC: {expected_ctc} (negotiable)
+- Notice Period: {notice_period}
+- Technical Skills: {skills}
+- Education:
+{education_summary}
+- Work Experience:
+{work_summary}
 
-JOB BEING APPLIED TO:
+{raw_text_section}
+
+JOB DETAILS:
 - Title: {job_title}
 - Company: {job_company}
 
 QUESTIONS TO ANSWER:
 {questions_json}
 
-For each question, provide the best answer based on the candidate's profile.
-Return a valid JSON array with answers in the same order as the questions:
+CRITICAL RULES:
+1. MULTIPLE CHOICE ENFORCEMENT: If the question provides options (e.g. checkbox/radio/dropdown), your answer MUST match one of the options EXACTLY. Select the best match from the options list.
+   - For relocation: If asked about relocation or working in Pune/Mumbai/Bangalore, choose "Yes" or equivalent positive option.
+   - For notice period: Choose "Immediate", "0 days", "15 days", or the shortest option available if "Immediate" is not listed.
+   - For CTC: Choose the option closest to the candidate's CTC.
+2. REASONING & INTENT:
+   - Understand the intent of the question. For example, if asked "How many years of experience do you have in Spring Boot?", and the candidate has worked with Spring Boot in 2 jobs (Mastek and VestalCode), they have about 1 year of total experience. Answer "1" or "1 year" (or the option representing 1-2 years).
+   - If asked about a skill the candidate has, answer "Yes" or the appropriate positive option.
+   - If asked about a skill not explicitly listed in the skills list, scan the FULL RESUME TEXT. If it's mentioned or related to their projects, answer "Yes" or matching years of experience.
+   - If asked "Are you comfortable working in Pune?", answer "Yes" (as candidate lives in Pune).
+3. FORMAT COMPLIANCE:
+   - For text fields, write a concise, professional answer (no conversational filler).
+   - For number fields, return only the numeric digits (e.g. "1" instead of "1 year", "440000" instead of "4.4 Lakhs") unless the options dictate otherwise.
+   - For date fields, write in standard YYYY-MM-DD or DD/MM/YYYY format if applicable.
+4. DEFAULTING:
+   - Never leave an answer blank. If you are unsure, choose/write the most reasonable positive option (e.g., "Yes" for consent, relocation, or shift availability; "1" for years of experience; "Immediate" for notice period; expected CTC for CTC questions).
 
+EXPECTED JSON OUTPUT (Strictly return a JSON array of objects with the exact structure below, no markdown wrappers, no explanation):
 [
     {{
         "question": "Original question text",
-        "answer": "Your answer",
-        "confidence": "high" | "medium" | "low"
+        "answer": "Exact answer string matching one of the options (if choice field) or a precise string/number (if text/number field)",
+        "confidence": "high"
     }},
     ...
-]
-
-RULES:
-1. Be truthful — use actual profile data, don't fabricate experience or skills.
-2. For CTC questions, use the provided values directly.
-3. For notice period, use the exact value from the profile.
-4. For experience questions, use total_experience value.
-5. For Yes/No questions about skills, say "Yes" only if the skill is in the profile.
-6. For open-ended questions, keep answers concise (1-2 sentences max).
-7. If you're unsure about an answer, set confidence to "low".
-8. Return ONLY the JSON array. No extra text."""
+]"""
 
 
 # ---------------------------------------------------------------------------
@@ -78,14 +96,33 @@ DIRECT_ANSWER_PATTERNS = {
     "current ctc": "current_ctc",
     "current salary": "current_ctc",
     "present ctc": "current_ctc",
+    "current fixed ctc": "current_ctc",
     "expected ctc": "expected_ctc",
     "expected salary": "expected_ctc",
     "notice period": "notice_period",
+    "noticeperiod": "notice_period",
+    "serving notice": "notice_period",
     "total experience": "total_experience",
     "years of experience": "total_experience",
+    "total exp": "total_experience",
+    "work experience": "total_experience",
     "current location": "current_location",
     "current city": "current_location",
+    "residence": "current_location",
+    "live in": "current_location",
+    "relocate": "reloc_consent",
+    "willing to relocate": "reloc_consent",
 }
+
+
+def _normalize_question_text(question_text: str) -> str:
+    """Normalize question text for robust matching and caching."""
+    q = question_text or ""
+    q = q.lower().strip()
+    q = re.sub(r"\s+", " ", q)
+    q = re.sub(r"[^a-z0-9 ]+", " ", q)
+    q = re.sub(r"\s+", " ", q)
+    return q.strip()
 
 
 class QACache:
@@ -118,11 +155,11 @@ class QACache:
         except Exception as e:
             logger.debug(f"Failed to save QA cache: {e}")
 
-    def get(self, question: str) -> str | None:
-        return self._qa_cache.get(question)
+    def get(self, question_key: str) -> str | None:
+        return self._qa_cache.get(question_key)
 
-    def set(self, question: str, answer: str) -> None:
-        self._qa_cache[question] = answer
+    def set(self, question_key: str, answer: str) -> None:
+        self._qa_cache[question_key] = answer
 
     def save(self) -> None:
         self._save_cache()
@@ -148,13 +185,23 @@ class QuestionAnswerer(IQuestionAnswerer):
         self._settings = settings
         self._profile = resume_profile
 
-        # Build answer lookup from config
+        # Build answer lookup from config, falling back to parsed resume profile
+        profile_experience = (
+            f"{resume_profile.total_experience_years} years"
+            if resume_profile.total_experience_years
+            else None
+        )
         self._direct_answers = {
-            "current_ctc": settings.profile.current_ctc,
-            "expected_ctc": settings.profile.expected_ctc,
-            "notice_period": settings.profile.notice_period,
-            "total_experience": settings.profile.total_experience,
-            "current_location": settings.profile.current_location,
+            "current_ctc": settings.profile.current_ctc or "4.4 LPA",
+            "expected_ctc": settings.profile.expected_ctc or "6 LPA",
+            "notice_period": settings.profile.notice_period or "Immediate",
+            "total_experience": settings.profile.total_experience
+            or profile_experience
+            or "1 years",
+            "current_location": settings.profile.current_location
+            or resume_profile.current_title
+            or "Pune",
+            "reloc_consent": "Yes",
         }
 
         # Load local QA cache to save API tokens
@@ -166,52 +213,119 @@ class QuestionAnswerer(IQuestionAnswerer):
 
         self._trie = AhoCorasick(list(DIRECT_ANSWER_PATTERNS.keys()))
 
-    def _try_direct_answer(self, question_text: str) -> str | None:
+    def _try_direct_answer(
+        self, question_text: str, q_type: str = "text", options: list[dict] | None = None
+    ) -> str | None:
         """
         Try to answer a question directly from config values using Trie lookup
-        or Fuzzy Levenshtein Distance matching. Returns None if no match.
+        or Fuzzy Levenshtein Distance matching. If options are present,
+        resolves the value to the best matching choice.
+        Returns None if no match.
         """
         question_lower = question_text.lower().strip()
+        config_key = None
+        best_pattern = None
 
         # 1. Exact/Substring match using Aho-Corasick (Trie)
         matched_patterns = self._trie.search(question_lower)
         if matched_patterns:
-            # Pick the longest matched pattern to be most specific (e.g. "expected ctc" over "ctc")
             best_pattern = str(max(matched_patterns.keys(), key=len))
             config_key = DIRECT_ANSWER_PATTERNS.get(best_pattern, "")
-            answer = self._direct_answers.get(config_key, "")
-            if answer:
-                logger.debug(f"Trie/Aho-Corasick direct answer for '{best_pattern}': {answer}")
-                return answer
 
         # 2. Fuzzy Levenshtein match fallback
-        from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
+        if not config_key:
+            from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
 
-        best_fuzzy_pattern = None
-        best_fuzzy_score = 0.0
+            best_fuzzy_pattern = None
+            best_fuzzy_score = 0.0
 
-        for pattern in DIRECT_ANSWER_PATTERNS:
-            score = fuzzy_similarity_ratio(pattern, question_lower)
-            if score > best_fuzzy_score:
-                best_fuzzy_score = score
-                best_fuzzy_pattern = pattern
+            for pattern in DIRECT_ANSWER_PATTERNS:
+                score = fuzzy_similarity_ratio(pattern, question_lower)
+                if score > best_fuzzy_score:
+                    best_fuzzy_score = score
+                    best_fuzzy_pattern = pattern
 
-        # If fuzzy match is extremely high (e.g. >= 0.80), resolve it directly
-        if best_fuzzy_pattern and best_fuzzy_score >= 0.80:
-            config_key = DIRECT_ANSWER_PATTERNS[best_fuzzy_pattern]
-            answer = self._direct_answers.get(config_key, "")
-            if answer:
-                logger.debug(
-                    f"Fuzzy Levenshtein direct answer for '{best_fuzzy_pattern}' "
-                    f"(score: {best_fuzzy_score:.2f}): {answer}"
-                )
-                return answer
+            if best_fuzzy_pattern and best_fuzzy_score >= 0.80:
+                best_pattern = best_fuzzy_pattern
+                config_key = DIRECT_ANSWER_PATTERNS[best_fuzzy_pattern]
 
-        return None
+        if not config_key:
+            return None
+
+        raw_val = self._direct_answers.get(config_key, "")
+        if not raw_val:
+            return None
+
+        # If it's a choice field (dropdown/radio/checkbox), match the choice!
+        if q_type in ("dropdown", "radio", "checkbox") and options:
+            opt_texts = [o.get("text", "") for o in options]
+            val_lower = raw_val.lower().strip()
+
+            # Exact match first
+            for opt in opt_texts:
+                if opt.lower().strip() == val_lower:
+                    return opt
+
+            # Number-based range matching for CTC or Experience
+            if config_key in ("current_ctc", "expected_ctc", "total_experience"):
+                # Extract number from config value
+                candidate_nums = re.findall(r"\d+(?:\.\d+)?", raw_val)
+                if candidate_nums:
+                    candidate_num = float(candidate_nums[0])
+                    # Parse ranges from option texts
+                    for opt in opt_texts:
+                        opt_nums = [float(n) for n in re.findall(r"\d+(?:\.\d+)?", opt)]
+                        if len(opt_nums) == 2:
+                            if min(opt_nums) <= candidate_num <= max(opt_nums):
+                                return opt
+                        elif len(opt_nums) == 1:
+                            parsed_num = opt_nums[0]
+                            if "above" in opt.lower() or "more" in opt.lower() or "+" in opt:
+                                if candidate_num >= parsed_num:
+                                    return opt
+                            elif "less" in opt.lower() or "below" in opt.lower() or "under" in opt:
+                                if candidate_num <= parsed_num:
+                                    return opt
+                            elif candidate_num == parsed_num:
+                                return opt
+
+            # Fuzzy/Substring match
+            for opt in opt_texts:
+                opt_lower = opt.lower().strip()
+                if val_lower in opt_lower or opt_lower in val_lower:
+                    return opt
+
+            # Fallback specifically for relocation
+            if config_key == "reloc_consent":
+                for opt in opt_texts:
+                    if "yes" in opt.lower() or "willing" in opt.lower() or "agree" in opt.lower():
+                        return opt
+
+            # Fallback specifically for notice period (shortest)
+            if config_key == "notice_period":
+                for opt in opt_texts:
+                    if (
+                        "immediate" in opt.lower()
+                        or "0 days" in opt.lower()
+                        or "serving" in opt.lower()
+                    ):
+                        return opt
+
+            # If we couldn't match, fall back to LLM to prevent wrong selections
+            return None
+
+        # For text fields, format appropriately if it expects a number
+        if q_type == "number" or "years" in question_lower or "digit" in question_lower:
+            nums = re.findall(r"\d+(?:\.\d+)?", raw_val)
+            if nums:
+                return nums[0]
+
+        logger.debug(f"Direct answer matched for '{best_pattern}': {raw_val}")
+        return raw_val
 
     async def answer_questions(
         self,
-        questions: list[dict[str, str]],
+        questions: list[dict],
         job: Job,
     ) -> list[dict]:
         """
@@ -220,10 +334,10 @@ class QuestionAnswerer(IQuestionAnswerer):
         Args:
             questions: List of dicts with keys: "question" (text),
                       "type" (text/dropdown/radio), "options" (list, if applicable).
-            job_data: Dict with job title, company, etc.
+            job: Job domain entity.
 
         Returns:
-            List of dicts with "question", "answer", "confidence" keys.
+            List of dicts with "question", "answer", "confidence", "id" keys.
         """
         if not questions:
             return []
@@ -234,12 +348,16 @@ class QuestionAnswerer(IQuestionAnswerer):
         # First pass: try direct answers and CACHE
         for q in questions:
             question_text = q.get("question", "")
-            direct = self._try_direct_answer(question_text)
-            cached = self._cache.get(question_text)
+            q_type = q.get("type", "text")
+            options = q.get("options", [])
+            direct = self._try_direct_answer(question_text, q_type, options)
+            q_key = _normalize_question_text(question_text)
+            cached = self._cache.get(q_key)
 
             if direct:
                 answers.append(
                     {
+                        "id": q.get("id"),
                         "question": question_text,
                         "answer": direct,
                         "confidence": "high",
@@ -250,6 +368,7 @@ class QuestionAnswerer(IQuestionAnswerer):
                 logger.debug(f"Cache hit for QA: {question_text}")
                 answers.append(
                     {
+                        "id": q.get("id"),
                         "question": question_text,
                         "answer": cached,
                         "confidence": "high",
@@ -261,15 +380,76 @@ class QuestionAnswerer(IQuestionAnswerer):
 
         # Second pass: use AI for remaining questions
         if ai_questions:
-            ai_answers = await self._ask_ai(ai_questions, job)
+            if not self._settings.ai.use_gemini:
+                logger.info("Gemini AI is disabled. Skipping complex AI questions.")
+                ai_answers = [
+                    {
+                        "question": q.get("question", ""),
+                        "answer": "",
+                        "confidence": "low",
+                    }
+                    for q in ai_questions
+                ]
+            elif not self._settings.application.answer_questions_with_pdf:
+                logger.info(
+                    "Skipping Gemini question answering because answer_questions_with_pdf is false."
+                )
+                ai_answers = [
+                    {
+                        "question": q.get("question", ""),
+                        "answer": "",
+                        "confidence": "low",
+                    }
+                    for q in ai_questions
+                ]
+            else:
+                ai_answers = await self._ask_ai(ai_questions, job)
             # Map original index back to AI answers
             for ans, orig_q in zip(ai_answers, ai_questions, strict=False):
                 ans["index"] = orig_q.get("index", 0)
+                ans["id"] = orig_q.get("id")
             answers.extend(ai_answers)
 
         # Sort by original index
         answers.sort(key=lambda x: x.get("index", 0))
         return answers
+
+    @staticmethod
+    def _format_education(education_list: list[dict]) -> str:
+        if not education_list:
+            return "  * No formal education listed"
+        lines = []
+        for edu in education_list:
+            degree = edu.get("degree", edu.get("qualification", ""))
+            institution = edu.get("institution", edu.get("university", ""))
+            year = edu.get("year", edu.get("graduation_year", ""))
+            parts = [f"  * {degree}"] if degree else []
+            if institution:
+                parts.append(f"from {institution}")
+            if year:
+                parts.append(f"({year})")
+            lines.append(" ".join(parts) if parts else "  * Unknown")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_work_experience(work_list: list[dict]) -> str:
+        if not work_list:
+            return "  * No work experience listed"
+        lines = []
+        for exp in work_list:
+            title = exp.get("title", exp.get("role", exp.get("position", "")))
+            company = exp.get("company", exp.get("organization", ""))
+            location = exp.get("location", "")
+            description = exp.get("description", exp.get("summary", ""))
+            parts = [f"  * {title}"] if title else ["  * Position"]
+            if company:
+                parts.append(f"at {company}")
+            if location:
+                parts.append(f"({location})")
+            if description:
+                parts.append(f": {description}")
+            lines.append(" ".join(parts))
+        return "\n".join(lines)
 
     async def _ask_ai(
         self,
@@ -291,13 +471,42 @@ class QuestionAnswerer(IQuestionAnswerer):
             indent=2,
         )
 
+        raw_text_section = ""
+        if (
+            getattr(self._settings.application, "answer_questions_with_pdf", False)
+            and hasattr(self._profile, "raw_text")
+            and self._profile.raw_text
+        ):
+            raw_text_section = (
+                "FULL RESUME TEXT:\n"
+                "The following is the candidate's complete raw resume text. Use this to find precise, highly specific details "
+                "(such as exact years of experience in niche technologies like Dart, Flutter, etc.) that might not be in the high-level summary.\n"
+                "---\n"
+                f"{self._profile.raw_text}\n"
+                "---"
+            )
+
+        preferred_locations = (
+            ", ".join(self._settings.profile.preferred_locations)
+            if self._settings.profile.preferred_locations
+            else "Not specified"
+        )
+
         prompt = QUESTION_ANSWER_PROMPT.format(
+            candidate_name=self._profile.name or "Not specified",
+            candidate_email=self._profile.email or "Not specified",
+            candidate_phone=self._profile.phone or "Not specified",
+            current_title=self._profile.current_title or "Not specified",
             current_ctc=self._settings.profile.current_ctc or "Not specified",
             expected_ctc=self._settings.profile.expected_ctc or "Not specified",
             notice_period=self._settings.profile.notice_period or "Not specified",
             total_experience=self._settings.profile.total_experience or "Not specified",
             current_location=self._settings.profile.current_location or "Not specified",
+            preferred_locations=preferred_locations,
             skills=skills_list,
+            education_summary=self._format_education(self._profile.education),
+            work_summary=self._format_work_experience(self._profile.work_experience),
+            raw_text_section=raw_text_section,
             job_title=job.title or "Unknown",
             job_company=job.company or "Unknown",
             questions_json=questions_json,
