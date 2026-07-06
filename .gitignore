@@ -59,4 +59,9 @@ scratch_*.log
 api_test_*.txt
 api_final2_*.txt
 test_*.txt
-test_curl.txt
+test_curl.txt
+
+# Local dev secrets/sessions
+data/.jwt_secret
+data/dashboard_session.enc
+.opencode/

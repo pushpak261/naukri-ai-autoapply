@@ -143,6 +143,10 @@ class Settings(BaseModel):
     # Session encryption key (auto-derived from project_root if not set)
     session_encryption_key: str = ""
 
+    # JWT auth settings (auto-generated if not set)
+    jwt_secret: str = ""
+    jwt_encryption_key: str = ""
+
     # Computed paths
     project_root: Path = PROJECT_ROOT
     data_dir: Path = PROJECT_ROOT / "data"
@@ -246,6 +250,8 @@ def _apply_env_overrides(config: dict) -> dict:
         ("ai", "gemini_api_key"): "GEMINI_API_KEY",
         ("dashboard_api_key",): "DASHBOARD_API_KEY",
         ("session_encryption_key",): "SESSION_ENCRYPTION_KEY",
+        ("jwt_secret",): "JWT_SECRET",
+        ("jwt_encryption_key",): "JWT_ENCRYPTION_KEY",
     }
 
     # Keys whose values must be coerced from env-var strings to booleans

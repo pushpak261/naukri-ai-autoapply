@@ -1,272 +1,210 @@
-# =============================================================================
-# Naukri.com AI Agent Configuration
-# =============================================================================
-# Copy this file and fill in your details. Sensitive values (email, password,
-# API keys) can also be set via environment variables or a .env file.
-
-# ---------------------------------------------------------------------------
-# Naukri.com Credentials
-# ---------------------------------------------------------------------------
-naukri:
-  email: ""          # Override with NAUKRI_EMAIL env var
-  password: ""       # Override with NAUKRI_PASSWORD env var
-
-# ---------------------------------------------------------------------------
-# Google Gemini AI Settings
-# ---------------------------------------------------------------------------
 ai:
-  use_gemini: true   # Set to true to use AI, false to use local deterministic algorithms
-  enable_matching: true # Set to false to skip the entire match scoring step and apply to everything
-  gemini_api_key: "" # Override with GEMINI_API_KEY env var
-  model: "gemini-3.1-flash-lite"
-  fallback_model: "gemini-3.5-flash"  # Optional secondary model when primary model hits daily 429 quota
-  abort_on_quota: true  # If true, stops the run on daily quota error when no fallback model is set
-  temperature: 0.3
+  abort_on_quota: true
+  enable_matching: true
+  fallback_model: gemini-3.5-flash
+  gemini_api_key: ''
   max_output_tokens: 4096
-
-# ---------------------------------------------------------------------------
-# Resume
-# ---------------------------------------------------------------------------
-resume:
-  path: "resume.pdf"           # Path to your PDF resume (e.g., "C:/Users/you/resume.pdf")
-
-# ---------------------------------------------------------------------------
-# Job Search Parameters
-# ---------------------------------------------------------------------------
-search:
-  keywords:
-    - "Full Stack Developer"
-    - "Java Developer"
-    - "Associate Software Engineer"
-    - "Junior Software Engineer"
-    - "Backend Developer"
-    - "Software Engineer"
-    - "Software Developer"
-    - "Associate Software Developer"
-    - "Junior Software Developer"
-    - "Application Developer"
-  locations:
-    - "Pune"
-    - "Mumbai"
-    - "Bangalore"
-    - "Remote"
-  experience_min: 0        # Minimum years of experience filter
-  experience_max: 2        # Maximum years of experience filter
-  salary_min: 0            # Minimum salary in LPA (0 = any)
-  freshness: 7            # Job posting age in days (1, 3, 7, 15, 30)
-  max_pages: 10            # Max search result pages to scan per keyword
-  sort_by: "relevance"     # "relevance" or "date"
-  enable_heuristics: true  # Set to true to prioritize/rank jobs based on resume relevancy and freshness, or false to process sequentially without ranking
-
-# ---------------------------------------------------------------------------
-# Application Controls
-# ---------------------------------------------------------------------------
+  model: gemini-3.1-flash-lite
+  temperature: 0.3
+  use_gemini: true
 application:
-  daily_cap: 30                   # Max applications per day
-  match_score_threshold: 50       # Minimum AI match score (0-100) to auto-apply
-  answer_questions_with_pdf: false # If true, passes raw resume text to Gemini for precise screening question answers
-  delay_between_applies_min: 30   # Minimum delay in seconds between applications
-  delay_between_applies_max: 90   # Maximum delay in seconds between applications
-  delay_between_actions_min: 1.0  # Minimum delay between browser actions (seconds)
-  delay_between_actions_max: 3.0  # Maximum delay between browser actions (seconds)
-  skip_external_apply: true       # Skip jobs that redirect to external websites
-  dry_run: false                  # If true, score jobs but don't actually apply
-  enable_project_indexer: true    # If true, runs the vibe coding indexer watcher in the background
-
-# ---------------------------------------------------------------------------
-# Personal Details (for auto-filling application forms)
-# ---------------------------------------------------------------------------
-profile:
-  current_ctc: "4.4 LPA"          # e.g., "8.5 LPA" or "850000"
-  expected_ctc: "6 LPA"         # e.g., "12 LPA" or "1200000"
-  notice_period: "Immediate"        # e.g., "30 days", "60 days", "Immediate"
-  current_location: "Pune"     # e.g., "Bangalore"
-  preferred_locations:
-    - "Pune"
-    - "Mumbai"
-    - "Bangalore"
-    - "Remote"
-  total_experience: "1 years"     # e.g., "4 years"
-
-# ---------------------------------------------------------------------------
-# Exclusion Filters
-# ---------------------------------------------------------------------------
+  answer_questions_with_pdf: false
+  daily_cap: 30
+  delay_between_actions_max: 3.0
+  delay_between_actions_min: 1.0
+  delay_between_applies_max: 90
+  delay_between_applies_min: 30
+  dry_run: false
+  enable_project_indexer: true
+  match_score_threshold: 50
+  skip_external_apply: true
 exclusions:
-  enable_scam_filter: true    # Set to false to disable the math-based fake job / consultancy scam detector
-  max_openings_without_logo: 50 # Ignore jobs with more than this number of openings if the company has no verified logo
+  companies:
+  - Techno Experts
+  - TeleInfoTech
+  - Codinglimits
+  description_keywords: []
+  enable_scam_filter: true
   fake_company_blocklist:
-    - "Spam Company 1"
-    - "Spam Company 2"
-  companies: 
-    - "Techno Experts"
-    - "TeleInfoTech"
-    - "Codinglimits"
-  title_keywords: # Skip jobs with these words in title
-    # Support / Operations
-    - "support"
-    - "technical support"
-    - "tech support"
-    - "customer support"
-    - "customer service"
-    - "customer success"
-    - "application support"
-    - "production support"
-    - "desktop support"
-    - "helpdesk"
-    - "service desk"
-    - "operations"
-    - "operator"
-
-    # Testing / QA
-    - "testing"
-    - "test"
-    - "tester"
-    - "qa"
-    - "quality assurance"
-    - "quality analyst"
-    - "automation tester"
-    - "manual tester"
-    - "performance tester"
-    - "security tester"
-    - "sdet"
-
-    # Sales / Marketing
-    - "sales"
-    - "marketing"
-    - "business development"
-    - "bdm"
-    - "inside sales"
-    - "field sales"
-    - "presales"
-    - "post sales"
-
-    # BPO / Call Center
-    - "bpo"
-    - "call center"
-    - "voice process"
-    - "non voice"
-    - "customer care"
-    - "telecaller"
-    - "telecalling"
-    - "chat support"
-
-    # HR / Recruitment
-    - "hr"
-    - "human resource"
-    - "recruiter"
-    - "recruitment"
-    - "talent acquisition"
-
-    # Finance / Accounts
-    - "accountant"
-    - "accounts"
-    - "finance"
-    - "banking"
-    - "auditor"
-    - "tax"
-
-    # Consultancy / Staffing
-    - "consultancy"
-    - "consultant"
-    - "placement"
-    - "staffing"
-    - "recruitment services"
-    - "manpower"
-    - "outsourcing"
-
-    # Experience Level
-    - "intern"
-    - "internship"
-
-    # Senior Positions
-    - "senior"
-    - "sr"
-    - "sr."
-    - "lead"
-    - "team lead"
-    - "technical lead"
-    - "principal"
-    - "staff engineer"
-    - "architect"
-    - "solution architect"
-    - "enterprise architect"
-    - "manager"
-    - "project manager"
-    - "program manager"
-    - "delivery manager"
-    - "engineering manager"
-    - "director"
-    - "vp"
-    - "vice president"
-    - "head"
-    - "chief"
-
-    # Fake Job Indicators
-    - "data entry"
-    - "typing"
-    - "form filling"
-    - "captcha"
-    - "ad posting"
-    - "online work"
-    - "earn from home"
-    - "work from home typing"
-    - "part time"
-    - "urgent hiring"
-    - "urgent requirement"
-    - "bulk hiring"
-    - "limited seats"
-    - "registration"
-    - "registration fee"
-    - "paid training"
-    - "house keeping"
-
-    # Non-Software Roles
-    - "civil"
-    - "mechanical"
-    - "electrical"
-    - "electronics"
-    - "automobile"
-    - "pharma"
-    - "chemist"
-    - "doctor"
-    - "nurse"
-    - "teacher"
-    - "faculty"
-
-    # Miscellaneous
-    - "management"
-
-  description_keywords: [] # Skip jobs with these words in description
-
-title_whitelist:
-  - "software engineer"
-  - "software developer"
-  - "java developer"
-  - "backend developer"
-  - "full stack developer"
-  - "associate software engineer"
-  - "associate software developer"
-  - "junior software engineer"
-  - "junior software developer"
-  - "software engineer trainee"
-  - "trainee software engineer"
-  - "graduate software engineer"
-  - "graduate software developer"
-  - "graduate engineer trainee"
-  - "engineer trainee"
-  - "software development engineer"
-  - "sde"
-  - "sde 1"
-  - "application developer"
-  - "associate engineer"
-  - "systems engineer"
-  - "java software engineer"
-  - "java backend developer"
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
+  - Spam Company 1
+  - Spam Company 2
+  max_openings_without_logo: 50
+  title_keywords:
+  - support
+  - technical support
+  - tech support
+  - customer support
+  - customer service
+  - customer success
+  - application support
+  - production support
+  - desktop support
+  - helpdesk
+  - service desk
+  - operations
+  - operator
+  - testing
+  - test
+  - tester
+  - qa
+  - quality assurance
+  - quality analyst
+  - automation tester
+  - manual tester
+  - performance tester
+  - security tester
+  - sdet
+  - sales
+  - marketing
+  - business development
+  - bdm
+  - inside sales
+  - field sales
+  - presales
+  - post sales
+  - bpo
+  - call center
+  - voice process
+  - non voice
+  - customer care
+  - telecaller
+  - telecalling
+  - chat support
+  - hr
+  - human resource
+  - recruiter
+  - recruitment
+  - talent acquisition
+  - accountant
+  - accounts
+  - finance
+  - banking
+  - auditor
+  - tax
+  - consultancy
+  - consultant
+  - placement
+  - staffing
+  - recruitment services
+  - manpower
+  - outsourcing
+  - intern
+  - internship
+  - senior
+  - sr
+  - sr.
+  - lead
+  - team lead
+  - technical lead
+  - principal
+  - staff engineer
+  - architect
+  - solution architect
+  - enterprise architect
+  - manager
+  - project manager
+  - program manager
+  - delivery manager
+  - engineering manager
+  - director
+  - vp
+  - vice president
+  - head
+  - chief
+  - data entry
+  - typing
+  - form filling
+  - captcha
+  - ad posting
+  - online work
+  - earn from home
+  - work from home typing
+  - part time
+  - urgent hiring
+  - urgent requirement
+  - bulk hiring
+  - limited seats
+  - registration
+  - registration fee
+  - paid training
+  - house keeping
+  - civil
+  - mechanical
+  - electrical
+  - electronics
+  - automobile
+  - pharma
+  - chemist
+  - doctor
+  - nurse
+  - teacher
+  - faculty
+  - management
 logging:
-  level: "INFO"            # DEBUG, INFO, WARNING, ERROR
+  level: INFO
+  log_dir: data/logs
   log_to_file: true
-  log_dir: "data/logs"
+naukri:
+  email: pushpak262001@gmail.com
+  password: Pushpak@123!
+profile:
+  current_ctc: 4.4 LPA
+  current_location: Pune
+  expected_ctc: 6 LPA
+  notice_period: Immediate
+  preferred_locations:
+  - Pune
+  - Mumbai
+  - Bangalore
+  - Remote
+  total_experience: 1 years
+resume:
+  path: resume.pdf
+search:
+  enable_heuristics: true
+  experience_max: 2
+  experience_min: 0
+  freshness: 7
+  keywords:
+  - Full Stack Developer
+  - Java Developer
+  - Associate Software Engineer
+  - Junior Software Engineer
+  - Backend Developer
+  - Software Engineer
+  - Software Developer
+  - Associate Software Developer
+  - Junior Software Developer
+  - Application Developer
+  locations:
+  - Pune
+  - Mumbai
+  - Bangalore
+  - Remote
+  max_pages: 10
+  salary_min: 0
+  sort_by: relevance
+title_whitelist:
+- software engineer
+- software developer
+- java developer
+- backend developer
+- full stack developer
+- associate software engineer
+- associate software developer
+- junior software engineer
+- junior software developer
+- software engineer trainee
+- trainee software engineer
+- graduate software engineer
+- graduate software developer
+- graduate engineer trainee
+- engineer trainee
+- software development engineer
+- sde
+- sde 1
+- application developer
+- associate engineer
+- systems engineer
+- java software engineer
+- java backend developer
