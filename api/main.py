@@ -19,6 +19,7 @@ from api.deps import state as deps
 from api.routes import (
     agent as agent_router,
     applications as applications_router,
+    auth as auth_router,
     config as config_router,
     data as data_router,
     health as health_router,
@@ -79,6 +80,7 @@ app.add_middleware(
 # API Key Authentication Middleware
 # ---------------------------------------------------------------------------
 PUBLIC_PATHS = {"/api/health", "/docs", "/openapi.json", "/redoc", "/favicon.ico"}
+PUBLIC_PREFIXES = {"/docs/", "/redoc/", "/api/auth/"}
 
 
 @app.middleware("http")
@@ -87,7 +89,9 @@ async def api_key_auth(request: Request, call_next):
     if not api_key:
         return await call_next(request)
 
-    if request.url.path in PUBLIC_PATHS or request.url.path.startswith(("/docs/", "/redoc/")):
+    if request.url.path in PUBLIC_PATHS or any(
+        request.url.path.startswith(p) for p in PUBLIC_PREFIXES
+    ):
         return await call_next(request)
 
     auth_header = request.headers.get("Authorization", "")
@@ -102,6 +106,7 @@ async def api_key_auth(request: Request, call_next):
 
 
 # Include routers
+app.include_router(auth_router.router)
 app.include_router(health_router.router)
 app.include_router(stats_router.router)
 app.include_router(jobs_router.router)

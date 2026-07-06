@@ -1,10 +1,75 @@
 const BASE_URL = '/api';
 
-async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${url}`, {
+// ---------------------------------------------------------------------------
+// JWT access token management
+// ---------------------------------------------------------------------------
+let accessToken: string | null = null;
+let refreshPromise: Promise<string | null> | null = null;
+
+export function setAuthToken(token: string | null) {
+  accessToken = token;
+}
+
+export function getAuthToken(): string | null {
+  return accessToken;
+}
+
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
+    try {
+      const res = await fetch(`${BASE_URL}/auth/refresh`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        accessToken = null;
+        return null;
+      }
+      const data = await res.json();
+      accessToken = data.access_token;
+      return data.access_token;
+    } catch {
+      accessToken = null;
+      return null;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
+
+// ---------------------------------------------------------------------------
+// Base fetch helpers
+// ---------------------------------------------------------------------------
+
+async function fetchJSON<T>(url: string, options?: RequestInit, skipAuth = false): Promise<T> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  if (accessToken && !skipAuth) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  let res = await fetch(`${BASE_URL}${url}`, {
     ...options,
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    headers,
+    credentials: 'include',
   });
+
+  // On 401, attempt token refresh and retry once
+  if (res.status === 401 && !skipAuth) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      headers['Authorization'] = `Bearer ${newToken}`;
+      res = await fetch(`${BASE_URL}${url}`, {
+        ...options,
+        headers,
+        credentials: 'include',
+      });
+    }
+  }
+
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `HTTP ${res.status}`);
@@ -13,10 +78,28 @@ async function fetchJSON<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
-  const res = await fetch(`${BASE_URL}${url}`, {
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  let res = await fetch(`${BASE_URL}${url}`, {
     method: 'POST',
     body: formData,
+    headers,
+    credentials: 'include',
   });
+  if (res.status === 401) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      headers['Authorization'] = `Bearer ${newToken}`;
+      res = await fetch(`${BASE_URL}${url}`, {
+        method: 'POST',
+        body: formData,
+        headers,
+        credentials: 'include',
+      });
+    }
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `HTTP ${res.status}`);
@@ -25,7 +108,18 @@ async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
 }
 
 async function fetchText(url: string): Promise<string> {
-  const res = await fetch(`${BASE_URL}${url}`);
+  const headers: Record<string, string> = {};
+  if (accessToken) {
+    headers['Authorization'] = `Bearer ${accessToken}`;
+  }
+  let res = await fetch(`${BASE_URL}${url}`, { headers, credentials: 'include' });
+  if (res.status === 401) {
+    const newToken = await refreshAccessToken();
+    if (newToken) {
+      headers['Authorization'] = `Bearer ${newToken}`;
+      res = await fetch(`${BASE_URL}${url}`, { headers, credentials: 'include' });
+    }
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.text();
 }
@@ -330,9 +424,32 @@ export interface ResumeOptimizationResponse {
   summary: { total_applications: number; total_jobs: number; total_skills_analyzed: number; has_resume: boolean };
 }
 
+export interface LoginResponse {
+  access_token: string;
+  token_type: string;
+  email: string;
+}
+
+export interface MeResponse {
+  email: string;
+  is_logged_in: boolean;
+  naukri_configured: boolean;
+}
+
 export const SSE_BASE = BASE_URL;
 
 export const api = {
+  auth: {
+    login: (email: string, password: string) =>
+      fetchJSON<LoginResponse>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      }, true /* skipAuth: no token yet */),
+    logout: () =>
+      fetchJSON<{ status: string; message: string }>('/auth/logout', { method: 'POST' }, true),
+    me: () =>
+      fetchJSON<MeResponse>('/auth/me'),
+  },
   health: () => fetchJSON<{ status: string }>('/health'),
   stats: (days = 7) => fetchJSON<StatsResponse>(`/stats?days=${days}`),
   jobs: (page = 1, perPage = 20, search = '', status = '', sort = 'newest', matchScoreMin = 0, matchScoreMax = 100) =>

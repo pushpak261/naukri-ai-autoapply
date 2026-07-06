@@ -1,5 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './lib/AuthContext';
+import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
+import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Jobs from './pages/Jobs';
 import JobDetail from './pages/JobDetail';
@@ -21,27 +24,30 @@ import PipelineDebugger from './pages/PipelineDebugger';
 export default function App() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route element={<Layout />}>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/market-intelligence" element={<MarketIntelligence />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/skills-gap" element={<SkillsGap />} />
-          <Route path="/autopilot" element={<AutoPilot />} />
-          <Route path="/pipeline-debugger" element={<PipelineDebugger />} />
-          <Route path="/scam-detector" element={<ScamDetector />} />
-          <Route path="/agent-control" element={<AgentControl />} />
-          <Route path="/jobs" element={<Jobs />} />
-          <Route path="/jobs/:id" element={<JobDetail />} />
-          <Route path="/applications" element={<Applications />} />
-          <Route path="/run-logs" element={<RunLogs />} />
-          <Route path="/cache-explorer" element={<CacheExplorer />} />
-          <Route path="/log-viewer" element={<LogViewer />} />
-          <Route path="/backups" element={<Backups />} />
-          <Route path="/config" element={<Config />} />
-          <Route path="/resume" element={<Resume />} />
-        </Route>
-      </Routes>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/market-intelligence" element={<MarketIntelligence />} />
+            <Route path="/analytics" element={<Analytics />} />
+            <Route path="/skills-gap" element={<SkillsGap />} />
+            <Route path="/autopilot" element={<AutoPilot />} />
+            <Route path="/pipeline-debugger" element={<PipelineDebugger />} />
+            <Route path="/scam-detector" element={<ScamDetector />} />
+            <Route path="/agent-control" element={<AgentControl />} />
+            <Route path="/jobs" element={<Jobs />} />
+            <Route path="/jobs/:id" element={<JobDetail />} />
+            <Route path="/applications" element={<Applications />} />
+            <Route path="/run-logs" element={<RunLogs />} />
+            <Route path="/cache-explorer" element={<CacheExplorer />} />
+            <Route path="/log-viewer" element={<LogViewer />} />
+            <Route path="/backups" element={<Backups />} />
+            <Route path="/config" element={<Config />} />
+            <Route path="/resume" element={<Resume />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

@@ -1,10 +1,11 @@
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Briefcase, FileCheck, History, Settings, User,
   BarChart3, Radar, ShieldAlert, Bot, Database, FileText, HardDrive, Activity,
-  Sun, Moon, Zap, GitBranch, LineChart, Download,
+  Sun, Moon, Zap, GitBranch, LineChart, Download, LogOut, LogIn,
 } from 'lucide-react';
 import { useTheme } from '../lib/ThemeContext';
+import { useAuth } from '../lib/AuthContext';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
@@ -27,6 +28,8 @@ const navItems = [
 
 export default function Layout() {
   const { theme, toggle } = useTheme();
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   return (
     <div className="flex h-screen" style={{ backgroundColor: 'var(--color-bg)' }}>
@@ -70,10 +73,39 @@ export default function Layout() {
             </NavLink>
           ))}
         </nav>
-        <div className="p-4 border-t" style={{ borderColor: 'var(--color-border)' }}>
-          <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
-            <Download className="w-3 h-3" />
-            <span>v3.0.0</span>
+        <div className="p-4 border-t space-y-2" style={{ borderColor: 'var(--color-border)' }}>
+          {user && (
+            <div className="flex items-center gap-2 text-xs px-1" style={{ color: 'var(--color-text-secondary)' }}>
+              <User className="w-3 h-3 shrink-0" />
+              <span className="truncate">{user.email}</span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              <Download className="w-3 h-3" />
+              <span>v3.0.0</span>
+            </div>
+            {user ? (
+              <button
+                onClick={async () => { await logout(); navigate('/login', { replace: true }); }}
+                className="flex items-center gap-1.5 text-xs transition-colors hover:text-red-400"
+                style={{ color: 'var(--color-text-muted)' }}
+                title="Sign out"
+              >
+                <LogOut className="w-3 h-3" />
+                <span>Sign out</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => navigate('/login')}
+                className="flex items-center gap-1.5 text-xs transition-colors hover:text-[#38bdf8]"
+                style={{ color: 'var(--color-text-muted)' }}
+                title="Sign in"
+              >
+                <LogIn className="w-3 h-3" />
+                <span>Sign in</span>
+              </button>
+            )}
           </div>
         </div>
       </aside>
