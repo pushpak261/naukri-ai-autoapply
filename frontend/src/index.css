@@ -1,3 +1,4 @@
+@import "@xyflow/react/dist/style.css" layer(base);
 @import "tailwindcss";
 
 :root {
@@ -92,3 +93,72 @@ a:focus:not(:focus-visible) {
     --color-text-secondary: #334155;
   }
 }
+
+/* Custom React Flow Theme Overrides */
+.react-flow__controls {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3) !important;
+  border-radius: 12px !important;
+  overflow: hidden !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+.react-flow__controls-button {
+  background: var(--color-surface) !important;
+  color: var(--color-text) !important;
+  border-bottom: 1px solid var(--color-border) !important;
+  border-right: none !important;
+  border-left: none !important;
+  border-top: none !important;
+  width: 32px !important;
+  height: 32px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.react-flow__controls-button:last-child {
+  border-bottom: none !important;
+}
+
+.react-flow__controls-button:hover {
+  background: var(--color-surface-hover) !important;
+  color: var(--color-primary) !important;
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor !important;
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.react-flow__minimap {
+  background-color: var(--color-bg) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3) !important;
+  overflow: hidden !important;
+}
+
+.react-flow__minimap-mask {
+  fill: rgba(15, 23, 42, 0.7) !important;
+}
+
+.react-flow__attribution {
+  background-color: rgba(15, 23, 42, 0.6) !important;
+  border: 1px solid var(--color-border) !important;
+  border-radius: 6px !important;
+  padding: 3px 6px !important;
+  font-size: 10px !important;
+  color: var(--color-text-muted) !important;
+}
+
+.react-flow__attribution a {
+  color: var(--color-text-muted) !important;
+  text-decoration: none !important;
+}
+
+.react-flow__attribution a:hover {
+  color: var(--color-primary) !important;
+}
+
