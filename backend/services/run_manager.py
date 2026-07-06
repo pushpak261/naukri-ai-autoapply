@@ -5,16 +5,18 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from typing import TYPE_CHECKING
 
 from backend.asyncio_windows import LoopBridgingProgressReporter, run_on_playwright_loop
 from backend.schemas.run import RunCreate, RunStatus
 from src.naukri_agent.config.settings import Settings, get_settings
 from src.naukri_agent.core.progress import InMemoryEventBus
-from src.naukri_agent.database.models import init_db
+from src.naukri_agent.database.manager import DatabaseManager
 from src.naukri_agent.main import create_agent
-from src.naukri_agent.orchestrator.agent import NaukriAgent
+from src.naukri_agent.models.db_schema import setup_database_manager
+
+if TYPE_CHECKING:
+    from src.naukri_agent.bot.agent import NaukriAgent
 
 
 @dataclass
@@ -34,17 +36,17 @@ class RunManager:
     def __init__(self) -> None:
         self._event_bus = InMemoryEventBus()
         self._state = _RunState()
-        self._session_factory: async_sessionmaker[AsyncSession] | None = None
+        self._db_manager: DatabaseManager | None = None
         self._lock = asyncio.Lock()
 
     @property
     def event_bus(self) -> InMemoryEventBus:
         return self._event_bus
 
-    async def _ensure_db(self, settings: Settings) -> async_sessionmaker[AsyncSession]:
-        if self._session_factory is None:
-            self._session_factory = await init_db(settings.db_path)
-        return self._session_factory
+    async def _ensure_db(self, settings: Settings) -> DatabaseManager:
+        if self._db_manager is None:
+            self._db_manager = await setup_database_manager(settings.db_path)
+        return self._db_manager
 
     def get_status(self) -> RunStatus:
         state = self._state
@@ -130,8 +132,10 @@ class RunManager:
             )
 
             async def _agent_work() -> NaukriAgent:
-                session_factory = await init_db(settings.db_path)
-                agent = create_agent(settings, session_factory, progress_reporter=progress)
+                db_manager = await setup_database_manager(settings.db_path)
+                agent = create_agent(settings, db_manager)
+                if hasattr(agent, "set_progress_reporter"):
+                    agent.set_progress_reporter(progress)
                 self._state.agent = agent
                 await agent.run(dry_run=options.dry_run)
                 return agent

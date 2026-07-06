@@ -36,13 +36,16 @@ async def test_run_manager_rejects_concurrent_start(monkeypatch):
 
             await asyncio.sleep(60)
 
-    async def fake_init_db(path):
-        return lambda: None
+    async def fake_setup_database_manager(path):
+        return object()
 
-    def fake_create_agent(settings, session_factory, progress_reporter=None):
+    def fake_create_agent(settings, db_manager):
         return FakeAgent()
 
-    monkeypatch.setattr("backend.services.run_manager.init_db", fake_init_db)
+    monkeypatch.setattr(
+        "backend.services.run_manager.setup_database_manager",
+        fake_setup_database_manager,
+    )
     monkeypatch.setattr("backend.services.run_manager.create_agent", fake_create_agent)
     class FakeSettings:
         db_path = "data/test.db"
@@ -52,7 +55,7 @@ async def test_run_manager_rejects_concurrent_start(monkeypatch):
         def validate_required(self):
             return []
 
-        def copy_for_run(self, *, cap=None, threshold=None):
+        def copy_for_run(self, *, cap=None, threshold=None, experience_min=None, experience_max=None):
             copied = FakeSettings()
             if cap is not None:
                 copied.application = type("A", (), {"daily_cap": cap, "match_score_threshold": 70})()

@@ -1,0 +1,31 @@
+{
+  "enabled": true,
+  "schedule": {
+    "type": "daily",
+    "time": "09:00",
+    "days": [
+      "mon",
+      "tue",
+      "wed",
+      "thu",
+      "fri",
+      "sat",
+      "sun"
+    ]
+  },
+  "throttle": {
+    "top_tier_daily": 10,
+    "startup_daily": 15,
+    "default_daily": 5
+  },
+  "priority_rules": [
+    {
+      "condition": "match_score > 90 AND posted_hours < 24",
+      "action": "apply_immediately",
+      "enabled": true
+    }
+  ],
+  "company_blacklist": [],
+  "company_whitelist": [],
+  "tier_map": {}
+}

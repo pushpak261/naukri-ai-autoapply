@@ -24,18 +24,14 @@ class Job:
     description: str = ""
     skills: str = ""  # Comma-separated skill tags
     posted_date: str = ""
-<<<<<<<< HEAD:backend/src/naukri_agent/core/domain/entities.py
-    is_verified: bool | None = None
+    openings: int = 0
+    has_company_logo: bool | None = None
     company_rating: float | None = None
-    is_external_apply: bool | None = None
-    external_apply_url: str | None = None
+    is_verified: bool | None = None
     hiring_for: str | None = None
     is_consultant_post: bool | None = None
-    has_company_logo: bool | None = None
-========
-    openings: int = 0
-    has_company_logo: bool = False
->>>>>>>> b4da008b8a2d59539275ca5b73808b4569d2cff7:src/naukri_agent/models/entities.py
+    is_external_apply: bool | None = None
+    external_apply_url: str | None = None
     scraped_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     id: int | None = None
 

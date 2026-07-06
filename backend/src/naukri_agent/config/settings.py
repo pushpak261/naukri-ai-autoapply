@@ -90,6 +90,7 @@ class ApplicationSettings(BaseModel):
     email_recipient: str = ""
     dry_run: bool = False
     enable_project_indexer: bool = False
+    min_company_rating: float = 3.0
 
 
 class ProfileSettings(BaseModel):
@@ -153,8 +154,31 @@ class Settings(BaseModel):
     sessions_dir: Path = PROJECT_ROOT / "data" / "sessions"
     resumes_dir: Path = PROJECT_ROOT / "data" / "resumes"
     db_path: Path = PROJECT_ROOT / "data" / "naukri_agent.db"
+    run_cap_resets_daily: bool = False
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    def copy_for_run(
+        self,
+        *,
+        cap: int | None = None,
+        threshold: int | None = None,
+        experience_min: int | None = None,
+        experience_max: int | None = None,
+    ) -> Settings:
+        """Return a shallow copy with per-run overrides applied."""
+        data = self.model_dump()
+        if cap is not None:
+            data["application"]["daily_cap"] = cap
+        if threshold is not None:
+            data["application"]["match_score_threshold"] = threshold
+        if experience_min is not None:
+            data["search"]["experience_min"] = experience_min
+        if experience_max is not None:
+            data["search"]["experience_max"] = experience_max
+        copied = Settings(**data)
+        copied.run_cap_resets_daily = cap is not None
+        return copied
 
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""
@@ -290,3 +314,29 @@ def get_settings() -> Settings:
     settings = Settings(**config)
     settings.ensure_dirs()
     return settings
+
+
+def save_search_experience(experience_min: int, experience_max: int) -> Settings:
+    """Persist search experience bounds to config.yaml and return refreshed settings."""
+    if experience_min > experience_max:
+        raise ValueError(
+            f"experience_min ({experience_min}) cannot be greater than "
+            f"experience_max ({experience_max})"
+        )
+
+    config_path = PROJECT_ROOT / "config.yaml"
+    if not config_path.exists():
+        raise FileNotFoundError(f"config.yaml not found at {config_path}")
+
+    with open(config_path, encoding="utf-8") as f:
+        config = yaml.safe_load(f) or {}
+
+    search = config.setdefault("search", {})
+    search["experience_min"] = experience_min
+    search["experience_max"] = experience_max
+
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+
+    get_settings.cache_clear()
+    return get_settings()

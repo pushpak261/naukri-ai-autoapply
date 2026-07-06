@@ -39,7 +39,7 @@ from pathlib import Path
 from rich.panel import Panel
 from rich.table import Table
 
-from src.naukri_agent.ai.similarity import VectorSimilarityFilter
+from src.naukri_agent.utils.similarity import VectorSimilarityFilter
 from src.naukri_agent.browser.apply import JobApplier
 from src.naukri_agent.browser.gate import BrowserGate
 from src.naukri_agent.browser.login import LoginHandler
@@ -70,7 +70,7 @@ from src.naukri_agent.core.progress import (
     counters_payload,
     job_event_payload,
 )
-from src.naukri_agent.orchestrator.factory import DependencyFactory
+from src.naukri_agent.bot.factory import DependencyFactory
 from src.naukri_agent.utils.helpers import TimeUtility
 from src.naukri_agent.utils.filters import JobQualityFilter
 from src.naukri_agent.utils.job_metadata import merge_job_metadata

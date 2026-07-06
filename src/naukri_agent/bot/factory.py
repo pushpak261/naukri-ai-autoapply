@@ -40,13 +40,8 @@ from src.naukri_agent.database.repository import SQLAlchemyRepository
 class DependencyFactory:
     """Creates and wires dependencies for the application.
 
-<<<<<<<< HEAD:backend/src/naukri_agent/orchestrator/factory.py
-    A `session_factory` may be injected explicitly (recommended — see
-    `src.naukri_agent.main`, which creates one via `init_db()` and passes it in). If
-========
     A `db_manager` may be injected explicitly (recommended — see
-    `src.main`, which creates one via `setup_database_manager()` and passes it in). If
->>>>>>>> b4da008b8a2d59539275ca5b73808b4569d2cff7:src/naukri_agent/bot/factory.py
+    `src.naukri_agent.main`, which creates one via `setup_database_manager()` and passes it in). If
     omitted, `get_repository()` will raise, since there is no implicit
     global database state to fall back on.
     """

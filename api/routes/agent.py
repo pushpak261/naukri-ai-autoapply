@@ -21,6 +21,15 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_ESCAPE.sub("", text)
 
 
+def _agent_subprocess_env() -> dict[str, str]:
+    """PYTHONPATH must include repo root and backend (models vs main live in different trees)."""
+    env = os.environ.copy()
+    backend_root = state.settings.project_root.resolve()
+    repo_root = backend_root.parent
+    env["PYTHONPATH"] = os.pathsep.join([str(repo_root), str(backend_root)])
+    return env
+
+
 def _broadcast_line(line: str) -> None:
     cleaned = _strip_ansi(line)
     with state.agent_output_lock:
@@ -69,6 +78,7 @@ async def start_agent():
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=str(state.settings.project_root),
+            env=_agent_subprocess_env(),
         )
     except FileNotFoundError:
         raise HTTPException(

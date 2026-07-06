@@ -32,6 +32,15 @@ from src.naukri_agent.models.db_schema import (
 )
 
 
+def parse_search_keywords(raw: str | list[str] | None) -> list[str]:
+    """Convert stored comma-separated keywords into a list for API responses."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return raw
+    return [kw.strip() for kw in raw.split(",") if kw.strip()]
+
+
 def _map_db_to_resume_profile(data: dict, file_hash: str) -> ResumeProfile:
     education = data.get("education", [])
     if education and not isinstance(education[0], dict):
@@ -434,7 +443,7 @@ class SQLAlchemyRepository(IRepository):
                     "id": log.id,
                     "started_at": log.started_at.isoformat() if log.started_at else "",
                     "ended_at": log.ended_at.isoformat() if log.ended_at else "",
-                    "keywords": log.search_keywords,
+                    "keywords": parse_search_keywords(log.search_keywords),
                     "found": log.jobs_found,
                     "applied": log.jobs_applied,
                     "skipped": log.jobs_skipped,

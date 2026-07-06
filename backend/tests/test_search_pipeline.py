@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.naukri_agent.ai.similarity import VectorSimilarityFilter
+from src.naukri_agent.utils.similarity import VectorSimilarityFilter
 from src.naukri_agent.browser.gate import BrowserGate
 from src.naukri_agent.browser.search import SearchBatch
 from src.naukri_agent.core.domain.entities import Job, ResumeProfile
