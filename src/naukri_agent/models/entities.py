@@ -24,6 +24,8 @@ class Job:
     description: str = ""
     skills: str = ""  # Comma-separated skill tags
     posted_date: str = ""
+    openings: int = 0
+    has_company_logo: bool = False
     scraped_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     id: int | None = None
 
@@ -80,3 +82,4 @@ class ResumeProfile:
     languages: list[str] = field(default_factory=list)
     key_achievements: list[str] = field(default_factory=list)
     file_hash: str = ""
+    raw_text: str = ""

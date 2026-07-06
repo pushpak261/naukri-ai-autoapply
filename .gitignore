@@ -42,3 +42,13 @@ htmlcov/
 .DS_Store
 Thumbs.db
 resume_key.txt  
+
+# Local databases, logs, coverage, screenshots
+*.db
+*.db-journal
+coverage.xml
+*.log
+vibe_output.md
+debug_artifacts/
+debug_*.png
+debug_screenshot.png

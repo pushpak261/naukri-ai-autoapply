@@ -14,6 +14,7 @@ from playwright.async_api import (
     Page,
     Playwright,
     async_playwright,
+    Error as PlaywrightError,
 )
 
 from src.naukri_agent.config.constants import (
@@ -23,8 +24,8 @@ from src.naukri_agent.config.constants import (
     DEFAULT_USER_AGENT,
 )
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.exceptions import BrowserAutomationError
-from src.naukri_agent.core.interfaces import IBrowserEngine, IStealthPatcher
+from src.naukri_agent.utils.exceptions import BrowserAutomationError
+from src.naukri_agent.bot.interfaces import IBrowserEngine, IStealthPatcher
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -130,7 +131,7 @@ class PlaywrightEngine(IBrowserEngine):
 
             logger.info("Browser launched successfully")
             return self._page
-        except Exception as e:
+        except PlaywrightError as e:
             logger.error(f"Failed to launch browser: {e}")
             await self.close()
             raise BrowserAutomationError(f"Playwright failed to start: {e}") from e
@@ -153,14 +154,17 @@ class PlaywrightEngine(IBrowserEngine):
         except Exception as e:
             logger.warning(f"Failed to save session state: {e}")
 
-        if self._page:
-            await self._page.close()
-        if self._context:
-            await self._context.close()
-        if self._browser:
-            await self._browser.close()
-        if self._playwright:
-            await self._playwright.stop()
+        try:
+            if self._page:
+                await self._page.close()
+            if self._context:
+                await self._context.close()
+            if self._browser:
+                await self._browser.close()
+            if self._playwright:
+                await self._playwright.stop()
+        except Exception as e:
+            logger.debug(f"Ignored error during browser cleanup: {e}")
 
         logger.info("Browser closed")
 

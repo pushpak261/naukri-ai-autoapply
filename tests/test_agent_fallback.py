@@ -2,11 +2,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.naukri_agent.ai.similarity import VectorSimilarityFilter
+from src.naukri_agent.utils.similarity import VectorSimilarityFilter
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
-from src.naukri_agent.core.exceptions import LLMQuotaExceededError
-from src.naukri_agent.orchestrator.agent import NaukriAgent
+from src.naukri_agent.models.entities import Job, JobApplication, ResumeProfile
+from src.naukri_agent.utils.exceptions import LLMQuotaExceededError
+from src.naukri_agent.bot.agent import NaukriAgent
 
 
 @pytest.fixture
@@ -89,8 +89,8 @@ async def test_process_jobs_quota_fallback_success(mock_settings):
 
     # Call _process_jobs
     with (
-        patch("src.naukri_agent.orchestrator.agent.log_warning"),
-        patch("src.naukri_agent.orchestrator.agent.log_success"),
+        patch("src.naukri_agent.bot.agent.log_warning"),
+        patch("src.naukri_agent.bot.agent.log_success"),
         patch("asyncio.sleep", return_value=None),
     ):
         await agent._process_jobs(jobs, mock_matcher, mock_applier, mock_searcher, vector_filter)
@@ -164,7 +164,7 @@ async def test_process_jobs_quota_no_fallback_abort(mock_settings):
     vector_filter.get_similarity_score.return_value = 0.5
 
     with (
-        patch("src.naukri_agent.orchestrator.agent.log_error"),
+        patch("src.naukri_agent.bot.agent.log_error"),
         patch("asyncio.sleep", return_value=None),
     ):
         await agent._process_jobs(jobs, mock_matcher, mock_applier, mock_searcher, vector_filter)
@@ -245,8 +245,8 @@ async def test_process_jobs_quota_no_fallback_continue(mock_settings):
     vector_filter.get_similarity_score.return_value = 0.5
 
     with (
-        patch("src.naukri_agent.orchestrator.agent.log_error"),
-        patch("src.naukri_agent.orchestrator.agent.log_warning"),
+        patch("src.naukri_agent.bot.agent.log_error"),
+        patch("src.naukri_agent.bot.agent.log_warning"),
         patch("asyncio.sleep", return_value=None),
     ):
         await agent._process_jobs(jobs, mock_matcher, mock_applier, mock_searcher, vector_filter)

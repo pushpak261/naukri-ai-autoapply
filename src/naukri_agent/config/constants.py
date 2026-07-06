@@ -118,15 +118,12 @@ class JobDetailSelectors:
     EXPERIENCE_DETAIL = '[class*="exp"] [class*="details"]'
     SALARY_DETAIL = '[class*="sal"] [class*="details"]'
     LOCATION_DETAIL = '[class*="loc"] [class*="details"]'
+    COMPANY_LOGO_IMG = '[class*="jd-header-comp-logo"] img, [class*="company-logo"] img'
 
     # Apply buttons
-    APPLY_BUTTON = '//button[contains(text(), "Apply") and not(contains(text(), "Applied"))]'
-    ALREADY_APPLIED = (
-        '//*[contains(text(), "Already Applied") or contains(text(), "already applied")]'
-    )
-    EXTERNAL_APPLY = (
-        '//*[contains(text(), "Apply on company") or contains(text(), "apply on company")]'
-    )
+    APPLY_BUTTON = '//button[contains(., "Apply") and not(contains(., "Applied"))]'
+    ALREADY_APPLIED = '//*[contains(., "Already Applied") or contains(., "already applied") or normalize-space(.)="Applied" or normalize-space(.)="applied"]'
+    EXTERNAL_APPLY = '//*[contains(., "Apply on company") or contains(., "apply on company")]'
 
     # Chatbot / overlay
     CHATBOT_CLOSE = '//button[contains(@class, "chatbot-close") or @aria-label="Close"]'
@@ -137,37 +134,35 @@ class ApplyFlowSelectors:
     """Selectors for the job application submission flow."""
 
     # Apply confirmation modal / form
-    APPLY_FORM = '[class*="apply-modal"], [class*="apply-form"], [class*="chatbot-container"]'
+    APPLY_FORM = '[class*="apply-modal"], [class*="apply-form"], [class*="chatbot"]'
 
     # Common screening question fields
-    QUESTION_CONTAINER = '[class*="question"], [class*="chatbot-msg"]'
-    TEXT_INPUT = 'input[type="text"], textarea'
+    QUESTION_CONTAINER = '[class*="question"], [class*="chatbot-msg"], [class*="bot-msg"]'
+    TEXT_INPUT = 'input[type="text"], input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea'
     DROPDOWN = "select"
     RADIO_BUTTON = 'input[type="radio"]'
     CHECKBOX = 'input[type="checkbox"]'
 
     # Submit / Next buttons in the apply flow
-    SUBMIT_BUTTON = '//button[contains(text(), "Submit") or contains(text(), "Apply")]'
+    SUBMIT_BUTTON = '//button[contains(text(), "Submit") or contains(text(), "Apply") or contains(text(), "Save")]'
     NEXT_BUTTON = '//button[contains(text(), "Next") or contains(text(), "Continue")]'
     SKIP_BUTTON = '//button[contains(text(), "Skip")]'
 
     # Success indicators
-    APPLICATION_SUCCESS = (
-        '//*[contains(text(), "applied successfully") or contains(text(), "Application Submitted")]'
-    )
+    APPLICATION_SUCCESS = '//*[contains(., "applied successfully") or contains(., "Application Submitted") or contains(., "application submitted") or contains(., "successfully applied")]'
 
     # Resume upload
     RESUME_UPLOAD = 'input[type="file"]'
 
     # Fallback and inline selectors
     FORM_FALLBACK = 'form[class*="apply"]'
-    CHATBOT_MSG_FALLBACK = '[class*="chatbot-msg"]'
+    CHATBOT_MSG_FALLBACK = '[class*="chatbot-msg"], [class*="bot-msg"]'
     SCREENING_FALLBACK = '[class*="screening"]'
-    GENERIC_SUBMIT = '//button[contains(text(), "Submit")]'
-    GENERIC_APPLY = '//button[contains(text(), "Apply")]'
+    GENERIC_SUBMIT = '//button[contains(., "Submit")]'
+    GENERIC_APPLY = '//button[contains(., "Apply")]'
     GENERIC_SUBMIT_TYPE = 'button[type="submit"]'
-    SUCCESS_SUBMITTED = '//*[contains(text(), "submitted")]'
-    SUCCESS_RECEIVED = '//*[contains(text(), "received your application")]'
+    SUCCESS_SUBMITTED = '//*[contains(., "submitted")]'
+    SUCCESS_RECEIVED = '//*[contains(., "received your application")]'
 
 
 class ProfileSelectors:
@@ -193,6 +188,8 @@ class ApplicationStatus:
     SKIPPED_EXCLUDED = "skipped_excluded"
     SKIPPED_ALREADY_APPLIED = "skipped_already_applied"
     SKIPPED_EXTERNAL = "skipped_external"
+    SKIPPED_SCREENING = "skipped_screening"
     SKIPPED_DRY_RUN = "skipped_dry_run"
+    UNCERTAIN = "uncertain"
     FAILED = "failed"
     ERROR = "error"

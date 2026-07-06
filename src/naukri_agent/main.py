@@ -23,7 +23,7 @@ from src.naukri_agent.config.settings import get_settings
 from src.naukri_agent.utils.logger import console, get_logger
 
 if TYPE_CHECKING:
-    from src.naukri_agent.orchestrator.agent import NaukriAgent
+    from src.naukri_agent.bot.agent import NaukriAgent
 
 logger = get_logger(__name__)
 
@@ -99,16 +99,27 @@ def cli():
     default=None,
     help="Override minimum match score threshold (0-100)",
 )
-def run(dry_run: bool, cap: int | None, threshold: int | None):
+@click.option(
+    "--keyword",
+    type=str,
+    default=None,
+    help="Override search keywords with a single keyword (useful for Matrix builds)",
+)
+def run(
+    dry_run: bool,
+    cap: int | None,
+    threshold: int | None,
+    keyword: str | None,
+):
     """Start the job application agent."""
-    asyncio.run(_run_with_alerts("run", _run(dry_run, cap, threshold)))
+    asyncio.run(_run_with_alerts("run", _run(dry_run, cap, threshold, keyword)))
 
 
-def create_agent(settings, session_factory) -> NaukriAgent:
-    from src.naukri_agent.orchestrator.agent import NaukriAgent
-    from src.naukri_agent.orchestrator.factory import DependencyFactory
+def create_agent(settings, db_manager) -> NaukriAgent:
+    from src.naukri_agent.bot.agent import NaukriAgent
+    from src.naukri_agent.bot.factory import DependencyFactory
 
-    factory = DependencyFactory(settings, session_factory=session_factory)
+    factory = DependencyFactory(settings, db_manager=db_manager)
     return NaukriAgent(
         settings=factory.get_settings(),
         repository=factory.get_repository(),
@@ -125,8 +136,13 @@ def create_agent(settings, session_factory) -> NaukriAgent:
     )
 
 
-async def _run(dry_run: bool, cap: int | None, threshold: int | None):
-    from src.naukri_agent.database.models import init_db
+async def _run(
+    dry_run: bool,
+    cap: int | None,
+    threshold: int | None,
+    keyword: str | None,
+):
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
 
@@ -135,6 +151,8 @@ async def _run(dry_run: bool, cap: int | None, threshold: int | None):
         settings.application.daily_cap = cap
     if threshold is not None:
         settings.application.match_score_threshold = threshold
+    if keyword is not None:
+        settings.search.keywords = [keyword]
 
     problems = settings.validate_required()
     if problems:
@@ -144,8 +162,26 @@ async def _run(dry_run: bool, cap: int | None, threshold: int | None):
         console.print("\n[dim]See .env.example and config.yaml for what needs to be set.[/dim]")
         raise SystemExit(1)
 
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+
+    # Start the incremental project indexer in the background
+    if settings.application.enable_project_indexer:
+        try:
+            import subprocess
+            import sys
+
+            script_path = settings.project_root / "scripts" / "vibe_context.py"
+            if script_path.exists():
+                subprocess.Popen(
+                    [sys.executable, str(script_path), "--watch"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+                console.print("[dim]Started background project indexer for AI context...[/dim]")
+        except Exception as e:
+            console.print(f"[dim]Note: Could not start background indexer ({e})[/dim]")
+
+    agent = create_agent(settings, db_manager)
     await agent.run(dry_run=dry_run)
 
 
@@ -156,11 +192,11 @@ def status():
 
 
 async def _status():
-    from src.naukri_agent.database.models import init_db
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+    agent = create_agent(settings, db_manager)
     await agent.show_status()
 
 
@@ -172,11 +208,11 @@ def parse_resume(resume_path: str):
 
 
 async def _parse_resume(resume_path: str):
-    from src.naukri_agent.database.models import init_db
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+    agent = create_agent(settings, db_manager)
     await agent.parse_resume_only(resume_path)
 
 
@@ -188,11 +224,11 @@ def test_match(job_url: str):
 
 
 async def _test_match(job_url: str):
-    from src.naukri_agent.database.models import init_db
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+    agent = create_agent(settings, db_manager)
     await agent.test_match(job_url)
 
 
@@ -203,11 +239,11 @@ def refresh_profile():
 
 
 async def _refresh_profile():
-    from src.naukri_agent.database.models import init_db
+    from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
-    session_factory = await init_db(settings.db_path)
-    agent = create_agent(settings, session_factory)
+    db_manager = await setup_database_manager(settings.db_path)
+    agent = create_agent(settings, db_manager)
     await agent.refresh_profile()
 
 
@@ -240,6 +276,9 @@ def init():
 
 def main():
     """Entry point."""
+    from src.naukri_agent.utils.terminal_logging import setup_terminal_logging
+
+    setup_terminal_logging()
     cli()
 
 

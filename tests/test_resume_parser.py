@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from src.naukri_agent.ai.resume_parser import ResumeParser
-from src.naukri_agent.core.domain.entities import ResumeProfile
+from src.naukri_agent.models.entities import ResumeProfile
 
 
 @pytest.fixture

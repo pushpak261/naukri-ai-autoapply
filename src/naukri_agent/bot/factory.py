@@ -7,9 +7,10 @@ the Dependency Inversion Principle.
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from src.naukri_agent.database.manager import DatabaseManager
 
 from src.naukri_agent.ai.job_matcher import JobMatcher
-from src.naukri_agent.ai.providers.gemini import GeminiProvider
+from src.naukri_agent.ai.llm_provider import GeminiProvider
 from src.naukri_agent.ai.question_answerer import QuestionAnswerer
 from src.naukri_agent.ai.resume_parser import ResumeParser
 from src.naukri_agent.browser.apply import JobApplier
@@ -20,7 +21,7 @@ from src.naukri_agent.browser.pages import JobDetailPage, LoginPage, SearchPage
 from src.naukri_agent.browser.profile import ProfileRefresher
 from src.naukri_agent.browser.search import JobSearcher
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.interfaces import (
+from src.naukri_agent.bot.interfaces import (
     IBrowserEngine,
     IBrowserInteractions,
     IJobMatcher,
@@ -32,15 +33,15 @@ from src.naukri_agent.core.interfaces import (
     IOTPProvider,
     ILoginStrategy,
 )
-from src.naukri_agent.core.domain.entities import ResumeProfile
+from src.naukri_agent.models.entities import ResumeProfile
 from src.naukri_agent.database.repository import SQLAlchemyRepository
 
 
 class DependencyFactory:
     """Creates and wires dependencies for the application.
 
-    A `session_factory` may be injected explicitly (recommended — see
-    `src.main`, which creates one via `init_db()` and passes it in). If
+    A `db_manager` may be injected explicitly (recommended — see
+    `src.main`, which creates one via `setup_database_manager()` and passes it in). If
     omitted, `get_repository()` will raise, since there is no implicit
     global database state to fall back on.
     """
@@ -48,10 +49,10 @@ class DependencyFactory:
     def __init__(
         self,
         settings: Settings,
-        session_factory: async_sessionmaker[AsyncSession] | None = None,
+        db_manager: DatabaseManager | None = None,
     ) -> None:
         self._settings = settings
-        self._session_factory = session_factory
+        self._db_manager = db_manager
 
         # Singletons
         self._llm_provider: ILLMProvider | None = None
@@ -68,8 +69,8 @@ class DependencyFactory:
 
         # Nodes
         self._dag.add_node("settings")
-        if session_factory:
-            self._dag.add_node("session_factory")
+        if db_manager:
+            self._dag.add_node("db_manager")
         self._dag.add_node("stealth_patcher")
         self._dag.add_node("otp_provider")
         self._dag.add_node("repository")
@@ -83,8 +84,8 @@ class DependencyFactory:
         self._dag.add_edge("settings", "browser_engine")
         self._dag.add_edge("settings", "browser_interactions")
 
-        if session_factory:
-            self._dag.add_edge("session_factory", "repository")
+        if db_manager:
+            self._dag.add_edge("db_manager", "repository")
         self._dag.add_edge("stealth_patcher", "browser_engine")
         self._dag.add_edge("browser_engine", "browser_interactions")
 
@@ -112,13 +113,13 @@ class DependencyFactory:
 
     def get_repository(self) -> IRepository:
         if not self._repository:
-            if self._session_factory is None:
+            if self._db_manager is None:
                 raise RuntimeError(
-                    "No database session factory configured. Call "
-                    "`await init_db(settings.db_path)` and pass the result "
-                    "to `DependencyFactory(settings, session_factory=...)`."
+                    "No database manager configured. Call "
+                    "`await setup_database_manager(settings.db_path)` and pass the result "
+                    "to `DependencyFactory(settings, db_manager=...)`."
                 )
-            self._repository = SQLAlchemyRepository(self._session_factory)
+            self._repository = SQLAlchemyRepository(self._db_manager)
         return self._repository
 
     def get_llm_provider(self) -> ILLMProvider:

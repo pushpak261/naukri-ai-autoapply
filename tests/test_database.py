@@ -11,7 +11,7 @@ import pytest
 import pytest_asyncio
 
 from src.naukri_agent.config.constants import ApplicationStatus
-from src.naukri_agent.database.models import init_db
+from src.naukri_agent.models.db_schema import setup_database_manager
 from src.naukri_agent.database.repository import SQLAlchemyRepository
 
 
@@ -19,12 +19,13 @@ from src.naukri_agent.database.repository import SQLAlchemyRepository
 async def repo(tmp_path):
     """Create a repository backed by a fresh on-disk SQLite database."""
     db_path = tmp_path / "test.db"
-    session_factory = await init_db(db_path)
-    repository = SQLAlchemyRepository(session_factory)
+    db_manager = await setup_database_manager(db_path)
+    repository = SQLAlchemyRepository(db_manager)
     await repository.initialize()
     yield repository
 
     # Clean up and dispose of SQLAlchemy async engine to prevent dangling connection threads
+    session_factory = await db_manager.get_session_factory()
     engine = session_factory.kw["bind"]
     await engine.dispose()
 

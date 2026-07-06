@@ -84,7 +84,7 @@ class AhoCorasick:
         if not text:
             return results
 
-        curr = self.root
+        curr: TrieNode | None = self.root
         text_lower = text.lower()
 
         for idx, char in enumerate(text_lower):

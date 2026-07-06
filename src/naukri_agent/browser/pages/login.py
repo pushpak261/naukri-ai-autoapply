@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import asyncio
 
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+
 from src.naukri_agent.browser.pages.base import BasePage
 from src.naukri_agent.config.constants import (
     NAUKRI_BASE_URL,
@@ -49,7 +51,7 @@ class LoginPage(BasePage):
             not_logged_in = await page.query_selector(LoginSelectors.NOT_LOGGED_IN_INDICATORS)
             if not_logged_in and await not_logged_in.is_visible():
                 return False
-        except Exception:
+        except PlaywrightError:
             pass
 
         # Multiple checks for robustness
@@ -66,7 +68,7 @@ class LoginPage(BasePage):
                 if element and await element.is_visible():
                     logger.debug(f"Login confirmed via selector: {selector}")
                     return True
-            except Exception:
+            except PlaywrightError:
                 continue
 
         # Additional check: look for login-specific URL patterns
@@ -79,7 +81,7 @@ class LoginPage(BasePage):
             body_text = await page.evaluate("document.body.innerText")
             if "logout" in body_text.lower():
                 return True
-        except Exception:
+        except PlaywrightError:
             pass
 
         return False
@@ -145,7 +147,7 @@ class LoginPage(BasePage):
                 timeout=timeout,
             )
             return True
-        except Exception:
+        except PlaywrightTimeoutError:
             # Alternative: wait for OTP field to disappear
             for _ in range(24):  # 24 * 5s = 120s
                 await asyncio.sleep(5)

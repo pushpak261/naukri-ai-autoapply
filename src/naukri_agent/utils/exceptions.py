@@ -7,13 +7,9 @@ Enforces robust error handling and categorizes failures.
 class AgentException(Exception):
     """Base exception class for all agent-related errors."""
 
-    pass
-
 
 class LLMAPIError(AgentException):
     """Raised when communication with the LLM API fails."""
-
-    pass
 
 
 class LLMQuotaExceededError(LLMAPIError):
@@ -34,5 +30,3 @@ class LLMQuotaExceededError(LLMAPIError):
 
 class BrowserAutomationError(AgentException):
     """Raised when browser interactions (e.g., Playwright) fail."""
-
-    pass

@@ -8,9 +8,11 @@ from __future__ import annotations
 import asyncio
 import random
 
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+
 from src.naukri_agent.config.constants import DEFAULT_TIMEOUT, ELEMENT_TIMEOUT
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.interfaces import IBrowserEngine, IBrowserInteractions
+from src.naukri_agent.bot.interfaces import IBrowserEngine, IBrowserInteractions
 from src.naukri_agent.utils.helpers import random_delay
 from src.naukri_agent.utils.logger import get_logger
 
@@ -74,7 +76,7 @@ class HumanInteractions(IBrowserInteractions):
                 await element.click()
 
             return True
-        except Exception as e:
+        except PlaywrightError as e:
             logger.debug(f"safe_click failed for '{selector}': {e}")
             return False
 
@@ -99,7 +101,7 @@ class HumanInteractions(IBrowserInteractions):
         try:
             await page.keyboard.press("Escape")
             await asyncio.sleep(0.2)
-        except Exception:
+        except PlaywrightError:
             pass
 
         # 2. Try close button selectors
@@ -132,7 +134,7 @@ class HumanInteractions(IBrowserInteractions):
                     await locator.click(timeout=1500)
                     logger.debug(f"Closed popup with selector: {selector}")
                     await asyncio.sleep(0.4)
-            except Exception:
+            except (PlaywrightTimeoutError, PlaywrightError):
                 pass
 
         # 3. Fallback: Hiding/removing overlays using DOM injection (excluding elements with Save button)
@@ -172,17 +174,17 @@ class HumanInteractions(IBrowserInteractions):
                     logger.debug(
                         f"Programmatically removed {elements_removed} blocking elements matching '{container_sel}'"
                     )
-        except Exception as e:
+        except PlaywrightError as e:
             logger.debug(f"Error removing overlays via JS fallback: {e}")
 
     async def wait_for_navigation_complete(self, timeout: int = DEFAULT_TIMEOUT) -> None:
         """Wait for the page to finish loading."""
         try:
             await self._engine.page.wait_for_load_state("networkidle", timeout=timeout)
-        except Exception:
+        except PlaywrightTimeoutError:
             try:
                 await self._engine.page.wait_for_load_state("domcontentloaded", timeout=timeout)
-            except Exception:
+            except PlaywrightTimeoutError:
                 logger.debug("Navigation wait timed out, continuing anyway")
 
     async def action_delay(self) -> None:
@@ -198,7 +200,7 @@ class HumanInteractions(IBrowserInteractions):
             element = await self._engine.page.query_selector(selector)
             if element:
                 return (await element.text_content() or "").strip()
-        except Exception:
+        except PlaywrightError:
             pass
         return ""
 
@@ -207,5 +209,5 @@ class HumanInteractions(IBrowserInteractions):
         try:
             element = await self._engine.page.query_selector(selector)
             return element is not None
-        except Exception:
+        except PlaywrightError:
             return False

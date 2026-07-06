@@ -10,13 +10,20 @@ from __future__ import annotations
 
 import contextlib
 
+from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+
 from src.naukri_agent.browser.pages.detail import JobDetailPage
 from src.naukri_agent.browser.pages.search import SearchPage
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.core.domain.entities import Job
-from src.naukri_agent.core.interfaces import IBrowserEngine
+from src.naukri_agent.models.entities import Job
+from src.naukri_agent.bot.interfaces import IBrowserEngine
 from src.naukri_agent.utils.helpers import build_search_url, random_delay
-from src.naukri_agent.utils.logger import get_logger, log_info, log_success, log_warning
+from src.naukri_agent.utils.logger import (
+    get_logger,
+    log_info,
+    log_success,
+    log_warning,
+)
 
 logger = get_logger(__name__)
 
@@ -52,8 +59,7 @@ class JobSearcher:
         Returns:
             List of job domain entities.
         """
-        all_jobs: list[Job] = []
-        seen_ids: set = set()
+        all_jobs: dict[str, Job] = {}
 
         search_config = self._settings.search
 
@@ -80,14 +86,14 @@ class JobSearcher:
                 keyword=keyword,
                 location=location,
                 max_pages=search_config.max_pages,
+                seen_ids=all_jobs,
             )
 
             # Deduplicate
             for job in jobs:
                 job_id = job.naukri_job_id
-                if job_id and job_id not in seen_ids:
-                    seen_ids.add(job_id)
-                    all_jobs.append(job)
+                if job_id and job_id not in all_jobs:
+                    all_jobs[job_id] = job
 
             log_success(
                 f"Found {len(jobs)} jobs for '{keyword}' in '{location}' "
@@ -100,19 +106,34 @@ class JobSearcher:
             if not queue.empty():
                 await random_delay(3, 6)
 
+        logger.info(
+            f"Final scraped jobs dictionary:\n"
+            + "\n".join(
+                f"  - '{job_id}': {j.title} @ {j.company}" for job_id, j in all_jobs.items()
+            )
+        )
+        jobs_list = list(all_jobs.values())
+        logger.info(
+            f"Final scraped jobs list:\n"
+            + "\n".join(f"  - {j.title} @ {j.company} (ID: {j.naukri_job_id})" for j in jobs_list)
+        )
         log_success(f"Total unique jobs found: {len(all_jobs)}")
-        return all_jobs
+        return jobs_list
 
     async def _search_keyword_location(
         self,
         keyword: str,
         location: str,
         max_pages: int,
+        seen_ids: set | dict | None = None,
     ) -> list[Job]:
         """Search for a specific keyword+location and paginate through results."""
         all_jobs: list[Job] = []
 
-        for page_num in range(1, max_pages + 1):
+        # Bound max_pages defensively to valid pagination limits (1 to 100)
+        query_seen_ids = set()
+        safe_max_pages = max(1, min(100, max_pages))
+        for page_num in range(1, safe_max_pages + 1):
             search_url = build_search_url(
                 keywords=keyword,
                 location=location,
@@ -127,11 +148,37 @@ class JobSearcher:
             logger.info(f"Searching page {page_num}: {search_url}")
 
             try:
-                # Navigate via SearchPage PO
-                await self._search_page.navigate_to_search(search_url)
+                if page_num == 1:
+                    # Navigate via SearchPage PO
+                    await self._search_page.navigate_to_search(search_url)
+                    await self._search_page.close_popups()
 
-                # Close popups
-                await self._search_page.close_popups()
+                    # Enforce the visual UI slider to fix Naukri's frontend bug
+                    await self._search_page.enforce_visual_slider(
+                        min_exp=self._settings.search.experience_min,
+                        max_exp=self._settings.search.experience_max,
+                    )
+                else:
+                    # Pagination for subsequent pages.
+                    # Current SearchPage Page Object does not implement UI click_next_page.
+                    # Use URL navigation as the reliable fallback.
+                    await self._search_page.navigate_to_search(search_url)
+                    await self._search_page.close_popups()
+
+                    # Slider enforcement can help when UI refresh resets it
+                    await self._search_page.enforce_visual_slider(
+                        min_exp=self._settings.search.experience_min,
+                        max_exp=self._settings.search.experience_max,
+                    )
+
+                # Check if the page redirected and stripped our search/filter parameters
+                current_url = self._engine.page.url
+                if "k=" in search_url and "k=" not in current_url:
+                    logger.info(
+                        f"Search parameters stripped by redirection (Target: {search_url} -> Actual: {current_url}). "
+                        f"Likely out-of-bounds page or query reset. Aborting search."
+                    )
+                    break
 
                 # Check for no results
                 no_results = await self._search_page.has_no_results()
@@ -139,14 +186,30 @@ class JobSearcher:
                     log_warning(f"No results found for page {page_num}")
                     break
 
-                # Scroll to load content
-                await self._search_page.scroll_to_load()
-
                 # Parse job cards
                 jobs_on_page = await self._search_page.parse_job_cards()
                 if not jobs_on_page:
                     logger.info(f"No more jobs found on page {page_num}")
                     break
+
+                # Early Pagination Termination check (only after we confirmed we advanced via navigation)
+                if len(jobs_on_page) > 0:
+                    new_jobs_count = sum(
+                        1
+                        for j in jobs_on_page
+                        if j.naukri_job_id and j.naukri_job_id not in query_seen_ids
+                    )
+                    if new_jobs_count == 0:
+                        logger.info(
+                            f"Page {page_num} yielded 0 new unique jobs for this query (all {len(jobs_on_page)} were already seen). "
+                            f"Early termination to prevent pagination loop."
+                        )
+                        break
+
+                    # Update query seen set
+                    for j in jobs_on_page:
+                        if j.naukri_job_id:
+                            query_seen_ids.add(j.naukri_job_id)
 
                 # Strict client-side filtering to bypass Naukri's ignored URL params
                 from src.naukri_agent.utils.filters import JobFilter
@@ -166,7 +229,7 @@ class JobSearcher:
 
                 # Delay between pages
                 await random_delay(2, 5)
-            except Exception as e:
+            except (PlaywrightTimeoutError, PlaywrightError) as e:
                 logger.error(f"Error navigating or parsing page {page_num}: {e}")
                 break
 
@@ -187,7 +250,7 @@ class JobSearcher:
             await self._detail_page.navigate(job_url)
             await self._detail_page.close_popups()
             return await self._detail_page.get_job_details()
-        except Exception as e:
+        except (PlaywrightTimeoutError, PlaywrightError) as e:
             logger.error(f"Failed to get job description from {job_url}: {e}")
             return {
                 "description": "",
