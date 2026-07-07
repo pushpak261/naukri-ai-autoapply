@@ -150,7 +150,7 @@ logging:
   log_dir: data/logs
   log_to_file: true
 naukri:
-  email: pushpak262001@gmail.com
+  email: pushpak262001a@gmail.com
   password: Pushpak@123!
 profile:
   current_ctc: 4.4 LPA

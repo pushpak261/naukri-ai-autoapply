@@ -60,11 +60,17 @@ async function fetchJSON<T>(url: string, options?: RequestInit, skipAuth = false
   };
 
   // If a token refresh is in-flight, wait for it before sending this request
-  // (prevents duplicate 401s from React StrictMode double-fire, etc.)
   let token = accessToken;
   if (refreshPromise) {
     token = await waitForRefresh();
   }
+
+  // No token yet but auth is required – proactively refresh so we never
+  // send a request that will 401 (avoids noisy 401 logs on page load).
+  if (!token && !skipAuth) {
+    token = await refreshAccessToken();
+  }
+
   if (token && !skipAuth) {
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -102,6 +108,9 @@ async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
   if (refreshPromise) {
     token = await waitForRefresh();
   }
+  if (!token) {
+    token = await refreshAccessToken();
+  }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
   }
@@ -137,6 +146,9 @@ async function fetchText(url: string): Promise<string> {
   let token = accessToken;
   if (refreshPromise) {
     token = await waitForRefresh();
+  }
+  if (!token) {
+    token = await refreshAccessToken();
   }
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
