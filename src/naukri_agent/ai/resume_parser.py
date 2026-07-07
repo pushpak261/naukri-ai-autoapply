@@ -447,6 +447,30 @@ class ResumeParser(IResumeParser):
         logger.debug(f"Extracted {len(ocr_full_text)} characters via OCR from {path.name}")
         return ocr_full_text
 
+    def _preserve_metadata(self, data: dict) -> dict:
+        """Preserve metadata fields from the existing resume_profile.json when writing new data."""
+        profile_json_path = self._settings.project_root / "resume_profile.json"
+        if profile_json_path.exists():
+            try:
+                existing = json.loads(profile_json_path.read_text(encoding="utf-8"))
+                for key in ("uploaded_file_path",):
+                    if key in existing and key not in data:
+                        data[key] = existing[key]
+            except Exception:
+                pass
+        return data
+
+    def _write_profile_json(self, data: dict) -> None:
+        """Write data to resume_profile.json, preserving metadata fields."""
+        profile_json_path = self._settings.project_root / "resume_profile.json"
+        data = self._preserve_metadata(data)
+        try:
+            profile_json_path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+            )
+        except Exception as e:
+            logger.warning(f"Failed to write local resume_profile.json: {e}")
+
     async def parse(self, pdf_path: str | Path) -> ResumeProfile:
         """
         Parse a resume PDF into a structured profile.
@@ -479,13 +503,8 @@ class ResumeParser(IResumeParser):
                     domain_cached = _map_to_domain_profile(cached, file_hash)
 
                 # Save to local resume_profile.json for synchronization and editability
-                try:
-                    profile_json_path.write_text(
-                        json.dumps(cached_dict, indent=2, ensure_ascii=False), encoding="utf-8"
-                    )
-                    log_info(f"Saved database cached profile to local {profile_json_path.name}")
-                except Exception as e:
-                    logger.warning(f"Failed to write local resume_profile.json: {e}")
+                self._write_profile_json(cached_dict)
+                log_info(f"Saved database cached profile to local {profile_json_path.name}")
                 return domain_cached
 
         # When Gemini is disabled, check the local resume_profile.json first.
@@ -558,14 +577,9 @@ class ResumeParser(IResumeParser):
             profile["raw_text"] = resume_text
             profile["file_hash"] = file_hash
 
-            # Write to local resume_profile.json
-            try:
-                profile_json_path.write_text(
-                    json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
-                )
-                log_info(f"Saved parsed profile to local {profile_json_path.name}")
-            except Exception as e:
-                logger.warning(f"Failed to write local resume_profile.json: {e}")
+            # Write to local resume_profile.json (preserves metadata like uploaded_file_path)
+            self._write_profile_json(profile)
+            log_info(f"Saved parsed profile to local {profile_json_path.name}")
 
             # Cache the result
             if self._repo:
@@ -634,13 +648,8 @@ class ResumeParser(IResumeParser):
             "file_hash": file_hash,
         }
 
-        try:
-            profile_json_path.write_text(
-                json.dumps(profile, indent=2, ensure_ascii=False), encoding="utf-8"
-            )
-            log_info(f"Saved parsed profile to local {profile_json_path.name}")
-        except Exception as e:
-            logger.warning(f"Failed to write local resume_profile.json: {e}")
+        self._write_profile_json(profile)
+        log_info(f"Saved parsed profile to local {profile_json_path.name}")
 
         if self._repo:
             await self._repo.save_resume_profile(
