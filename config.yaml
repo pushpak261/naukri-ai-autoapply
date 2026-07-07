@@ -1,4 +1,4 @@
-ai:
+﻿ai:
   abort_on_quota: true
   enable_matching: true
   fallback_model: gemini-3.5-flash
@@ -15,7 +15,7 @@ application:
   delay_between_applies_max: 90
   delay_between_applies_min: 30
   dry_run: false
-  email_notifications_enabled: true
+  email_notifications_enabled: false
   enable_project_indexer: true
   match_score_threshold: 50
   max_retries: 3
@@ -148,13 +148,14 @@ exclusions:
   - teacher
   - faculty
   - management
+  - leading client
 logging:
   level: INFO
   log_dir: data/logs
   log_to_file: true
 naukri:
-  email: pushpak262001a@gmail.com
-  password: Pushpak@123!
+  email: ""
+  password: ""
 profile:
   current_ctc: 4.4 LPA
   current_location: Pune
@@ -164,12 +165,12 @@ profile:
   - Pune
   total_experience: 1 years
 resume:
-  path: data/resumes/resume_20260707_032253.pdf
+  path: data/resumes/resume_20260707_123136.pdf
 search:
   enable_heuristics: true
   experience_max: 2
-  experience_min: 1
-  freshness: 15
+  experience_min: 0
+  freshness: 7
   keywords:
   - Full Stack Developer
   - Java Developer
