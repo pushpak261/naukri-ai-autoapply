@@ -207,7 +207,7 @@ class JobApplier:
                 return {"status": ApplicationStatus.APPLIED, "error_message": ""}
 
         # Try submitting any visible form
-        await self._detail_page.submit_application()
+        submit_clicked = await self._detail_page.submit_application()
 
         # Final success check with robust polling (up to 10 seconds)
         for _ in range(20):
@@ -240,16 +240,45 @@ class JobApplier:
                 return {"status": ApplicationStatus.APPLIED, "error_message": ""}
 
         # If we get here, we're not sure if the application went through
-        # If a form is still visible and we have answer_questions_with_pdf = False, assume it's a screening form we couldn't parse
+        # Use state-change detection as a fallback:
+
+        # 1. Apply modal is gone → application was processed (modal closed after submit)
+        if not await self._detail_page._is_apply_modal_visible():
+            log_success(f"Application assumed successful (modal closed): {job.title}")
+            return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+
+        # 2. Apply button is no longer clickable → it changed to "Applied" state
+        if not await self._detail_page._is_apply_button_present():
+            log_success(f"Application confirmed (apply button gone): {job.title}")
+            return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+
+        # 3. Button text now says "Applied"
+        if await self._detail_page.is_already_applied():
+            log_success(f"Application confirmed (button changed): {job.title}")
+            return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+
+        # 4. If we clicked submit and no failure, wait briefly and recheck
+        if submit_clicked:
+            await asyncio.sleep(2)
+            if await self._detail_page.check_application_success():
+                log_success(f"Applied successfully (delayed confirmation): {job.title}")
+                return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+            if await self._detail_page.is_already_applied():
+                log_success(f"Application confirmed (delayed button check): {job.title}")
+                return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+            if not await self._detail_page._is_apply_modal_visible():
+                log_success(f"Application assumed successful (modal closed after delay): {job.title}")
+                return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+
+        # 5. If answer_questions_with_pdf is False and a form is still visible → screening form we couldn't parse
         if not getattr(self._settings.application, "answer_questions_with_pdf", True):
-            if await self._detail_page._find_active_form_container():
-                log_warning(
-                    f"Unsubmitted form detected but 'answer_questions_with_pdf' is false. Skipping job: {job.title}"
-                )
-                return {
-                    "status": ApplicationStatus.SKIPPED_SCREENING,
-                    "error_message": "Skipped: Unsubmitted form detected and answer_questions_with_pdf is false",
-                }
+            log_warning(
+                f"Unsubmitted form detected but 'answer_questions_with_pdf' is false. Skipping job: {job.title}"
+            )
+            return {
+                "status": ApplicationStatus.SKIPPED_SCREENING,
+                "error_message": "Skipped: Unsubmitted form detected and answer_questions_with_pdf is false",
+            }
 
         log_warning(f"Application status uncertain: {job.title}")
         return {

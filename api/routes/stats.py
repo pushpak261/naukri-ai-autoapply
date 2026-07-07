@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
+from sqlalchemy import func, select
 
 from api.deps import state
 from src.naukri_agent.models.db_schema import Application as DBApplication
@@ -19,9 +20,34 @@ async def get_stats(days: int = Query(7, ge=1, le=365)):
     recent = await r.get_recent_applications(limit=5)
 
     total_jobs_found = sum(rw.get("found", 0) for rw in run_logs)
-    total_applied = sum(rw.get("applied", 0) for rw in run_logs)
-    total_skipped = sum(rw.get("skipped", 0) for rw in run_logs)
-    total_failed = sum(rw.get("failed", 0) for rw in run_logs)
+
+    # Compute totals from the applications table (source of truth)
+    # instead of summing run_logs which is only updated at cleanup and
+    # can be stale if runs are interrupted or in-progress.
+    session_factory = await state.db_manager.get_session_factory()
+    async with session_factory() as session:
+        total_applied = (
+            await session.execute(
+                select(func.count(DBApplication.id)).where(
+                    DBApplication.status == "applied"
+                )
+            )
+        ).scalar_one() or 0
+        total_skipped = (
+            await session.execute(
+                select(func.count(DBApplication.id)).where(
+                    DBApplication.status.startswith("skipped")
+                )
+            )
+        ).scalar_one() or 0
+        total_failed = (
+            await session.execute(
+                select(func.count(DBApplication.id)).where(
+                    DBApplication.status.notin_(["applied"]),
+                    ~DBApplication.status.startswith("skipped"),
+                )
+            )
+        ).scalar_one() or 0
 
     return {
         "stats": stats,
