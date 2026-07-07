@@ -265,7 +265,7 @@ export interface ConfigResponse {
   profile: { current_ctc: string; expected_ctc: string; notice_period: string; current_location: string; preferred_locations: string[]; total_experience: string };
   logging: { level: string; log_to_file: boolean };
   notifications?: { email_notifications_enabled: boolean; email_recipient: string; notify_on_apply: boolean; notify_on_failure: boolean; notify_on_scam: boolean; notify_on_match: boolean };
-  rate_limits?: { daily_cap: number; delay_between_applies_min: number; delay_between_applies_max: number };
+  rate_limits?: { rate_limit_capacity: number; rate_limit_refill_rate: number };
 }
 
 export interface StatusInfo {
@@ -507,7 +507,7 @@ export const api = {
     fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}`),
   job: (id: number) => fetchJSON<JobDetail>(`/jobs/${id}`),
   applications: (page = 1, perPage = 20, status = '', sort = 'newest') =>
-    fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}`),
+    fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}&_t=${Date.now()}`),
   runLogs: (limit = 20) => fetchJSON<{ items: RunLog[] }>(`/run-logs?limit=${limit}`),
   runJobs: (runId: number) => fetchJSON<{ items: ApplicationItem[]; run: RunLog }>(`/run-logs/${runId}/jobs`),
   config: () => fetchJSON<ConfigResponse>('/config'),

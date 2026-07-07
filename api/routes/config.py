@@ -38,6 +38,8 @@ class ConfigUpdate(BaseModel):
     total_experience: str | None = None
     delay_between_applies_min: int | None = None
     delay_between_applies_max: int | None = None
+    # Retry settings (feature 3)
+    max_retries: int | None = None
     # Rate limit settings (feature 10)
     rate_limit_capacity: float | None = None
     rate_limit_refill_rate: float | None = None
@@ -93,6 +95,7 @@ async def get_config():
         "application": {
             "daily_cap": s.application.daily_cap,
             "match_score_threshold": s.application.match_score_threshold,
+            "max_retries": s.application.max_retries,
             "answer_questions_with_pdf": s.application.answer_questions_with_pdf,
             "delay_between_applies_min": s.application.delay_between_applies_min,
             "delay_between_applies_max": s.application.delay_between_applies_max,
@@ -145,9 +148,8 @@ async def get_config():
             ),
         },
         "rate_limits": {
-            "daily_cap": s.application.daily_cap,
-            "delay_between_applies_min": s.application.delay_between_applies_min,
-            "delay_between_applies_max": s.application.delay_between_applies_max,
+            "rate_limit_capacity": s.application.rate_limit_capacity,
+            "rate_limit_refill_rate": s.application.rate_limit_refill_rate,
         },
     }
 
@@ -174,6 +176,7 @@ async def update_config(update: ConfigUpdate):
         (["ai", "use_gemini"], update.use_gemini, False),
         (["application", "daily_cap"], update.daily_cap, False),
         (["application", "match_score_threshold"], update.match_score_threshold, False),
+        (["application", "max_retries"], update.max_retries, False),
         (["search", "keywords"], update.search_keywords, False),
         (["search", "locations"], update.search_locations, False),
         (["search", "experience_min"], update.experience_min, False),
@@ -200,6 +203,8 @@ async def update_config(update: ConfigUpdate):
         (["application", "notify_on_failure"], update.notify_on_failure, False),
         (["application", "notify_on_scam"], update.notify_on_scam, False),
         (["application", "notify_on_match"], update.notify_on_match, False),
+        (["application", "rate_limit_capacity"], update.rate_limit_capacity, False),
+        (["application", "rate_limit_refill_rate"], update.rate_limit_refill_rate, False),
     ]
 
     for keys, value, is_secret in updates:

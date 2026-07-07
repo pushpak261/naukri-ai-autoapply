@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, RotateCcw, Loader2, AlertTriangle, CheckCircle } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
@@ -11,27 +11,54 @@ export default function Applications() {
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<number | null>(null);
   const [busy, setBusy] = useState<{ retryAll: boolean; sync: boolean }>({ retryAll: false, sync: false });
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const mountedRef = useRef(true);
   const perPage = 20;
 
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [data, statusData] = await Promise.all([
-        api.applications(page, perPage, statusFilter),
-        api.applicationStatuses(),
-      ]);
-      setApps(data.items);
-      setTotal(data.total);
-      setStatuses(statusData.statuses);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, statusFilter]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
-  useEffect(() => { fetch(); }, [fetch]);
+  const loadApps = useCallback(async (currentPage: number, currentFilter: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await api.applications(currentPage, perPage, currentFilter);
+      if (mountedRef.current) {
+        setApps(data.items);
+        setTotal(data.total);
+      }
+    } catch (err) {
+      if (mountedRef.current) {
+        setError(err instanceof Error ? err.message : 'Failed to load applications');
+      }
+    } finally {
+      if (mountedRef.current) {
+        setLoading(false);
+      }
+    }
+  }, []);
+
+  const loadStatuses = useCallback(async () => {
+    try {
+      const statusData = await api.applicationStatuses();
+      if (mountedRef.current) {
+        setStatuses(statusData.statuses);
+      }
+    } catch {
+      // Statuses are static, so failure is non-critical
+    }
+  }, []);
+
+  useEffect(() => {
+    loadApps(page, statusFilter);
+    loadStatuses();
+  }, [page, statusFilter, loadApps, loadStatuses]);
+
   useEffect(() => { setPage(1); }, [statusFilter]);
 
   const handleRetry = async (appId: number) => {
@@ -40,7 +67,7 @@ export default function Applications() {
     try {
       const r = await api.applicationsExtra.retry(appId);
       setMessage({ type: 'success', text: `Retry queued for app #${r.app_id} (attempt ${r.retry_count})` });
-      await fetch();
+      await loadApps(page, statusFilter);
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Retry failed' });
     }
@@ -54,7 +81,7 @@ export default function Applications() {
     try {
       const r = await api.applicationsExtra.retryAllFailed();
       setMessage({ type: 'success', text: `Retrying ${r.count} failed applications` });
-      await fetch();
+      await loadApps(page, statusFilter);
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Retry all failed' });
     }
@@ -65,9 +92,9 @@ export default function Applications() {
     setBusy(prev => ({ ...prev, sync: true }));
     setMessage(null);
     try {
-      const r = await api.applicationsExtra.syncStatus();
-      setMessage({ type: 'success', text: `Synced ${r.synced_count} applications at ${r.synced_at}` });
-      await fetch();
+      await api.applicationsExtra.syncStatus();
+      await loadApps(page, statusFilter);
+      setMessage({ type: 'success', text: 'Applications refreshed' });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Sync failed' });
     }
@@ -131,7 +158,17 @@ export default function Applications() {
       </div>
 
       <div className="bg-[#1e293b] rounded-xl border border-[#334155] overflow-hidden">
-        {loading ? (
+        {error ? (
+          <div className="flex flex-col items-center justify-center h-64 gap-3">
+            <AlertTriangle className="w-8 h-8 text-red-400" />
+            <p className="text-red-400 text-sm">{error}</p>
+            <button onClick={() => loadApps(page, statusFilter)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#334155] hover:bg-[#475569] text-white rounded-lg text-xs transition-colors">
+              <RefreshCw className="w-3 h-3" />
+              Retry
+            </button>
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
           </div>

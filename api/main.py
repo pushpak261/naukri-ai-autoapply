@@ -89,16 +89,31 @@ PUBLIC_PREFIXES = {"/docs/", "/redoc/", "/api/auth/"}
 async def api_key_auth(request: Request, call_next):
     api_key = deps.settings.dashboard_api_key
     if not api_key:
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     if request.url.path in PUBLIC_PATHS or any(
         request.url.path.startswith(p) for p in PUBLIC_PREFIXES
     ):
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer ") and auth_header.removeprefix("Bearer ").strip() == api_key:
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     return PlainTextResponse(
         '{"detail":"Unauthorized"}',
