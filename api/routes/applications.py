@@ -1,6 +1,6 @@
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import func, select, update
 
 from api.deps import state
@@ -13,11 +13,15 @@ router = APIRouter(tags=["applications"])
 
 @router.get("/api/applications")
 async def get_applications(
+    response: Response,
     page: int = Query(1, ge=1),
     per_page: int = Query(20, ge=1, le=100),
     status: str = Query("", max_length=50),
     sort: str = Query("newest", max_length=20),
 ):
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
         query = select(DBApplication)

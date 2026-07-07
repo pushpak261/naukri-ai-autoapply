@@ -71,8 +71,8 @@ function configToForm(config: ConfigResponse): ConfigForm {
     notify_on_failure: config.notifications?.notify_on_failure ?? true,
     notify_on_scam: config.notifications?.notify_on_scam ?? true,
     notify_on_match: config.notifications?.notify_on_match ?? false,
-    rate_limit_capacity: config.rate_limits?.daily_cap ?? 10,
-    rate_limit_refill_rate: 1,
+    rate_limit_capacity: config.rate_limits?.rate_limit_capacity ?? 10,
+    rate_limit_refill_rate: config.rate_limits?.rate_limit_refill_rate ?? 1,
   };
 }
 

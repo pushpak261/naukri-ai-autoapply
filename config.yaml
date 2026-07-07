@@ -18,10 +18,13 @@ application:
   email_notifications_enabled: true
   enable_project_indexer: true
   match_score_threshold: 50
+  max_retries: 3
   notify_on_apply: true
   notify_on_failure: true
   notify_on_match: true
   notify_on_scam: true
+  rate_limit_capacity: 10.0
+  rate_limit_refill_rate: 1.0
   skip_external_apply: true
 exclusions:
   companies:
@@ -165,8 +168,8 @@ resume:
 search:
   enable_heuristics: true
   experience_max: 2
-  experience_min: 0
-  freshness: 7
+  experience_min: 1
+  freshness: 15
   keywords:
   - Full Stack Developer
   - Java Developer
@@ -180,6 +183,9 @@ search:
   - Application Developer
   locations:
   - Pune
+  - Mumbai
+  - Bangalore
+  - Remote
   max_pages: 10
   salary_min: 0
   sort_by: relevance
