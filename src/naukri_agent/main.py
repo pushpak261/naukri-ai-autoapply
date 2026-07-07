@@ -137,13 +137,21 @@ async def _run(
 
     db_manager = await setup_database_manager(settings.db_path)
 
-    # Per-account session: if NAUKRI_ACTIVE_ACCOUNT is set, use that account's
-    # credentials and session file instead of the defaults from config.yaml.
-    active_account_email = os.environ.get("NAUKRI_ACTIVE_ACCOUNT")
-    if active_account_email:
-        from sqlalchemy import select
-        from src.naukri_agent.models.db_schema import NaukriAccount
+    # Determine which account to use: env var overrides, otherwise query DB for active account
+    from sqlalchemy import select
+    from src.naukri_agent.models.db_schema import NaukriAccount
 
+    active_account_email = os.environ.get("NAUKRI_ACTIVE_ACCOUNT")
+    if not active_account_email:
+        async with db_manager.session_factory() as session:
+            result = await session.execute(
+                select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
+            )
+            active = result.scalar_one_or_none()
+            if active:
+                active_account_email = active.email
+
+    if active_account_email:
         async with db_manager.session_factory() as session:
             result = await session.execute(
                 select(NaukriAccount).where(NaukriAccount.email == active_account_email)

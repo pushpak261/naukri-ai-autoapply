@@ -10,7 +10,10 @@ from typing import AsyncGenerator
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
 
+from sqlalchemy import select
+
 from api.deps import state
+from src.naukri_agent.models.db_schema import NaukriAccount
 
 router = APIRouter(tags=["agent"])
 
@@ -61,6 +64,20 @@ async def start_agent():
             "message": "Agent is already running",
             "pid": state.agent_process.pid,
         }
+
+    # Fallback: if in-memory state is lost (server restart), query DB for active account
+    if not state.active_account_email:
+        try:
+            session_factory = await state.db_manager.get_session_factory()
+            async with session_factory() as session:
+                result = await session.execute(
+                    select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
+                )
+                active = result.scalar_one_or_none()
+                if active:
+                    state.active_account_email = active.email
+        except Exception:
+            pass
 
     cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
     env = os.environ.copy()
