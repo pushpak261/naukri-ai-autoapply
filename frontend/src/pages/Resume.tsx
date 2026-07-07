@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User, Mail, Phone, Briefcase, GraduationCap, Award, Globe, Star,
-  Upload, Save, Edit3, X, Plus, Loader2, Check, AlertCircle
+  Upload, Save, Edit3, X, Plus, Loader2, Check, AlertCircle, GitCompare, History, Download
 } from 'lucide-react';
 import { api } from '../lib/api';
 
@@ -170,6 +170,53 @@ function CompactUploadButton({ onUpload, uploading }: { onUpload: (f: File) => v
   );
 }
 
+interface VersionEntry {
+  id: number;
+  label: string;
+  timestamp: string;
+  profile: ResumeProfileData;
+}
+
+const STORAGE_KEY = 'resume_versions';
+
+function loadVersions(): VersionEntry[] {
+  try {
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+  } catch { return []; }
+}
+
+function saveVersions(v: VersionEntry[]) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(v));
+}
+
+function computeDiff(a: ResumeProfileData, b: ResumeProfileData): { field: string; before: string; after: string }[] {
+  const diff: { field: string; before: string; after: string }[] = [];
+  const compareFields: (keyof ResumeProfileData)[] = [
+    'name', 'email', 'phone', 'current_title', 'summary', 'total_experience_years',
+  ];
+  for (const field of compareFields) {
+    const va = JSON.stringify(a[field]);
+    const vb = JSON.stringify(b[field]);
+    if (va !== vb) {
+      diff.push({ field, before: String(a[field] ?? ''), after: String(b[field] ?? '') });
+    }
+  }
+  const listFields: (keyof ResumeProfileData)[] = ['skills', 'technical_skills', 'soft_skills', 'certifications', 'languages', 'key_achievements'];
+  for (const field of listFields) {
+    const va = (a[field] as string[]) || [];
+    const vb = (b[field] as string[]) || [];
+    if (JSON.stringify(va) !== JSON.stringify(vb)) {
+      const removed = va.filter(x => !vb.includes(x));
+      const added = vb.filter(x => !va.includes(x));
+      const parts: string[] = [];
+      if (removed.length) parts.push(`-${removed.join(', ')}`);
+      if (added.length) parts.push(`+${added.join(', ')}`);
+      diff.push({ field, before: va.join(', '), after: vb.join(', ') });
+    }
+  }
+  return diff;
+}
+
 export default function Resume() {
   const [data, setData] = useState<{ exists: boolean; profile: Record<string, unknown> | null } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -179,6 +226,11 @@ export default function Resume() {
   const [error, setError] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
   const [editMode, setEditMode] = useState(false);
+  const [versions, setVersions] = useState<VersionEntry[]>(loadVersions());
+  const [showVersions, setShowVersions] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<VersionEntry | null>(null);
+  const [diff, setDiff] = useState<{ field: string; before: string; after: string }[] | null>(null);
+  const [snapshotLabel, setSnapshotLabel] = useState('');
 
   useEffect(() => {
     api.resumeProfile().then(res => {
@@ -213,13 +265,41 @@ export default function Resume() {
     try {
       await api.resume.saveProfile(profile as unknown as Record<string, unknown>);
       setData({ exists: true, profile: profile as unknown as Record<string, unknown> });
-      setSuccessMsg('Profile saved!');
+      const newVersion: VersionEntry = {
+        id: Date.now(),
+        label: `v${versions.length + 1}`,
+        timestamp: new Date().toISOString(),
+        profile: { ...profile },
+      };
+      const updated = [...versions, newVersion];
+      saveVersions(updated);
+      setVersions(updated);
+      setSuccessMsg('Profile saved! Version snapshot created.');
       setEditMode(false);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
       setSaving(false);
     }
+  };
+
+  const takeSnapshot = () => {
+    if (!snapshotLabel.trim()) return;
+    const newVersion: VersionEntry = {
+      id: Date.now(),
+      label: snapshotLabel.trim(),
+      timestamp: new Date().toISOString(),
+      profile: { ...profile },
+    };
+    const updated = [...versions, newVersion];
+    saveVersions(updated);
+    setVersions(updated);
+    setSnapshotLabel('');
+    setSuccessMsg(`Snapshot "${newVersion.label}" created`);
+  };
+
+  const compareVersions = (a: VersionEntry, b: VersionEntry) => {
+    setDiff(computeDiff(a.profile, b.profile));
   };
 
   const update = <K extends keyof ResumeProfileData>(key: K, val: ResumeProfileData[K]) => {
@@ -325,6 +405,99 @@ export default function Resume() {
         <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-12 text-center">
           <Loader2 className="w-10 h-10 text-[#38bdf8] mx-auto mb-4 animate-spin" />
           <p className="text-[#94a3b8]">Parsing resume... This may take a moment.</p>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setShowVersions(!showVersions)}
+          className={`px-3 py-1.5 text-sm rounded-lg transition-colors flex items-center gap-1.5 ${
+            showVersions ? 'bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/30' : 'border border-[#334155] text-[#94a3b8] hover:bg-[#334155]'
+          }`}
+        >
+          <History className="w-4 h-4" />
+          Versions ({versions.length})
+        </button>
+        {!editMode && (
+          <div className="flex items-center gap-1.5">
+            <input
+              type="text"
+              value={snapshotLabel}
+              onChange={e => setSnapshotLabel(e.target.value)}
+              placeholder="Label..."
+              className="w-28 px-2 py-1.5 text-xs bg-[#0f172a] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]"
+            />
+            <button
+              onClick={takeSnapshot}
+              disabled={!snapshotLabel.trim()}
+              className="px-2 py-1.5 text-xs bg-[#38bdf8]/10 text-[#38bdf8] rounded-lg hover:bg-[#38bdf8]/20 disabled:opacity-50"
+            >
+              Snapshot
+            </button>
+          </div>
+        )}
+      </div>
+
+      {showVersions && versions.length > 0 && (
+        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-white flex items-center gap-1.5">
+              <GitCompare className="w-4 h-4 text-[#38bdf8]" />
+              Version History
+            </h3>
+          </div>
+          <div className="space-y-2">
+            {versions.map((v) => (
+              <div key={v.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-[#334155]/50">
+                <div className="flex items-center gap-3">
+                  <span className="text-xs font-mono text-[#38bdf8]">{v.label}</span>
+                  <span className="text-xs text-[#64748b]">{new Date(v.timestamp).toLocaleString()}</span>
+                </div>
+                <div className="flex gap-1">
+                  <button
+                    onClick={() => setSelectedVersion(selectedVersion?.id === v.id ? null : v)}
+                    className={`px-2 py-1 text-xs rounded ${selectedVersion?.id === v.id ? 'bg-[#38bdf8]/20 text-[#38bdf8]' : 'text-[#94a3b8] hover:bg-[#334155]'}`}
+                  >
+                    {selectedVersion?.id === v.id ? 'Deselect' : 'Compare'}
+                  </button>
+                  {selectedVersion && selectedVersion.id !== v.id && (
+                    <button
+                      onClick={() => compareVersions(selectedVersion, v)}
+                      className="px-2 py-1 text-xs bg-yellow-500/10 text-yellow-400 rounded hover:bg-yellow-500/20"
+                    >
+                      Diff
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {diff && diff.length > 0 && (
+            <div className="mt-4 border-t border-[#334155] pt-3">
+              <h4 className="text-xs font-semibold text-white mb-2">Changes ({diff.length})</h4>
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {diff.map((d, i) => (
+                  <div key={i} className="p-2 bg-[#0f172a] rounded-lg">
+                    <p className="text-[10px] uppercase text-[#64748b] mb-1">{d.field}</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="p-1.5 bg-red-500/5 border border-red-500/20 rounded text-xs text-red-300">
+                        <span className="text-[10px] text-red-500 block mb-0.5">Before</span>
+                        {d.before || <span className="italic text-[#64748b]">empty</span>}
+                      </div>
+                      <div className="p-1.5 bg-green-500/5 border border-green-500/20 rounded text-xs text-green-300">
+                        <span className="text-[10px] text-green-500 block mb-0.5">After</span>
+                        {d.after || <span className="italic text-[#64748b]">empty</span>}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {diff && diff.length === 0 && (
+            <p className="text-xs text-[#64748b] mt-2">No differences between selected versions.</p>
+          )}
         </div>
       )}
 

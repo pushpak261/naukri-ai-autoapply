@@ -207,11 +207,39 @@ def _try_decrypt_session(raw: bytes, settings: Any) -> bytes:
 
 
 @router.delete("/api/session")
-async def clear_session():
-    session_path = state.settings.project_root / "data" / "sessions" / "naukri_session.json"
+async def clear_session(account: str = Query("", max_length=255)):
+    if account:
+        safe_name = account.replace("@", "_at_").replace(".", "_dot_")
+        session_path = (
+            state.settings.project_root / "data" / "sessions" / f"naukri_session_{safe_name}.json"
+        )
+    else:
+        session_path = state.settings.project_root / "data" / "sessions" / "naukri_session.json"
     if session_path.exists():
         session_path.unlink()
     return {"status": "cleared", "message": "Session cleared. Agent will need to re-login."}
+
+
+@router.get("/api/sessions/list")
+async def list_sessions():
+    sessions_dir = state.settings.project_root / "data" / "sessions"
+    sessions = []
+    if sessions_dir.exists():
+        for f in sorted(sessions_dir.glob("naukri_session*.json"), reverse=True):
+            size = f.stat().st_size
+            modified = datetime.fromtimestamp(f.stat().st_mtime, tz=UTC).isoformat()
+            name = f.stem.replace("naukri_session_", "")
+            if name == "":
+                name = "default"
+            sessions.append(
+                {
+                    "name": name,
+                    "file": f.name,
+                    "size": size,
+                    "modified": modified,
+                }
+            )
+    return {"items": sessions}
 
 
 @router.get("/api/backups")
@@ -236,6 +264,139 @@ async def create_backup():
     service = DatabaseBackupService(state.settings.db_path)
     service.backup()
     return {"status": "created", "message": "Database backup created"}
+
+
+@router.post("/api/backups/restore")
+async def restore_backup(name: str = Query(..., max_length=255)):
+    """Restore database from a named backup file."""
+    backup_dir = state.settings.db_path.parent
+    backup_file = backup_dir / name
+    if not backup_file.exists() or not name.startswith("naukri_agent_backup_"):
+        raise HTTPException(status_code=404, detail=f"Backup '{name}' not found")
+
+    import shutil
+    from src.naukri_agent.utils.logger import log_info
+
+    db_path = state.settings.db_path
+    if db_path.exists():
+        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+        pre_restore = db_path.parent / f"naukri_agent_pre_restore_{timestamp}.db"
+        shutil.copy2(db_path, pre_restore)
+        log_info(f"Pre-restore backup saved: {pre_restore.name}")
+
+    shutil.copy2(backup_file, db_path)
+    log_info(f"Database restored from backup: {name}")
+
+    return {"status": "restored", "message": f"Database restored from '{name}'"}
+
+
+@router.get("/api/export/full")
+async def export_full_json():
+    """Export all data as a single JSON file for backup/migration."""
+    from sqlalchemy import select
+
+    session_factory = await state.db_manager.get_session_factory()
+    async with session_factory() as session:
+        jobs_result = await session.execute(
+            select(DBJob).order_by(DBJob.scraped_at.desc()).limit(1000)
+        )
+        jobs = jobs_result.scalars().all()
+
+        apps_result = await session.execute(
+            select(DBApplication).order_by(DBApplication.applied_at.desc()).limit(1000)
+        )
+        apps = apps_result.scalars().all()
+
+        from src.naukri_agent.models.db_schema import ResumeProfile as DBResumeProfile
+
+        profiles_result = await session.execute(
+            select(DBResumeProfile).order_by(DBResumeProfile.parsed_at.desc()).limit(100)
+        )
+        profiles = profiles_result.scalars().all()
+
+    def _serialize(obj):
+        if hasattr(obj, "__table__"):
+            cols = [c.name for c in obj.__table__.columns]
+            return {
+                c: (
+                    getattr(obj, c).isoformat()
+                    if hasattr(getattr(obj, c), "isoformat")
+                    else getattr(obj, c)
+                )
+                for c in cols
+            }
+        return obj
+
+    export = {
+        "exported_at": datetime.now(UTC).isoformat(),
+        "version": "2.0.0",
+        "data": {
+            "jobs": [_serialize(j) for j in jobs],
+            "applications": [_serialize(a) for a in apps],
+            "resume_profiles": [_serialize(p) for p in profiles],
+        },
+        "counts": {
+            "jobs": len(jobs),
+            "applications": len(apps),
+            "resume_profiles": len(profiles),
+        },
+    }
+
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        content=export,
+        media_type="application/json",
+        headers={"Content-Disposition": "attachment; filename=naukri_agent_export.json"},
+    )
+
+
+@router.post("/api/import/full")
+async def import_full_json(data: dict):
+    """Import data from a full JSON export."""
+    from src.naukri_agent.models.db_schema import ResumeProfile as DBResumeProfile
+
+    session_factory = await state.db_manager.get_session_factory()
+    imported_counts = {"jobs": 0, "applications": 0, "resume_profiles": 0}
+
+    async with session_factory() as session:
+        import_data = data.get("data", {})
+        for job_data in import_data.get("jobs", []):
+            existing = await session.execute(
+                select(DBJob).where(DBJob.naukri_job_id == job_data.get("naukri_job_id", ""))
+            )
+            if existing.scalar_one_or_none():
+                continue
+            session.add(DBJob(**{k: v for k, v in job_data.items() if k != "id"}))
+            imported_counts["jobs"] += 1
+
+        for app_data in import_data.get("applications", []):
+            existing = await session.execute(
+                select(DBApplication).where(DBApplication.id == app_data.get("id", -1))
+            )
+            if existing.scalar_one_or_none():
+                continue
+            session.add(DBApplication(**{k: v for k, v in app_data.items() if k != "id"}))
+            imported_counts["applications"] += 1
+
+        for prof_data in import_data.get("resume_profiles", []):
+            existing = await session.execute(
+                select(DBResumeProfile).where(
+                    DBResumeProfile.file_hash == prof_data.get("file_hash", "")
+                )
+            )
+            if existing.scalar_one_or_none():
+                continue
+            session.add(DBResumeProfile(**{k: v for k, v in prof_data.items() if k != "id"}))
+            imported_counts["resume_profiles"] += 1
+
+        await session.commit()
+
+    return {
+        "status": "imported",
+        "message": f"Imported {imported_counts['jobs']} jobs, {imported_counts['applications']} applications, {imported_counts['resume_profiles']} resume profiles",
+        "counts": imported_counts,
+    }
 
 
 @router.get("/api/export/applications/csv")

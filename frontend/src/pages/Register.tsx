@@ -3,11 +3,12 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { Activity } from 'lucide-react';
 
-export default function Login() {
+export default function Register() {
   const { login } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -17,13 +18,24 @@ export default function Login() {
       setError('Email and password are required');
       return;
     }
+    if (password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    if (password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
     setError('');
     setSubmitting(true);
     try {
+      const { api, setAuthToken } = await import('../lib/api');
+      const res = await api.auth.register(email.trim(), password);
+      setAuthToken(res.access_token);
       await login(email.trim(), password);
       navigate('/', { replace: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {
       setSubmitting(false);
     }
@@ -37,7 +49,7 @@ export default function Login() {
             <Activity className="w-8 h-8 text-[#38bdf8]" />
             <h1 className="text-2xl font-bold text-white">Naukri Agent</h1>
           </div>
-          <p className="text-sm text-slate-400">Sign in with your Naukri credentials</p>
+          <p className="text-sm text-slate-400">Create your account</p>
         </div>
 
         <form
@@ -66,9 +78,24 @@ export default function Login() {
             <input
               id="password"
               type="password"
-              autoComplete="current-password"
+              autoComplete="new-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              className="w-full px-3 py-2.5 rounded-lg bg-[#0f172a] border border-slate-600 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-[#38bdf8]/50 focus:border-[#38bdf8] transition-colors"
+            />
+          </div>
+
+          <div>
+            <label htmlFor="confirmPassword" className="block text-sm font-medium text-slate-300 mb-1.5">
+              Confirm Password
+            </label>
+            <input
+              id="confirmPassword"
+              type="password"
+              autoComplete="new-password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
               placeholder="••••••••"
               className="w-full px-3 py-2.5 rounded-lg bg-[#0f172a] border border-slate-600 text-white placeholder-slate-500 text-sm focus:outline-none focus:ring-2 focus:ring-[#38bdf8]/50 focus:border-[#38bdf8] transition-colors"
             />
@@ -91,19 +118,16 @@ export default function Login() {
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
             )}
-            {submitting ? 'Signing in...' : 'Sign In'}
+            {submitting ? 'Creating account...' : 'Create Account'}
           </button>
-        </form>
 
-        <p className="text-center mt-4 text-sm text-slate-400">
-          Don't have an account?{' '}
-          <Link to="/register" className="text-[#38bdf8] hover:underline">
-            Register
-          </Link>
-        </p>
-        <p className="text-center mt-2 text-xs text-slate-500">
-          Your Naukri credentials are stored securely and used only for the agent.
-        </p>
+          <p className="text-center text-sm text-slate-400">
+            Already have an account?{' '}
+            <Link to="/login" className="text-[#38bdf8] hover:underline">
+              Sign in
+            </Link>
+          </p>
+        </form>
       </div>
     </div>
   );

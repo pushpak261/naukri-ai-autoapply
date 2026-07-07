@@ -145,8 +145,8 @@ logging:
   log_dir: data/logs
   log_to_file: true
 naukri:
-  email: pushpak262001@gmail.com
-  password: Lightning@6!
+  email: iamchaze9604@gmail.com
+  password: Test@123
 profile:
   current_ctc: 4.4 LPA
   current_location: Pune
@@ -178,9 +178,6 @@ search:
   - Application Developer
   locations:
   - Pune
-  - Mumbai
-  - Bangalore
-  - Remote
   max_pages: 10
   salary_min: 0
   sort_by: relevance

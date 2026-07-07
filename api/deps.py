@@ -25,5 +25,7 @@ class AppState:
 
     autopilot_config: dict = None
 
+    active_account_email: str | None = None
+
 
 state = AppState()

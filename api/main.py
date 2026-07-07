@@ -17,6 +17,7 @@ from fastapi.responses import PlainTextResponse
 
 from api.deps import state as deps
 from api.routes import (
+    accounts as accounts_router,
     agent as agent_router,
     applications as applications_router,
     auth as auth_router,
@@ -30,6 +31,7 @@ from api.routes import (
     stats as stats_router,
     autopilot as autopilot_router,
     market_intel as market_intel_router,
+    webhooks as webhooks_router,
 )
 from src.naukri_agent.config.settings import Settings, get_settings
 from src.naukri_agent.database.manager import DatabaseManager
@@ -119,6 +121,8 @@ app.include_router(resume_optimization_router.router)
 app.include_router(scam_detector_router.router)
 app.include_router(autopilot_router.router)
 app.include_router(market_intel_router.router)
+app.include_router(accounts_router.router)
+app.include_router(webhooks_router.router)
 
 
 if __name__ == "__main__":

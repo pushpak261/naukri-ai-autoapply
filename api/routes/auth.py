@@ -41,6 +41,12 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    name: str = ""
+
+
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -115,6 +121,46 @@ def _save_naukri_credentials(email: str, password: str) -> None:
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
+
+
+@router.post("/api/auth/register")
+async def register(body: RegisterRequest, response: Response):
+    """Register a new user and persist credentials for the agent."""
+    email = body.email.strip()
+    password = body.password
+
+    if not email or not password:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Email and password are required",
+        )
+
+    try:
+        _save_naukri_credentials(email, password)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save credentials: {exc}",
+        )
+
+    secret = _get_jwt_secret()
+    access_token = create_access_token(email, secret)
+    refresh_token = create_refresh_token(email, secret)
+
+    save_refresh_token(state.settings, refresh_token)
+    _set_refresh_cookie(response, refresh_token)
+
+    return LoginResponse(access_token=access_token, email=email)
+
+
+@router.get("/api/auth/register/check")
+async def check_registration():
+    """Check if credentials are already configured (soft registration check)."""
+    s = state.settings
+    return {
+        "registered": bool(s.naukri.email) if s else False,
+        "email": s.naukri.email[:3] + "..." if s and s.naukri.email else "",
+    }
 
 
 @router.post("/api/auth/login")
