@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
@@ -83,6 +84,24 @@ def create_agent(settings, db_manager) -> NaukriAgent:
     )
 
 
+def _patch_resume_path_from_uploaded(settings) -> None:
+    """
+    If resume_profile.json has an uploaded_file_path that points to an existing
+    file, patch the runtime settings so the agent and validation use that file.
+    """
+    profile_json_path = settings.project_root / "resume_profile.json"
+    if not profile_json_path.exists():
+        return
+    try:
+        import json
+        data = json.loads(profile_json_path.read_text(encoding="utf-8"))
+        uploaded = data.get("uploaded_file_path")
+        if uploaded and Path(uploaded).exists():
+            settings.resume.path = uploaded
+    except Exception:
+        pass
+
+
 async def _run(
     dry_run: bool,
     cap: int | None,
@@ -100,6 +119,10 @@ async def _run(
         settings.application.match_score_threshold = threshold
     if keyword is not None:
         settings.search.keywords = [keyword]
+
+    # If an uploaded resume exists (via resume_profile.json), patch the runtime
+    # settings so validation passes even if config.yaml wasn't updated.
+    _patch_resume_path_from_uploaded(settings)
 
     problems = settings.validate_required()
     if problems:

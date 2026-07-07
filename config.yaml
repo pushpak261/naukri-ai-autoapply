@@ -159,7 +159,7 @@ profile:
   - Remote
   total_experience: 1 years
 resume:
-  path: resume.pdf
+  path: data/resumes/resume_20260707_032253.pdf
 search:
   enable_heuristics: true
   experience_max: 2
