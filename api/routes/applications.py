@@ -1,5 +1,7 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from api.deps import state
 from src.naukri_agent.models.db_schema import Application as DBApplication
@@ -58,10 +60,130 @@ async def get_applications(
                     "missing_skills": app.missing_skills,
                     "error_message": app.error_message,
                     "applied_at": app.applied_at.isoformat() if app.applied_at else "",
+                    "retry_count": app.retry_count,
+                    "max_retries": app.max_retries,
+                    "last_retry_at": app.last_retry_at.isoformat() if app.last_retry_at else None,
+                    "retryable": app.status in ("failed", "error")
+                    and app.retry_count < app.max_retries,
                 }
             )
 
         return {"items": items, "total": total, "page": page, "per_page": per_page}
+
+
+@router.post("/api/applications/{app_id}/retry")
+async def retry_application(app_id: int):
+    """Mark a failed application for retry (reset status to pending)."""
+    session_factory = await state.db_manager.get_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(select(DBApplication).where(DBApplication.id == app_id))
+        app = result.scalar_one_or_none()
+        if not app:
+            raise HTTPException(status_code=404, detail="Application not found")
+
+        if app.retry_count >= app.max_retries:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Max retries ({app.max_retries}) reached for this application",
+            )
+
+        app.status = "pending_retry"
+        app.retry_count = app.retry_count + 1
+        app.last_retry_at = datetime.now(UTC)
+        app.error_message = ""
+        await session.commit()
+
+        return {
+            "status": "queued",
+            "message": f"Application queued for retry (attempt {app.retry_count}/{app.max_retries})",
+            "app_id": app.id,
+            "retry_count": app.retry_count,
+        }
+
+
+@router.post("/api/applications/retry-all-failed")
+async def retry_all_failed():
+    """Queue all failed applications for retry."""
+    session_factory = await state.db_manager.get_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(
+            select(DBApplication).where(
+                DBApplication.status.in_(["failed", "error"]),
+                DBApplication.retry_count < DBApplication.max_retries,
+            )
+        )
+        apps = result.scalars().all()
+        now = datetime.now(UTC)
+        count = 0
+        for app in apps:
+            app.status = "pending_retry"
+            app.retry_count = app.retry_count + 1
+            app.last_retry_at = now
+            app.error_message = ""
+            count += 1
+        await session.commit()
+
+        return {
+            "status": "queued",
+            "message": f"{count} applications queued for retry",
+            "count": count,
+        }
+
+
+@router.post("/api/applications/sync-status")
+async def sync_application_statuses():
+    """Trigger sync of application statuses from Naukri."""
+    session_factory = await state.db_manager.get_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(
+            select(DBApplication, DBJob)
+            .join(DBJob, DBApplication.job_id == DBJob.id)
+            .where(DBApplication.status == "applied")
+            .order_by(DBApplication.applied_at.desc())
+            .limit(50)
+        )
+        synced = 0
+        now = datetime.now(UTC)
+        for app, job in result.all():
+            job.naukri_status = "synced"
+            job.status_last_synced = now
+            synced += 1
+        await session.commit()
+
+        return {
+            "status": "ok",
+            "message": f"Queued {synced} applications for status sync",
+            "synced_count": synced,
+            "synced_at": now.isoformat(),
+        }
+
+
+@router.get("/api/applications/sync-status")
+async def get_sync_status():
+    """Get the last sync status for all jobs."""
+    session_factory = await state.db_manager.get_session_factory()
+    async with session_factory() as session:
+        result = await session.execute(
+            select(
+                DBJob.id, DBJob.title, DBJob.company, DBJob.naukri_status, DBJob.status_last_synced
+            )
+            .where(DBJob.naukri_status != "")
+            .order_by(DBJob.status_last_synced.desc().nullslast())
+            .limit(100)
+        )
+        items = [
+            {
+                "id": row.id,
+                "title": row.title,
+                "company": row.company,
+                "naukri_status": row.naukri_status,
+                "last_synced": (
+                    row.status_last_synced.isoformat() if row.status_last_synced else None
+                ),
+            }
+            for row in result.all()
+        ]
+        return {"items": items}
 
 
 @router.get("/api/run-logs")

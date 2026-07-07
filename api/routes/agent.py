@@ -63,12 +63,16 @@ async def start_agent():
         }
 
     cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
+    env = os.environ.copy()
+    if state.active_account_email:
+        env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
     try:
         state.agent_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=str(state.settings.project_root),
+            env=env,
         )
     except FileNotFoundError:
         raise HTTPException(

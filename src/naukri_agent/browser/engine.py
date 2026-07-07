@@ -62,6 +62,11 @@ class PlaywrightEngine(IBrowserEngine):
         self._session_path = settings.sessions_dir / "naukri_session.json"
         self._fernet = self._init_fernet(settings)
 
+    def set_session_for_account(self, account_email: str) -> None:
+        """Switch session to a specific account's saved state."""
+        safe_name = account_email.replace("@", "_at_").replace(".", "_dot_")
+        self._session_path = self._settings.sessions_dir / f"naukri_session_{safe_name}.json"
+
     @staticmethod
     def _init_fernet(settings: Settings) -> Fernet | None:
         key_str = settings.session_encryption_key

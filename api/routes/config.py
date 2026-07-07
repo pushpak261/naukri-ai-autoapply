@@ -38,6 +38,16 @@ class ConfigUpdate(BaseModel):
     total_experience: str | None = None
     delay_between_applies_min: int | None = None
     delay_between_applies_max: int | None = None
+    # Rate limit settings (feature 10)
+    rate_limit_capacity: float | None = None
+    rate_limit_refill_rate: float | None = None
+    # Notification settings (feature 7)
+    email_notifications_enabled: bool | None = None
+    email_recipient: str | None = None
+    notify_on_apply: bool | None = None
+    notify_on_failure: bool | None = None
+    notify_on_scam: bool | None = None
+    notify_on_match: bool | None = None
 
 
 def _set_nested(d: dict, keys: list[str], value: Any) -> None:
@@ -102,6 +112,43 @@ async def get_config():
             "level": s.logging.level,
             "log_to_file": s.logging.log_to_file,
         },
+        "notifications": {
+            "email_notifications_enabled": (
+                s.application.get("email_notifications_enabled", False)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "email_notifications_enabled", False)
+            ),
+            "email_recipient": (
+                s.application.get("email_recipient", "")
+                if isinstance(s.application, dict)
+                else getattr(s.application, "email_recipient", "")
+            ),
+            "notify_on_apply": (
+                s.application.get("notify_on_apply", True)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "notify_on_apply", True)
+            ),
+            "notify_on_failure": (
+                s.application.get("notify_on_failure", True)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "notify_on_failure", True)
+            ),
+            "notify_on_scam": (
+                s.application.get("notify_on_scam", True)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "notify_on_scam", True)
+            ),
+            "notify_on_match": (
+                s.application.get("notify_on_match", False)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "notify_on_match", False)
+            ),
+        },
+        "rate_limits": {
+            "daily_cap": s.application.daily_cap,
+            "delay_between_applies_min": s.application.delay_between_applies_min,
+            "delay_between_applies_max": s.application.delay_between_applies_max,
+        },
     }
 
 
@@ -147,6 +194,12 @@ async def update_config(update: ConfigUpdate):
         (["profile", "total_experience"], update.total_experience, False),
         (["application", "delay_between_applies_min"], update.delay_between_applies_min, False),
         (["application", "delay_between_applies_max"], update.delay_between_applies_max, False),
+        (["application", "email_notifications_enabled"], update.email_notifications_enabled, False),
+        (["application", "email_recipient"], update.email_recipient, False),
+        (["application", "notify_on_apply"], update.notify_on_apply, False),
+        (["application", "notify_on_failure"], update.notify_on_failure, False),
+        (["application", "notify_on_scam"], update.notify_on_scam, False),
+        (["application", "notify_on_match"], update.notify_on_match, False),
     ]
 
     for keys, value, is_secret in updates:

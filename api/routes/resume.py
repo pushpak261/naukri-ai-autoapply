@@ -40,8 +40,8 @@ def _update_config_resume_path(new_rel_path: str) -> None:
         content = config_path.read_text(encoding="utf-8")
         # Replace the path: value under the resume: section
         updated = re.sub(
-            r'(?m)^(\s*resume:\s*\n\s+path:\s*).*$',
-            rf'\1{new_rel_path}',
+            r"(?m)^(\s*resume:\s*\n\s+path:\s*).*$",
+            rf"\1{new_rel_path}",
             content,
         )
         if updated != content:
