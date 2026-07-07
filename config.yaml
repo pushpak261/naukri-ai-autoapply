@@ -15,8 +15,13 @@ application:
   delay_between_applies_max: 90
   delay_between_applies_min: 30
   dry_run: false
+  email_notifications_enabled: true
   enable_project_indexer: true
   match_score_threshold: 50
+  notify_on_apply: true
+  notify_on_failure: true
+  notify_on_match: true
+  notify_on_scam: true
   skip_external_apply: true
 exclusions:
   companies:
@@ -154,9 +159,6 @@ profile:
   notice_period: Immediate
   preferred_locations:
   - Pune
-  - Mumbai
-  - Bangalore
-  - Remote
   total_experience: 1 years
 resume:
   path: data/resumes/resume_20260707_032253.pdf
