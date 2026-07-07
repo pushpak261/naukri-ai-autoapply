@@ -21,8 +21,13 @@ class JobFilter:
     """
 
     def __init__(
-        self, max_experience: int, max_freshness_days: int, sort_by: str = "relevance"
+        self,
+        max_experience: int,
+        max_freshness_days: int,
+        sort_by: str = "relevance",
+        min_experience: int = 0,
     ) -> None:
+        self.min_experience = min_experience
         self.max_experience = max_experience
         self.max_freshness_days = max_freshness_days
         self.sort_by = sort_by
@@ -56,44 +61,12 @@ class JobFilter:
         return filtered_jobs
 
     def _passes_experience_filter(self, exp_text: str) -> bool:
-        """Check if the job's experience requirement is within limits.
-
-        Naukri experience strings look like "0-2 Yrs", "3-5 Yrs", "5 Yrs".
-        We parse the *minimum* required experience from the range and check
-        that it doesn't exceed our configured maximum.
-        """
-        exp_text = exp_text.lower()
-
-        # If the text contains a month abbreviation, it's likely a walk-in date wrongly parsed as experience
-        months = [
-            "jan",
-            "feb",
-            "mar",
-            "apr",
-            "may",
-            "jun",
-            "jul",
-            "aug",
-            "sep",
-            "oct",
-            "nov",
-            "dec",
-        ]
-        if any(month in exp_text for month in months):
+        """Check if user and job experience ranges overlap."""
+        parsed = parse_experience_range(exp_text)
+        if parsed is None:
             return True
-
-        # Try to match range format first: "X-Y" or "X to Y"
-        range_match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)", exp_text)
-        if range_match:
-            min_req = int(range_match.group(1))
-            return min_req <= self.max_experience
-        # Single number format: "5 Yrs"
-        single_match = re.search(r"(\d+)", exp_text)
-        if single_match:
-            min_req = int(single_match.group(1))
-            if min_req > self.max_experience:
-                return False
-        return True
+        job_min, job_max = parsed
+        return ranges_overlap(job_min, job_max, self.min_experience, self.max_experience)
 
     def _passes_freshness_filter(self, date_text: str) -> bool:
         """Check if the job posting age is within limits."""
@@ -105,39 +78,88 @@ class JobFilter:
 
     @staticmethod
     def _parse_date_to_days(date_text: str) -> int:
-        """Convert a job posting date string to an approximate number of days for sorting."""
-        date_text = date_text.lower()
-        if (
-            "just now" in date_text
-            or "today" in date_text
-            or "hour" in date_text
-            or "minute" in date_text
-            or "second" in date_text
-        ):
-            return 0
-        if "yesterday" in date_text:
-            return 1
-        if "month" in date_text:
-            match = re.search(r"(\d+)", date_text)
-            return int(match.group(1)) * 30 if match else 30
-        if "week" in date_text:
-            match = re.search(r"(\d+)", date_text)
-            return int(match.group(1)) * 7 if match else 7
+        """Convert a job posting date string to an approximate number of days."""
+        parsed = parse_posted_age_days(date_text)
+        return parsed if parsed is not None else 999
 
-        # Handle "30+ days ago"
-        if "30+" in date_text:
-            return 31
 
-        # Handle "X days ago"
-        day_match = re.search(r"(\d+)\s*day", date_text)
-        if day_match:
-            return int(day_match.group(1))
+def ranges_overlap(job_min: int, job_max: int, user_min: int, user_max: int) -> bool:
+    """Return whether job and user experience ranges overlap."""
+    return job_min <= user_max and job_max >= user_min
 
-        # Handle "a day ago" or "day ago"
-        if "day" in date_text:
-            return 1
 
-        return 999  # Default to very old if unknown
+def parse_experience_range(exp_text: str) -> tuple[int, int] | None:
+    """
+    Parse job experience text into a numeric min/max range.
+
+    Supports inputs like "0-2 Yrs", "3 to 5 years", and "3 Yrs".
+    Returns None when parsing is unreliable.
+    """
+    text = str(exp_text or "").strip().lower()
+    if not text:
+        return None
+
+    months = {
+        "jan",
+        "feb",
+        "mar",
+        "apr",
+        "may",
+        "jun",
+        "jul",
+        "aug",
+        "sep",
+        "oct",
+        "nov",
+        "dec",
+    }
+    if any(month in text for month in months):
+        return None
+
+    range_match = re.search(r"(\d+)\s*(?:-|–|to)\s*(\d+)", text)
+    if range_match:
+        low = int(range_match.group(1))
+        high = int(range_match.group(2))
+        return (min(low, high), max(low, high))
+
+    single_match = re.search(r"(\d+)", text)
+    if single_match:
+        value = int(single_match.group(1))
+        return (value, value)
+    return None
+
+
+def parse_posted_age_days(date_text: str) -> int | None:
+    """Parse relative posted-date text into age in days."""
+    text = str(date_text or "").strip().lower()
+    if not text:
+        return None
+    if (
+        "just now" in text
+        or "today" in text
+        or "hour" in text
+        or "minute" in text
+        or "second" in text
+    ):
+        return 0
+    if "yesterday" in text:
+        return 1
+    if "30+" in text:
+        return 31
+
+    if "week" in text:
+        match = re.search(r"(\d+)", text)
+        return int(match.group(1)) * 7 if match else 7
+    if "month" in text:
+        match = re.search(r"(\d+)", text)
+        return int(match.group(1)) * 30 if match else 30
+
+    day_match = re.search(r"(\d+)\s*day", text)
+    if day_match:
+        return int(day_match.group(1))
+    if "day" in text:
+        return 1
+    return None
 
 
 class JobQualityFilter:

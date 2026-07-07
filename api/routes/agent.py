@@ -9,8 +9,12 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
+from sqlalchemy import func, select
 
 from api.deps import state
+from src.naukri_agent.config.constants import ApplicationStatus
+from src.naukri_agent.models.db_schema import Application as DBApplication
+from src.naukri_agent.models.db_schema import Job as DBJob
 
 router = APIRouter(tags=["agent"])
 
@@ -128,12 +132,52 @@ async def agent_status():
     if running and state.agent_started_at:
         uptime_seconds = int((datetime.now(UTC) - state.agent_started_at).total_seconds())
 
+    jobs_found = None
+    jobs_applied = None
+    jobs_skipped = None
+    jobs_failed = None
+    if running and state.agent_started_at and state.db_manager is not None:
+        session_factory = await state.db_manager.get_session_factory()
+        async with session_factory() as session:
+            found_result = await session.execute(
+                select(func.count(DBJob.id)).where(DBJob.scraped_at >= state.agent_started_at)
+            )
+            jobs_found = int(found_result.scalar_one() or 0)
+
+            applied_result = await session.execute(
+                select(func.count(DBApplication.id)).where(
+                    DBApplication.applied_at >= state.agent_started_at,
+                    DBApplication.status == ApplicationStatus.APPLIED,
+                )
+            )
+            jobs_applied = int(applied_result.scalar_one() or 0)
+
+            skipped_result = await session.execute(
+                select(func.count(DBApplication.id)).where(
+                    DBApplication.applied_at >= state.agent_started_at,
+                    DBApplication.status.like("skipped%"),
+                )
+            )
+            jobs_skipped = int(skipped_result.scalar_one() or 0)
+
+            failed_result = await session.execute(
+                select(func.count(DBApplication.id)).where(
+                    DBApplication.applied_at >= state.agent_started_at,
+                    DBApplication.status.in_([ApplicationStatus.FAILED, ApplicationStatus.ERROR]),
+                )
+            )
+            jobs_failed = int(failed_result.scalar_one() or 0)
+
     return {
         "running": running,
         "pid": state.agent_process.pid if running else None,
         "started_at": state.agent_started_at.isoformat() if state.agent_started_at else None,
         "uptime_seconds": uptime_seconds,
         "last_run": last_run,
+        "jobs_found": jobs_found,
+        "jobs_applied": jobs_applied,
+        "jobs_skipped": jobs_skipped,
+        "jobs_failed": jobs_failed,
     }
 
 

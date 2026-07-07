@@ -252,10 +252,15 @@ export default function AgentControl() {
   if (loading && !status) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
+
+  const liveApplied = status?.jobs_applied ?? null;
+  const liveSkipped = status?.jobs_skipped ?? null;
+  const liveFound = status?.jobs_found ?? null;
+  const liveFailed = status?.jobs_failed ?? null;
 
   const successRate = metrics && (metrics.jobs_applied + metrics.jobs_failed) > 0
     ? Math.round((metrics.jobs_applied / (metrics.jobs_applied + metrics.jobs_failed)) * 100)
@@ -276,8 +281,8 @@ export default function AgentControl() {
             onClick={() => setUseSSE(p => !p)}
             className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${
               useSSE
-                ? 'bg-[#38bdf8]/10 border-[#38bdf8]/30 text-[#38bdf8]'
-                : 'bg-[#0f172a] border-[#334155] text-[#64748b]'
+                ? 'bg-primary/10 border-primary/30 text-primary'
+                : 'bg-bg border-border text-muted'
             }`}
             title={useSSE ? 'Real-time streaming active' : 'Using polling mode'}
           >
@@ -314,14 +319,14 @@ export default function AgentControl() {
       )}
 
       {showStopConfirm && (
-        <div className="bg-[#1e293b] border border-red-500/30 rounded-xl p-5 flex items-center justify-between">
+        <div className="bg-surface border border-red-500/30 rounded-xl p-5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-red-400" />
-            <span className="text-sm text-white">Are you sure you want to stop the agent?</span>
+            <span className="text-sm text-text">Are you sure you want to stop the agent?</span>
           </div>
           <div className="flex gap-2">
-            <button onClick={() => setShowStopConfirm(false)} className="px-3 py-1.5 bg-[#334155] hover:bg-[#475569] text-white rounded-lg text-sm transition-colors">Cancel</button>
-            <button onClick={handleStop} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white rounded-lg text-sm transition-colors">Stop</button>
+            <button onClick={() => setShowStopConfirm(false)} className="px-3 py-1.5 bg-surface-hover hover:bg-surface-hover text-text rounded-lg text-sm transition-colors">Cancel</button>
+            <button onClick={handleStop} className="px-3 py-1.5 bg-red-600 hover:bg-red-700 text-text rounded-lg text-sm transition-colors">Stop</button>
           </div>
         </div>
       )}
@@ -347,17 +352,31 @@ export default function AgentControl() {
         </div>
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>Jobs Processed</h2>
-          <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{metrics?.jobs_applied ?? 0}</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Applied / {metrics?.jobs_failed ?? 0} failed</p>
+          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            {status?.running ? 'Live Run Progress' : 'Jobs Processed'}
+          </h2>
+          <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>
+            {status?.running ? (liveFound ?? 0) : (metrics?.jobs_applied ?? 0)}
+          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+            {status?.running
+              ? `Searched: ${liveFound ?? 0} | Applied: ${liveApplied ?? 0} | Skipped: ${liveSkipped ?? 0}`
+              : `Applied / ${metrics?.jobs_failed ?? 0} failed`}
+          </p>
         </div>
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>Success Rate</h2>
-          <p className={`text-2xl font-bold ${successRate != null && successRate >= 50 ? 'text-green-400' : successRate != null ? 'text-yellow-400' : ''}`} style={{ color: successRate == null ? 'var(--color-text-muted)' : undefined }}>
-            {successRate != null ? `${successRate}%` : 'N/A'}
+          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>
+            {status?.running ? 'Live Apply Outcomes' : 'Success Rate'}
+          </h2>
+          <p className={`text-2xl font-bold ${successRate != null && successRate >= 50 ? 'text-green-400' : successRate != null ? 'text-yellow-400' : ''}`} style={{ color: successRate == null && !status?.running ? 'var(--color-text-muted)' : undefined }}>
+            {status?.running ? `${liveApplied ?? 0}` : (successRate != null ? `${successRate}%` : 'N/A')}
           </p>
-          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>{metrics?.total_runs ?? 0} total runs</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
+            {status?.running
+              ? `Applied: ${liveApplied ?? 0} | Failed: ${liveFailed ?? 0}`
+              : `${metrics?.total_runs ?? 0} total runs`}
+          </p>
         </div>
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
@@ -393,7 +412,7 @@ export default function AgentControl() {
             <button
               onClick={handleStart}
               disabled={status?.running || actionLoading !== null}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-green-600 hover:bg-green-700 active:bg-green-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
+              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-green-600 hover:bg-green-700 active:bg-green-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-text rounded-lg transition-colors text-sm font-medium"
             >
               {actionLoading === 'start' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
               {actionLoading === 'start' ? 'Starting...' : 'Start'}
@@ -401,7 +420,7 @@ export default function AgentControl() {
             <button
               onClick={() => setShowStopConfirm(true)}
               disabled={!status?.running || actionLoading !== null}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
+              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-text rounded-lg transition-colors text-sm font-medium"
             >
               {actionLoading === 'stop' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
               {actionLoading === 'stop' ? 'Stopping...' : 'Stop'}
@@ -409,7 +428,7 @@ export default function AgentControl() {
             <button
               onClick={handleRestart}
               disabled={actionLoading !== null}
-              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
+              className="flex items-center justify-center gap-2 px-3 py-2.5 bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-text rounded-lg transition-colors text-sm font-medium"
             >
               {actionLoading === 'restart' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
               {actionLoading === 'restart' ? 'Restarting...' : 'Restart'}
@@ -456,7 +475,7 @@ export default function AgentControl() {
             <button
               onClick={() => setAutoScroll(p => !p)}
               className={`p-1.5 rounded-lg border transition-colors ${
-                autoScroll ? 'bg-[#38bdf8]/10 border-[#38bdf8]/30 text-[#38bdf8]' : 'bg-[#0f172a] border-[#334155] text-[#64748b]'
+                autoScroll ? 'bg-primary/10 border-primary/30 text-primary' : 'bg-bg border-border text-muted'
               }`}
               title={autoScroll ? 'Auto-scroll on' : 'Auto-scroll off'}
             >
@@ -464,13 +483,13 @@ export default function AgentControl() {
             </button>
 
             {output && (
-              <button onClick={() => downloadLogs(output)} className="p-1.5 rounded-lg border text-[#64748b] hover:text-white transition-colors" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }} title="Download logs">
+              <button onClick={() => downloadLogs(output)} className="p-1.5 rounded-lg border text-muted hover:text-text transition-colors" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }} title="Download logs">
                 <Download className="w-3.5 h-3.5" />
               </button>
             )}
 
             {output && (
-              <button onClick={() => setOutput('')} className="p-1.5 rounded-lg border text-[#64748b] hover:text-red-400 transition-colors" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }} title="Clear logs">
+              <button onClick={() => setOutput('')} className="p-1.5 rounded-lg border text-muted hover:text-red-400 transition-colors" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }} title="Clear logs">
                 <Trash2 className="w-3.5 h-3.5" />
               </button>
             )}
@@ -495,7 +514,7 @@ export default function AgentControl() {
 
         <pre
           ref={outputRef}
-          className="bg-[#0f172a] border border-[#334155] rounded-lg p-4 text-xs font-mono overflow-auto max-h-[500px] whitespace-pre-wrap leading-relaxed"
+          className="bg-bg border border-border rounded-lg p-4 text-xs font-mono overflow-auto max-h-[500px] whitespace-pre-wrap leading-relaxed"
           style={{ color: output ? '#e2e8f0' : '#64748b' }}
           onWheel={() => { if (autoScroll) setAutoScroll(false); }}
           role="log"
@@ -514,7 +533,7 @@ export default function AgentControl() {
         {!autoScroll && outputLines.length > 0 && (
           <button
             onClick={() => { setAutoScroll(true); outputRef.current?.scrollTo(0, outputRef.current.scrollHeight); }}
-            className="mt-2 text-xs text-[#38bdf8] hover:underline"
+            className="mt-2 text-xs text-primary hover:underline"
           >
             Auto-scroll paused — click to resume
           </button>

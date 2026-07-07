@@ -269,6 +269,10 @@ export interface AgentStatus {
   started_at: string | null;
   uptime_seconds: number | null;
   last_run: RunLog | null;
+  jobs_found?: number | null;
+  jobs_applied?: number | null;
+  jobs_skipped?: number | null;
+  jobs_failed?: number | null;
 }
 
 export interface MatchCacheEntry {

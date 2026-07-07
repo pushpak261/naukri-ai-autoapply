@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils'
 const statusColors: Record<string, string> = {
   applied: 'bg-emerald-500/20 text-emerald-300',
   discovered: 'bg-blue-500/20 text-blue-300',
-  queued: 'bg-slate-500/20 text-slate-300',
+  queued: 'bg-slate-500/20 text-secondary',
   processing: 'bg-cyan-500/20 text-cyan-300',
   matching: 'bg-violet-500/20 text-violet-300',
   applying: 'bg-amber-500/20 text-amber-300',

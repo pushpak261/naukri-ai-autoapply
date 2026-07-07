@@ -1,0 +1,382 @@
+{
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_060726011850": {
+    "score": 35,
+    "should_apply": false,
+    "matching_skills": [
+      "Python",
+      "FastAPI",
+      "React.js",
+      "SQL"
+    ],
+    "missing_skills": [
+      "Langgraph",
+      "LLM"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "remote",
+    "reasoning": "The candidate is significantly overqualified for this role, which is specifically targeted at freshers with 0-1 years of experience, whereas the candidate has over 4.5 years of professional experience. While the technical skill set is a strong match, the seniority mismatch makes this an unsuitable application.",
+    "strengths": [
+      "Strong proficiency in the required tech stack (Python, FastAPI, React, SQL)",
+      "Proven experience in building AI-agentic modules and full-stack applications",
+      "Relevant experience in automating workflows"
+    ],
+    "concerns": [
+      "Candidate is overqualified with 4.5 years of experience for a 'Fresher' role",
+      "Potential salary expectation mismatch",
+      "Lack of specific experience with Langgraph"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_060726920034": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "C#",
+      ".NET",
+      "Angular",
+      "SQL Server",
+      "REST API",
+      "TypeScript",
+      "JavaScript",
+      "CI/CD",
+      "Microservices"
+    ],
+    "missing_skills": [
+      "NUnit",
+      "Azure"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "match",
+    "reasoning": "Viraj has a strong background in the core technology stack requested, including .NET, Angular, and SQL Server. His experience with microservices and CI/CD pipelines aligns perfectly with the job's primary and preferred qualifications.",
+    "strengths": [
+      "Relevant full-stack experience with .NET and Angular",
+      "Proven track record in microservices and CI/CD",
+      "Experience in enterprise-level software development"
+    ],
+    "concerns": [
+      "Lack of explicit experience with NUnit framework",
+      "No direct mention of Azure cloud platform experience"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_060726000900": {
+    "score": 75,
+    "should_apply": true,
+    "matching_skills": [
+      "C#",
+      "C++",
+      ".NET",
+      "Debugging",
+      "Problem Solving",
+      "C",
+      "SDLC",
+      "SQL",
+      "OOP",
+      "Software Development",
+      ".NET Core"
+    ],
+    "missing_skills": [
+      "Visual Basic"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "remote",
+    "reasoning": "Viraj has a strong technical background that aligns well with the core requirements of C, C++, C#, and .NET development. While he lacks specific experience in Visual Basic, his extensive experience in full-stack development and enterprise software makes him a highly qualified candidate for this role.",
+    "strengths": [
+      "Strong proficiency in C#, C++, and .NET",
+      "Relevant experience in software development and system scalability",
+      "Solid understanding of OOP and SDLC"
+    ],
+    "concerns": [
+      "No explicit experience with Visual Basic (VB)",
+      "The job title includes 'Solutions' which could imply a consultancy-like environment, though it appears to be a direct hiring role"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_020726012257": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "HTML",
+      "React.js",
+      "Python",
+      "Java",
+      "Node.js",
+      "Angular",
+      "SQL",
+      "NoSQL",
+      "Fullstack Development",
+      "MySQL",
+      "Javascript",
+      ".NET Core"
+    ],
+    "missing_skills": [
+      "Vue.js.",
+      "jQuery",
+      "Bootstrap",
+      "Ruby"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "Viraj is a strong match for the role, possessing nearly all the required technical stack including React, Node.js, Python, and .NET. While he has 4.5 years of experience and the job lists 0 years, his background in full-stack development and AI integration makes him a highly capable candidate for this position.",
+    "strengths": [
+      "Strong full-stack experience with modern frameworks",
+      "Proven track record in AI agent integration and system scalability",
+      "Proficiency in both SQL and NoSQL databases",
+      "Experience with cloud deployment and CI/CD pipelines"
+    ],
+    "concerns": [
+      "Candidate is overqualified for a 0-year experience role",
+      "Potential salary expectations may exceed the provided range of 3.75-6 LPA"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_290626908327": {
+    "score": 85,
+    "should_apply": true,
+    "matching_skills": [
+      "Node.js",
+      "TypeScript",
+      "Express.js",
+      "PostgreSQL",
+      "MongoDB",
+      "Microservices",
+      "REST API",
+      "AI Agents",
+      "Architecture"
+    ],
+    "missing_skills": [
+      "NestJS",
+      "LangChain",
+      "LlamaIndex",
+      "GraphQL"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "Viraj has a strong background in Node.js, TypeScript, and microservices, with recent hands-on experience building agentic AI modules. While he is slightly overqualified with 4.5 years of experience for a 1-2 year role, his technical stack and project history align perfectly with the job requirements.",
+    "strengths": [
+      "Proven experience in building agentic AI workflows",
+      "Strong full-stack background with Node.js and TypeScript",
+      "Experience with microservices and containerization"
+    ],
+    "concerns": [
+      "Candidate has 4.5 years of experience while the role targets 1-2 years",
+      "Lack of specific experience with LangChain or LlamaIndex frameworks"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_250626507522": {
+    "score": 90,
+    "should_apply": true,
+    "matching_skills": [
+      "Node.js",
+      "JavaScript",
+      "HTML",
+      "CSS",
+      "React.js",
+      "MySQL",
+      "MongoDB",
+      "PHP",
+      "GIT",
+      "Analytical skills"
+    ],
+    "missing_skills": [
+      "Linux"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "remote",
+    "reasoning": "Viraj is an excellent match for this role, possessing deep experience in Node.js, React, and database management (MySQL/MongoDB). His background in full-stack development and supply chain data analysis aligns perfectly with the technical requirements and the 'added advantage' of PHP proficiency.",
+    "strengths": [
+      "Extensive experience with the core tech stack (Node.js, React, SQL/NoSQL)",
+      "Proven track record in building production-level applications and automated pipelines",
+      "Possesses the 'added advantage' skill of PHP"
+    ],
+    "concerns": [
+      "Limited explicit mention of Linux command-line proficiency in the resume",
+      "Candidate has 4.5 years of experience, slightly exceeding the 1-4 year range, though likely still acceptable"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_250626938236": {
+    "score": 65,
+    "should_apply": true,
+    "matching_skills": [
+      "Java",
+      "React.js",
+      "JavaScript",
+      "HTML",
+      "CSS",
+      "REST API",
+      "SQL",
+      "Git",
+      "Full Stack",
+      "Software Development",
+      "Web Application",
+      "Debugging"
+    ],
+    "missing_skills": [
+      "Spring Boot",
+      "JSP",
+      "Servlets"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "partial",
+    "reasoning": "The candidate has a strong background in full-stack development and fits the experience bracket well. However, they lack specific experience with the Java ecosystem stack (Spring Boot, JSP, Servlets) requested in the job description, as their backend experience is primarily in .NET and Node.js.",
+    "strengths": [
+      "Relevant years of experience (4.5 years)",
+      "Strong full-stack development background",
+      "Proven experience with scalable web applications"
+    ],
+    "concerns": [
+      "Lack of professional experience with Spring Boot, JSP, and Servlets",
+      "Current backend expertise is in .NET/Node.js rather than Java-based frameworks"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_060726009216": {
+    "score": 0,
+    "should_apply": false,
+    "matching_skills": [
+      "Java",
+      "JavaScript (ES6+)",
+      "Angular (14+)",
+      "React.js",
+      "HTML5",
+      "CSS3",
+      "Microservices"
+    ],
+    "missing_skills": [
+      "Spring Boot",
+      "Oracle ADF",
+      "Hibernate/JPA"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "match",
+    "reasoning": "The job posting explicitly requires 'Immediate Joiners', which is a red flag according to the provided guidelines regarding recruitment practices and urgency. Additionally, the role is for a consultancy (TCS), which triggers the red flag for staffing/consultancy firms.",
+    "strengths": [
+      "Relevant years of experience",
+      "Strong full-stack background",
+      "Experience with microservices and cloud technologies"
+    ],
+    "concerns": [
+      "Job posting is from a consultancy firm (TCS)",
+      "Job posting specifies 'Immediate Joiners' which is a red flag",
+      "Lack of specific experience with Oracle ADF and Spring Boot"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_060726920241": {
+    "score": 35,
+    "should_apply": false,
+    "matching_skills": [
+      "Python",
+      "SQL",
+      "PostgreSQL",
+      "MySQL",
+      "API",
+      "CI/CD",
+      "Git",
+      "Docker",
+      "Kubernetes",
+      "AWS",
+      "GCP"
+    ],
+    "missing_skills": [
+      "Oracle",
+      "Microsoft Azure"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate is significantly overqualified for this role, which specifies a requirement of 0-1 years of experience, whereas the candidate has 4.5 years of professional experience. While the technical skill set is a strong match, the discrepancy in seniority level makes this an unlikely fit for the specific hiring criteria.",
+    "strengths": [
+      "Strong technical alignment with Python, Gen AI, and DevOps requirements",
+      "Proven experience in building agentic AI modules",
+      "Solid background in cloud platforms and containerization"
+    ],
+    "concerns": [
+      "Candidate is overqualified for an entry-level (0-1 year) position",
+      "Potential mismatch in salary expectations due to seniority"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_020726503862": {
+    "score": 35,
+    "should_apply": false,
+    "matching_skills": [
+      "C/C++",
+      "Computer science",
+      "Coding",
+      "Software configuration management",
+      "Production support"
+    ],
+    "missing_skills": [
+      "Embedded systems design",
+      "Automotive domain experience",
+      "ISO26262",
+      "MISRA/TARA",
+      "Hardware design",
+      "OS coding techniques"
+    ],
+    "experience_fit": "weak",
+    "location_fit": "remote",
+    "reasoning": "While the candidate has strong general software engineering experience, they lack the specialized embedded systems, automotive, and safety-critical domain expertise (ISO26262, MISRA) required for this specific role. The candidate's background is primarily in web/full-stack development, which is fundamentally different from the embedded systems and hardware-level focus of this position.",
+    "strengths": [
+      "Strong foundation in C/C++",
+      "Experience with CI/CD and software configuration management",
+      "Relevant educational background in Computer Science"
+    ],
+    "concerns": [
+      "Lack of embedded systems and real-time OS experience",
+      "No experience in automotive safety standards (ISO26262, MISRA)",
+      "Professional experience is focused on web/ERP applications rather than hardware/embedded systems"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_060726924327": {
+    "score": 35,
+    "should_apply": false,
+    "matching_skills": [
+      "Java",
+      "Node.js",
+      "REST API",
+      "Git",
+      "Agile",
+      "AI",
+      "Architecture"
+    ],
+    "missing_skills": [
+      "SAP BTP",
+      "SAP HANA",
+      "SAP Fiori/UI5",
+      "CAP (Cloud Application Programming Model)",
+      "CDS",
+      "OData"
+    ],
+    "experience_fit": "weak",
+    "location_fit": "match",
+    "reasoning": "The candidate has strong general full-stack experience but lacks the specific SAP ecosystem expertise (SAP BTP, CAP, HANA, Fiori) required for this role. Additionally, the job description explicitly mandates 7.5+ years of experience, while the candidate has 4.5 years.",
+    "strengths": [
+      "Strong background in full-stack development with Node.js and Java",
+      "Experience with AI agent integration and cloud-native deployments"
+    ],
+    "concerns": [
+      "Candidate lacks the mandatory SAP BTP and related SAP technology stack experience",
+      "Candidate does not meet the minimum 7.5 years of experience requirement specified in the job description"
+    ]
+  },
+  "e279d9ae760f0918a6e7a5b138f7fdd9e8fc83f93ebeefeae6ced32c3430b2b4_060726003629": {
+    "score": 0,
+    "should_apply": false,
+    "matching_skills": [
+      "C#",
+      ".NET",
+      "SQL Server",
+      "HTML5",
+      "CSS3",
+      "JavaScript",
+      "REST API"
+    ],
+    "missing_skills": [],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The job posting is explicitly for 'Freshers only' and involves a 'Walk-In Drive', which triggers the red flag for recruitment-style bulk hiring processes. Additionally, the candidate has over 4.5 years of professional experience, making them significantly overqualified for a role specifically targeting entry-level freshers.",
+    "strengths": [
+      "Strong technical background in .NET and C#",
+      "Relevant experience in full-stack development"
+    ],
+    "concerns": [
+      "Candidate is overqualified for a fresher-only role",
+      "Job posting is a walk-in drive for freshers, which is often associated with high-volume, low-seniority recruitment",
+      "Candidate's experience level does not align with the 'Freshers only' requirement"
+    ]
+  }
+}

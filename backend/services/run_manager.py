@@ -28,6 +28,8 @@ class _RunState:
     error: str | None = None
     phase: str = ""
     counters: dict = field(default_factory=dict)
+    strict_policy_mode: bool = False
+    experience_source: str = "config_default"
 
 
 class RunManager:
@@ -75,6 +77,8 @@ class RunManager:
                 daily_cap_remaining=max(0, daily_cap - daily_applied),
                 processed_count=jobs_applied + jobs_skipped + jobs_failed,
                 total_queued=jobs_found,
+                strict_policy_mode=state.strict_policy_mode,
+                experience_source=state.experience_source,
             )
         if state.task and state.task.done() and state.error:
             return RunStatus(
@@ -83,6 +87,8 @@ class RunManager:
                 phase="error",
                 dry_run=state.dry_run,
                 error=state.error,
+                strict_policy_mode=state.strict_policy_mode,
+                experience_source=state.experience_source,
                 **state.counters,
             )
         if state.run_id and state.task and state.task.done():
@@ -102,9 +108,14 @@ class RunManager:
                 status="completed",
                 phase="completed",
                 dry_run=state.dry_run,
+                strict_policy_mode=state.strict_policy_mode,
+                experience_source=state.experience_source,
                 **state.counters,
             )
-        return RunStatus()
+        return RunStatus(
+            strict_policy_mode=state.strict_policy_mode,
+            experience_source=state.experience_source,
+        )
 
     async def start(self, options: RunCreate) -> RunStatus:
         async with self._lock:
@@ -118,6 +129,11 @@ class RunManager:
                 experience_min=options.experience_min,
                 experience_max=options.experience_max,
             )
+            experience_source = (
+                "ui_override"
+                if options.experience_min is not None or options.experience_max is not None
+                else "config_default"
+            )
 
             problems = settings.validate_required()
             if problems:
@@ -129,6 +145,8 @@ class RunManager:
             self._state = _RunState(
                 dry_run=options.dry_run,
                 phase="starting",
+                strict_policy_mode=getattr(settings.application, "strict_policy_mode", False),
+                experience_source=experience_source,
             )
 
             async def _agent_work() -> NaukriAgent:

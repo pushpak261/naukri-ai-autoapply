@@ -126,28 +126,28 @@ export default function Config() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
 
   if (!form) return <div className="text-red-400">Failed to load configuration</div>;
 
-  const inputClass = "w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8] transition-colors";
-  const labelClass = "block text-xs font-medium text-[#94a3b8] mb-1.5";
-  const sectionClass = "bg-[#1e293b] rounded-xl border border-[#334155] p-5";
+  const inputClass = "w-full bg-bg border border-border rounded-lg px-3 py-2 text-sm text-text placeholder:text-muted focus:outline-none focus:border-primary transition-colors";
+  const labelClass = "block text-xs font-medium text-secondary mb-1.5";
+  const sectionClass = "bg-surface rounded-xl border border-border p-5";
 
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Configuration</h1>
-          <p className="text-[#94a3b8] mt-1">Manage agent settings</p>
+          <h1 className="text-2xl font-bold text-text">Configuration</h1>
+          <p className="text-secondary mt-1">Manage agent settings</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={resetForm}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#334155] text-sm text-[#94a3b8] hover:bg-[#334155] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm text-secondary hover:bg-surface-hover transition-colors"
           >
             <RotateCcw className="w-4 h-4" />
             Reset
@@ -166,7 +166,7 @@ export default function Config() {
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4">Search Settings</h2>
+          <h2 className="text-lg font-semibold text-text mb-4">Search Settings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className={labelClass}>Keywords (comma-separated)</label>
@@ -204,14 +204,14 @@ export default function Config() {
               </select>
             </div>
             <div className="flex items-center gap-3">
-              <input type="checkbox" id="enable_heuristics" checked={form.enable_heuristics} onChange={(e) => setForm({ ...form, enable_heuristics: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-              <label htmlFor="enable_heuristics" className="text-sm text-[#94a3b8]">Enable Heuristics (priority ranking)</label>
+              <input type="checkbox" id="enable_heuristics" checked={form.enable_heuristics} onChange={(e) => setForm({ ...form, enable_heuristics: e.target.checked })} className="w-4 h-4 rounded border-border bg-bg text-primary focus:ring-[#38bdf8]" />
+              <label htmlFor="enable_heuristics" className="text-sm text-secondary">Enable Heuristics (priority ranking)</label>
             </div>
           </div>
         </div>
 
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4">Application Settings</h2>
+          <h2 className="text-lg font-semibold text-text mb-4">Application Settings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Daily Cap</label>
@@ -231,31 +231,31 @@ export default function Config() {
             </div>
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
-                <input type="checkbox" id="skip_external" checked={form.skip_external_apply} onChange={(e) => setForm({ ...form, skip_external_apply: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-                <label htmlFor="skip_external" className="text-sm text-[#94a3b8]">Skip External Apply</label>
+                <input type="checkbox" id="skip_external" checked={form.skip_external_apply} onChange={(e) => setForm({ ...form, skip_external_apply: e.target.checked })} className="w-4 h-4 rounded border-border bg-bg text-primary focus:ring-[#38bdf8]" />
+                <label htmlFor="skip_external" className="text-sm text-secondary">Skip External Apply</label>
               </div>
               <div className="flex items-center gap-3">
-                <input type="checkbox" id="dry_run" checked={form.dry_run} onChange={(e) => setForm({ ...form, dry_run: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-                <label htmlFor="dry_run" className="text-sm text-[#94a3b8]">Dry Run (score only, no apply)</label>
+                <input type="checkbox" id="dry_run" checked={form.dry_run} onChange={(e) => setForm({ ...form, dry_run: e.target.checked })} className="w-4 h-4 rounded border-border bg-bg text-primary focus:ring-[#38bdf8]" />
+                <label htmlFor="dry_run" className="text-sm text-secondary">Dry Run (score only, no apply)</label>
               </div>
               <div className="flex items-center gap-3">
-                <input type="checkbox" id="answer_pdf" checked={form.answer_questions_with_pdf} onChange={(e) => setForm({ ...form, answer_questions_with_pdf: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-                <label htmlFor="answer_pdf" className="text-sm text-[#94a3b8]">Answer Questions with PDF</label>
+                <input type="checkbox" id="answer_pdf" checked={form.answer_questions_with_pdf} onChange={(e) => setForm({ ...form, answer_questions_with_pdf: e.target.checked })} className="w-4 h-4 rounded border-border bg-bg text-primary focus:ring-[#38bdf8]" />
+                <label htmlFor="answer_pdf" className="text-sm text-secondary">Answer Questions with PDF</label>
               </div>
             </div>
           </div>
         </div>
 
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4">AI Settings</h2>
+          <h2 className="text-lg font-semibold text-text mb-4">AI Settings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex items-center gap-3">
-              <input type="checkbox" id="use_gemini" checked={form.use_gemini} onChange={(e) => setForm({ ...form, use_gemini: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-              <label htmlFor="use_gemini" className="text-sm text-[#94a3b8]">Use Gemini AI</label>
+              <input type="checkbox" id="use_gemini" checked={form.use_gemini} onChange={(e) => setForm({ ...form, use_gemini: e.target.checked })} className="w-4 h-4 rounded border-border bg-bg text-primary focus:ring-[#38bdf8]" />
+              <label htmlFor="use_gemini" className="text-sm text-secondary">Use Gemini AI</label>
             </div>
             <div className="flex items-center gap-3">
-              <input type="checkbox" id="enable_matching" checked={form.enable_matching} onChange={(e) => setForm({ ...form, enable_matching: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-              <label htmlFor="enable_matching" className="text-sm text-[#94a3b8]">Enable AI Matching</label>
+              <input type="checkbox" id="enable_matching" checked={form.enable_matching} onChange={(e) => setForm({ ...form, enable_matching: e.target.checked })} className="w-4 h-4 rounded border-border bg-bg text-primary focus:ring-[#38bdf8]" />
+              <label htmlFor="enable_matching" className="text-sm text-secondary">Enable AI Matching</label>
             </div>
             <div className="md:col-span-2">
               <label className={labelClass}>AI Model</label>
@@ -265,7 +265,7 @@ export default function Config() {
         </div>
 
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4">Profile Settings</h2>
+          <h2 className="text-lg font-semibold text-text mb-4">Profile Settings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Current CTC</label>
@@ -298,10 +298,10 @@ export default function Config() {
           <button
             type="submit"
             disabled={saving}
-            className="flex items-center gap-2 px-6 py-2.5 bg-[#38bdf8] text-[#0f172a] rounded-lg font-medium text-sm hover:bg-[#7dd3fc] disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-6 py-2.5 bg-primary text-on-primary rounded-lg font-medium text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
           >
             {saving ? (
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-[#0f172a]" />
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-on-primary" />
             ) : (
               <Save className="w-4 h-4" />
             )}

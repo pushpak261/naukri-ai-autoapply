@@ -14,6 +14,8 @@ async def test_run_manager_initial_status():
     status = manager.get_status()
     assert status.status == "idle"
     assert status.run_id is None
+    assert status.experience_source == "config_default"
+    assert status.strict_policy_mode is False
 
 
 @pytest.mark.asyncio

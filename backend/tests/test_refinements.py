@@ -13,6 +13,7 @@ from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job, ResumeProfile
 from src.naukri_agent.bot.agent import NaukriAgent
 from src.naukri_agent.utils.similarity import VectorSimilarityFilter
+from src.naukri_agent.utils.filters import parse_experience_range, parse_posted_age_days, ranges_overlap
 
 
 def test_title_whitelist_filtering() -> None:
@@ -157,3 +158,26 @@ def test_freshness_filter_refinements() -> None:
     filter_disabled = JobFilter(max_experience=5, max_freshness_days=0)
     assert filter_disabled._passes_freshness_filter("30+ Days Ago") is True
     assert filter_disabled._passes_freshness_filter("3 weeks ago") is True
+
+
+def test_experience_overlap_helper_cases() -> None:
+    assert parse_experience_range("0-2 Yrs") == (0, 2)
+    assert parse_experience_range("3 Yrs") == (3, 3)
+    assert parse_experience_range("walkin on 5 Jul") is None
+    assert ranges_overlap(0, 2, 0, 2) is True
+    assert ranges_overlap(3, 5, 0, 2) is False
+
+
+def test_freshness_parser_boundaries() -> None:
+    assert parse_posted_age_days("7 days ago") == 7
+    assert parse_posted_age_days("1 week ago") == 7
+    assert parse_posted_age_days("8 days ago") == 8
+
+
+def test_title_keyword_matching_only_from_search_keywords() -> None:
+    settings = Settings()
+    settings.search.keywords = ["Software Engineer", "Backend Developer"]
+    agent = object.__new__(NaukriAgent)
+    agent._settings = settings  # type: ignore[attr-defined]
+    assert NaukriAgent._title_matches_keywords(agent, "Junior Software Engineer") is True
+    assert NaukriAgent._title_matches_keywords(agent, "Data Entry Operator") is False

@@ -8,6 +8,7 @@ reject jobs that are not from a direct software/product employer.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import urllib.parse
@@ -262,3 +263,74 @@ class EmployerLegitimacyFilter:
             return False, "Company name missing for online verification"
 
         return await self._web_verifier.verify_software_employer(company)
+
+
+class PolicyLegitimacyEvaluator:
+    """
+    Unified AI-backed legitimacy and relevance evaluator for strict policy mode.
+    """
+
+    def __init__(self, llm_provider: Any, *, timeout_seconds: float = 12.0) -> None:
+        self._llm_provider = llm_provider
+        self._timeout_seconds = timeout_seconds
+        self._cache: dict[tuple[str, str], dict[str, Any]] = {}
+
+    @staticmethod
+    def _norm(text: str | None) -> str:
+        return re.sub(r"\s+", " ", (text or "").strip().lower())
+
+    def _cache_key(self, company: str | None, title: str | None) -> tuple[str, str]:
+        return (self._norm(company), self._norm(title))
+
+    async def evaluate(
+        self,
+        *,
+        company: str | None,
+        title: str | None,
+        description: str | None,
+    ) -> dict[str, Any]:
+        key = self._cache_key(company, title)
+        if key in self._cache:
+            return self._cache[key]
+
+        if not key[0] or not key[1]:
+            result = {
+                "is_legit_company": False,
+                "is_post_relevant_to_company": False,
+                "confidence": 0.0,
+                "reason": "missing company or title",
+            }
+            self._cache[key] = result
+            return result
+
+        prompt = (
+            "Return only JSON with keys is_legit_company (bool), "
+            "is_post_relevant_to_company (bool), confidence (0 to 1), reason (string).\n"
+            "Judge whether company is legitimate and whether this posting is relevant to "
+            "that company and title.\n"
+            f"Company: {company}\n"
+            f"Title: {title}\n"
+            f"Description: {(description or '')[:2500]}"
+        )
+        try:
+            raw = await asyncio.wait_for(
+                self._llm_provider.generate_content(prompt=prompt, response_mime_type="application/json"),
+                timeout=self._timeout_seconds,
+            )
+            parsed = json.loads(raw)
+            result = {
+                "is_legit_company": bool(parsed.get("is_legit_company")),
+                "is_post_relevant_to_company": bool(parsed.get("is_post_relevant_to_company")),
+                "confidence": float(parsed.get("confidence", 0.0)),
+                "reason": str(parsed.get("reason", "")).strip() or "no reason provided",
+            }
+        except Exception as exc:
+            result = {
+                "is_legit_company": False,
+                "is_post_relevant_to_company": False,
+                "confidence": 0.0,
+                "reason": f"ai_check_failed: {exc}",
+            }
+
+        self._cache[key] = result
+        return result

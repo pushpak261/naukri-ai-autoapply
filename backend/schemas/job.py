@@ -48,7 +48,11 @@ class ConfigSummary(BaseModel):
     daily_cap: int = 0
     match_score_threshold: int = 0
     dry_run: bool = False
+    strict_policy_mode: bool = False
+    freshness_days: int = 0
     min_company_rating: float = 0.0
+    role_source: str = "search.keywords"
+    experience_source: str = "config_default"
     excluded_companies: list[str] = Field(default_factory=list)
     excluded_title_keywords: list[str] = Field(default_factory=list)
     ai_model: str = ""

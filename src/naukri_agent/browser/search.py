@@ -215,6 +215,7 @@ class JobSearcher:
                 from src.naukri_agent.utils.filters import JobFilter
 
                 job_filter = JobFilter(
+                    min_experience=self._settings.search.experience_min,
                     max_experience=self._settings.search.experience_max,
                     max_freshness_days=self._settings.search.freshness,
                     sort_by=self._settings.search.sort_by,

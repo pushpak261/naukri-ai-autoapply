@@ -15,7 +15,7 @@ export default defineConfig({
         short_name: 'Agent Dashboard',
         description: 'AI-powered job application agent for Naukri.com',
         theme_color: '#0f172a',
-        background_color: '#0f172a',
+        background_color: '#f1f5f9',
         display: 'standalone',
         orientation: 'portrait-primary',
         start_url: '/',
@@ -41,9 +41,11 @@ export default defineConfig({
     }),
   ],
   server: {
+    host: '127.0.0.1',
     proxy: {
       '/api': {
-        target: 'http://localhost:8005',
+        // Browser hits localhost:5173/api/*; Vite forwards to the FastAPI backend.
+        target: 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

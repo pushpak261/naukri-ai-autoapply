@@ -35,7 +35,7 @@ export default function Backups() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -43,40 +43,40 @@ export default function Backups() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-          <HardDrive className="w-6 h-6 text-[#38bdf8]" />
+        <h1 className="text-2xl font-bold text-text flex items-center gap-2">
+          <HardDrive className="w-6 h-6 text-primary" />
           Database Backups
         </h1>
-        <p className="text-[#94a3b8] mt-1">Manage and create database backups</p>
+        <p className="text-secondary mt-1">Manage and create database backups</p>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5 text-center">
-          <p className="text-2xl font-bold text-white">{backups.length}</p>
-          <p className="text-xs text-[#94a3b8] mt-1">Total Backups</p>
+        <div className="bg-surface rounded-xl border border-border p-5 text-center">
+          <p className="text-2xl font-bold text-text">{backups.length}</p>
+          <p className="text-xs text-secondary mt-1">Total Backups</p>
         </div>
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5 text-center">
-          <p className="text-2xl font-bold text-[#38bdf8]">{formatSize(totalSize)}</p>
-          <p className="text-xs text-[#94a3b8] mt-1">Total Size</p>
+        <div className="bg-surface rounded-xl border border-border p-5 text-center">
+          <p className="text-2xl font-bold text-primary">{formatSize(totalSize)}</p>
+          <p className="text-xs text-secondary mt-1">Total Size</p>
         </div>
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5 text-center">
+        <div className="bg-surface rounded-xl border border-border p-5 text-center">
           <p className="text-2xl font-bold text-green-400">{backups.length > 0 ? backups[backups.length - 1].created.slice(0, 10) : 'N/A'}</p>
-          <p className="text-xs text-[#94a3b8] mt-1">Latest Backup</p>
+          <p className="text-xs text-secondary mt-1">Latest Backup</p>
         </div>
       </div>
 
-      <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+      <div className="bg-surface rounded-xl border border-border p-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-            <Database className="w-5 h-5 text-[#38bdf8]" />
+          <h2 className="text-lg font-semibold text-text flex items-center gap-2">
+            <Database className="w-5 h-5 text-primary" />
             Backup Files
           </h2>
           <div className="flex gap-2">
-            <button onClick={fetchBackups} className="flex items-center gap-1.5 px-3 py-2 bg-[#334155] hover:bg-[#475569] text-white rounded-lg text-sm transition-colors">
+            <button onClick={fetchBackups} className="flex items-center gap-1.5 px-3 py-2 bg-surface-hover hover:bg-surface-hover text-text rounded-lg text-sm transition-colors">
               <RefreshCw className="w-4 h-4" />
               Refresh
             </button>
-            <button onClick={handleCreate} disabled={creating} className="flex items-center gap-1.5 px-4 py-2 bg-[#38bdf8] hover:bg-[#7dd3fc] disabled:bg-gray-700 text-white disabled:text-[#64748b] rounded-lg text-sm font-medium transition-colors">
+            <button onClick={handleCreate} disabled={creating} className="flex items-center gap-1.5 px-4 py-2 bg-primary hover:bg-primary-hover disabled:bg-gray-700 text-text disabled:text-muted rounded-lg text-sm font-medium transition-colors">
               <Plus className="w-4 h-4" />
               {creating ? 'Creating...' : 'Create Backup'}
             </button>
@@ -87,7 +87,7 @@ export default function Backups() {
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-[#94a3b8] border-b border-[#334155]">
+                <tr className="text-secondary border-b border-border">
                   <th className="text-left py-2 px-3">Name</th>
                   <th className="text-right py-2 px-3">Size</th>
                   <th className="text-left py-2 px-3">Created</th>
@@ -95,10 +95,10 @@ export default function Backups() {
               </thead>
               <tbody>
                 {backups.map((b) => (
-                  <tr key={b.name} className="border-b border-[#334155]/50 hover:bg-[#334155]/30">
-                    <td className="py-2 px-3 text-white font-mono text-xs">{b.name}</td>
-                    <td className="py-2 px-3 text-right text-[#94a3b8]">{formatSize(b.size)}</td>
-                    <td className="py-2 px-3 text-[#94a3b8] text-xs">
+                  <tr key={b.name} className="border-b border-border/50 hover:bg-surface-hover/30">
+                    <td className="py-2 px-3 text-text font-mono text-xs">{b.name}</td>
+                    <td className="py-2 px-3 text-right text-secondary">{formatSize(b.size)}</td>
+                    <td className="py-2 px-3 text-secondary text-xs">
                       {new Date(b.created).toLocaleString()}
                     </td>
                   </tr>
@@ -107,7 +107,7 @@ export default function Backups() {
             </table>
           </div>
         ) : (
-          <div className="text-center py-8 text-[#64748b]">No backups found. Create one to get started.</div>
+          <div className="text-center py-8 text-muted">No backups found. Create one to get started.</div>
         )}
       </div>
     </div>

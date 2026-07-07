@@ -10,6 +10,8 @@ export interface RunStatus {
   daily_cap_remaining: number
   processed_count: number
   total_queued: number
+  strict_policy_mode: boolean
+  experience_source: string
   error?: string | null
 }
 
@@ -88,7 +90,11 @@ export interface ConfigSummary {
   daily_cap: number
   match_score_threshold: number
   dry_run: boolean
+  strict_policy_mode: boolean
+  freshness_days: number
   min_company_rating: number
+  role_source: string
+  experience_source: string
   excluded_companies: string[]
   excluded_title_keywords: string[]
   ai_model: string

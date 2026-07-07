@@ -3,9 +3,13 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 export function ConfigSummary({ config }: { config: ConfigSummaryType }) {
   const rows: Array<[string, string | number | boolean]> = [
+    ['Strict policy mode', config.strict_policy_mode ? 'Enabled' : 'Disabled'],
+    ['Role source', config.role_source],
+    ['Experience source', config.experience_source],
     ['Keywords', config.keywords.join(', ')],
     ['Locations', config.locations.join(', ')],
     ['Experience', `${config.experience_min}–${config.experience_max} yrs`],
+    ['Freshness window', `${config.freshness_days} days`],
     ['Daily cap', config.daily_cap],
     ['Match threshold', `${config.match_score_threshold}%`],
     ['Dry run', config.dry_run ? 'Yes' : 'No'],

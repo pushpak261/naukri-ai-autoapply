@@ -22,14 +22,14 @@ export default function MarketIntelligence() {
     return (
       <div className="space-y-6">
         <div>
-          <div className="h-8 w-64 bg-[#334155] rounded animate-pulse" />
-          <div className="h-4 w-80 bg-[#334155] rounded animate-pulse mt-2" />
+          <div className="h-8 w-64 bg-surface-hover rounded animate-pulse" />
+          <div className="h-4 w-80 bg-surface-hover rounded animate-pulse mt-2" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="bg-[#1e293b] rounded-xl border border-[#334155] p-4 animate-pulse">
-              <div className="h-3 w-20 bg-[#334155] rounded mb-3" />
-              <div className="h-6 w-16 bg-[#334155] rounded" />
+            <div key={i} className="bg-surface rounded-xl border border-border p-4 animate-pulse">
+              <div className="h-3 w-20 bg-surface-hover rounded mb-3" />
+              <div className="h-6 w-16 bg-surface-hover rounded" />
             </div>
           ))}
         </div>

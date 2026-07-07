@@ -35,6 +35,7 @@ import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -42,6 +43,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from src.naukri_agent.utils.similarity import VectorSimilarityFilter
+from src.naukri_agent.utils.company_legitimacy import PolicyLegitimacyEvaluator
+from src.naukri_agent.utils.filters import parse_experience_range, parse_posted_age_days, ranges_overlap
 from src.naukri_agent.browser.apply import JobApplier
 from src.naukri_agent.browser.login import LoginHandler
 from src.naukri_agent.browser.profile import ProfileRefresher
@@ -81,6 +84,12 @@ from src.naukri_agent.utils.logger import (
 )
 
 logger = get_logger(__name__)
+
+POLICY_REASON_MISSING_COMPANY_OR_TITLE = "missing_company_or_title_mismatch"
+POLICY_REASON_RATING = "rating_below_threshold"
+POLICY_REASON_AI = "ai_legitimacy_or_relevance_failed"
+POLICY_REASON_EXPERIENCE = "experience_out_of_range"
+POLICY_REASON_AGE = "older_than_7_days"
 
 
 class NaukriAgent:
@@ -221,6 +230,7 @@ class NaukriAgent:
 
         # Job Exclusions Specification
         self._exclusion_spec: JobSpecification | None = None
+        self._strict_policy_evaluator = PolicyLegitimacyEvaluator(self._llm)
 
     async def run(self, dry_run: bool = False) -> None:
         """
@@ -411,16 +421,29 @@ class NaukriAgent:
         resume_profile = self._resume_profile
         job_queue: list[tuple[float, int, Job]] = []
         for idx, job in enumerate(jobs):
-            # Title Whitelist Filter
-            whitelist = self._settings.exclusions.title_whitelist
-            if whitelist and isinstance(whitelist, (list, set, tuple)):
-                title_lower = (job.title or "").lower()
-                if not any(kw.lower() in title_lower for kw in whitelist):
-                    log_info(
-                        f"Skipping job: title '{job.title}' does not match any whitelist keywords"
+            if self._settings.application.strict_policy_mode:
+                title_ok = self._title_matches_keywords(job.title)
+                if not job.company or not title_ok:
+                    self._log_policy_decision(
+                        stage="company_title",
+                        decision="fail",
+                        reason_code=POLICY_REASON_MISSING_COMPANY_OR_TITLE,
+                        job=job,
+                        details={},
                     )
                     self._jobs_skipped += 1
                     continue
+            else:
+                # Title Whitelist Filter (legacy mode)
+                whitelist = self._settings.exclusions.title_whitelist
+                if whitelist and isinstance(whitelist, (list, set, tuple)):
+                    title_lower = (job.title or "").lower()
+                    if not any(kw.lower() in title_lower for kw in whitelist):
+                        log_info(
+                            f"Skipping job: title '{job.title}' does not match any whitelist keywords"
+                        )
+                        self._jobs_skipped += 1
+                        continue
 
             if self._settings.search.enable_heuristics:
                 logger.debug(f"Heuristics ENABLED for job: {job.title} @ {job.company}")
@@ -525,8 +548,8 @@ class NaukriAgent:
                     self._jobs_skipped += 1
                     continue
 
-            # Exclusion filters
-            if self._is_excluded(job):
+            # Exclusion filters (legacy mode only)
+            if (not self._settings.application.strict_policy_mode) and self._is_excluded(job):
                 log_info(f"Skipping job: matches exclusion keywords ({job.title} @ {job.company})")
                 self._jobs_skipped += 1
                 continue
@@ -561,28 +584,37 @@ class NaukriAgent:
                     raise RuntimeError("BrowserInteractions not configured.")
                 await self._interactions.action_delay()
 
-            # Re-evaluate exclusions now that we have full details
-            if self._is_excluded(job):
+            # Re-evaluate exclusions now that we have full details (legacy mode only)
+            if (not self._settings.application.strict_policy_mode) and self._is_excluded(job):
                 log_info(
                     f"Skipping job: matches exclusion rules after fetching details ({job.title} @ {job.company})"
                 )
                 self._jobs_skipped += 1
                 continue
 
-            # Second similarity filter (using description)
-            full_text = f"{job.title} {job.skills} {job.description}"
-            full_sim_score = vector_filter.get_similarity_score(full_text)
-
-            if full_sim_score < 0.04:
-                log_info(
-                    f"Skipping job: similarity score ({full_sim_score:.3f}) below threshold (0.04)"
+            if self._settings.application.strict_policy_mode:
+                strict_eval = await self._evaluate_strict_policy(job)
+                if not strict_eval["passed"]:
+                    self._jobs_skipped += 1
+                    continue
+                full_sim_score = vector_filter.get_similarity_score(
+                    f"{job.title} {job.skills} {job.description}"
                 )
-                self._jobs_skipped += 1
-                continue
             else:
-                log_info(
-                    f"Similarity score ({full_sim_score:.3f}) passed pre-filter threshold (0.04)"
-                )
+                # Second similarity filter (using description)
+                full_text = f"{job.title} {job.skills} {job.description}"
+                full_sim_score = vector_filter.get_similarity_score(full_text)
+
+                if full_sim_score < 0.04:
+                    log_info(
+                        f"Skipping job: similarity score ({full_sim_score:.3f}) below threshold (0.04)"
+                    )
+                    self._jobs_skipped += 1
+                    continue
+                else:
+                    log_info(
+                        f"Similarity score ({full_sim_score:.3f}) passed pre-filter threshold (0.04)"
+                    )
 
             # AI Matching (rate-limited by TokenBucketRateLimiter in GeminiProvider)
             if not self._settings.ai.enable_matching:
@@ -787,6 +819,127 @@ class NaukriAgent:
                 if getattr(self._settings.application, "collect_external_jobs", False):
                     # Add failed jobs to the email list so the user can manually check/apply
                     self._external_jobs.append((job, None))
+
+    @staticmethod
+    def _normalize_text(text: str) -> str:
+        cleaned = re.sub(r"[^a-z0-9\s]", " ", (text or "").lower())
+        return re.sub(r"\s+", " ", cleaned).strip()
+
+    def _title_matches_keywords(self, title: str) -> bool:
+        norm_title = self._normalize_text(title)
+        if not norm_title:
+            return False
+        title_tokens = set(norm_title.split())
+        for keyword in self._settings.search.keywords:
+            norm_kw = self._normalize_text(keyword)
+            if not norm_kw:
+                continue
+            if norm_kw in norm_title:
+                return True
+            kw_tokens = set(norm_kw.split())
+            if kw_tokens and len(title_tokens & kw_tokens) >= max(1, len(kw_tokens) - 1):
+                return True
+        return False
+
+    def _log_policy_decision(
+        self,
+        *,
+        stage: str,
+        decision: str,
+        reason_code: str | None,
+        job: Job,
+        details: dict[str, Any],
+    ) -> None:
+        logger.info(
+            "strict_policy_decision",
+            extra={
+                "policy_stage": stage,
+                "decision": decision,
+                "skip_reason_code": reason_code,
+                "job_id": job.naukri_job_id,
+                "title": job.title,
+                "company": job.company,
+                "details": details,
+            },
+        )
+
+    async def _evaluate_strict_policy(self, job: Job) -> dict[str, Any]:
+        # Policy contract: all stages must pass in deterministic order.
+        if not job.company or not self._title_matches_keywords(job.title):
+            self._log_policy_decision(
+                stage="company_title",
+                decision="fail",
+                reason_code=POLICY_REASON_MISSING_COMPANY_OR_TITLE,
+                job=job,
+                details={},
+            )
+            return {"passed": False, "reason_code": POLICY_REASON_MISSING_COMPANY_OR_TITLE}
+
+        min_rating = self._settings.application.min_company_rating
+        if job.company_rating is None or job.company_rating <= min_rating:
+            self._log_policy_decision(
+                stage="rating",
+                decision="fail",
+                reason_code=POLICY_REASON_RATING,
+                job=job,
+                details={"rating": job.company_rating, "required_gt": min_rating},
+            )
+            return {"passed": False, "reason_code": POLICY_REASON_RATING}
+
+        ai_result = await self._strict_policy_evaluator.evaluate(
+            company=job.company,
+            title=job.title,
+            description=job.description,
+        )
+        if not (
+            ai_result.get("is_legit_company", False)
+            and ai_result.get("is_post_relevant_to_company", False)
+        ):
+            self._log_policy_decision(
+                stage="ai_legitimacy_relevance",
+                decision="fail",
+                reason_code=POLICY_REASON_AI,
+                job=job,
+                details=ai_result,
+            )
+            return {"passed": False, "reason_code": POLICY_REASON_AI}
+
+        user_min = self._settings.search.experience_min
+        user_max = self._settings.search.experience_max
+        parsed_exp = parse_experience_range(job.experience)
+        if parsed_exp is None or not ranges_overlap(parsed_exp[0], parsed_exp[1], user_min, user_max):
+            self._log_policy_decision(
+                stage="experience",
+                decision="fail",
+                reason_code=POLICY_REASON_EXPERIENCE,
+                job=job,
+                details={
+                    "job_experience": job.experience,
+                    "parsed_experience": parsed_exp,
+                    "user_range": [user_min, user_max],
+                },
+            )
+            return {"passed": False, "reason_code": POLICY_REASON_EXPERIENCE}
+
+        age_days = parse_posted_age_days(job.posted_date)
+        if age_days is None or age_days > 7:
+            self._log_policy_decision(
+                stage="freshness",
+                decision="fail",
+                reason_code=POLICY_REASON_AGE,
+                job=job,
+                details={"posted_date": job.posted_date, "age_days": age_days},
+            )
+            return {"passed": False, "reason_code": POLICY_REASON_AGE}
+
+        self._log_policy_decision(
+            stage="final",
+            decision="pass",
+            reason_code=None,
+            job=job,
+            details={"age_days": age_days, "parsed_experience": parsed_exp, "rating": job.company_rating},
+        )
+        return {"passed": True, "reason_code": None}
 
         # Log the jobs that successfully passed the initial exclusion and scam filters
         logger.info(

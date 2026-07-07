@@ -66,6 +66,13 @@ class SearchSettings(BaseModel):
     sort_by: str = "relevance"
     enable_heuristics: bool = True
 
+    @field_validator("freshness")
+    @classmethod
+    def validate_freshness(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError("freshness must be >= 0")
+        return v
+
     @field_validator("sort_by")
     @classmethod
     def validate_sort_by(cls, v: str) -> str:
@@ -91,6 +98,14 @@ class ApplicationSettings(BaseModel):
     dry_run: bool = False
     enable_project_indexer: bool = False
     min_company_rating: float = 3.0
+    strict_policy_mode: bool = False
+
+    @field_validator("min_company_rating")
+    @classmethod
+    def validate_min_company_rating(cls, v: float) -> float:
+        if v < 0:
+            raise ValueError("min_company_rating must be >= 0")
+        return v
 
 
 class ProfileSettings(BaseModel):

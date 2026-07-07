@@ -41,7 +41,7 @@ const ICON_MAP: Record<string, React.ReactNode> = {
 function PipelineNode({ data }: { data: StageInfo & { expanded: boolean; onToggle: () => void } }) {
   const statusColors = {
     completed: { border: '#22c55e', bg: 'rgba(34, 197, 94, 0.1)', text: '#22c55e' },
-    active: { border: '#38bdf8', bg: 'rgba(56, 189, 248, 0.1)', text: '#38bdf8' },
+    active: { border: '#38bdf8', bg: 'var(--color-primary-subtle)', text: '#38bdf8' },
     pending: { border: '#334155', bg: '#1e293b', text: '#64748b' },
     error: { border: '#ef4444', bg: 'rgba(239, 68, 68, 0.1)', text: '#ef4444' },
   };
@@ -139,7 +139,7 @@ export default function PipelineDebugger() {
             onClick={() => setSelectedStage(prev => prev === stage.id ? null : stage.id)}
             className="rounded-xl border p-4 text-left transition-all"
             style={{
-              backgroundColor: selectedStage === stage.id ? 'rgba(56, 189, 248, 0.1)' : 'var(--color-surface)',
+              backgroundColor: selectedStage === stage.id ? 'var(--color-primary-subtle)' : 'var(--color-surface)',
               borderColor: selectedStage === stage.id ? 'var(--color-primary)' : 'var(--color-border)',
             }}
           >
@@ -161,7 +161,7 @@ export default function PipelineDebugger() {
             </div>
             <button
               onClick={() => setSelectedStage(null)}
-              className="text-xs px-2 py-1 rounded hover:bg-[#334155] transition-colors"
+              className="text-xs px-2 py-1 rounded hover:bg-surface-hover transition-colors"
               style={{ color: 'var(--color-text-muted)' }}
             >
               Close

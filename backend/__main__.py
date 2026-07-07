@@ -2,15 +2,20 @@
 
 from __future__ import annotations
 
+import sys
+
 import uvicorn
 
 
 def main() -> None:
+    # Uvicorn --reload on Windows can leave the listener in a broken state
+    # (WinError 87) where connections hang indefinitely.
+    use_reload = sys.platform != "win32"
     uvicorn.run(
-        "backend.main:app",
+        "api.main:app",
         host="127.0.0.1",
         port=8000,
-        reload=True,
+        reload=use_reload,
         loop="backend.loop:create_event_loop",
     )
 

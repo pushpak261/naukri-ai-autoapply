@@ -5,6 +5,7 @@ from src.naukri_agent.utils.company_legitimacy import (
     CompanyWebVerifier,
     DirectEmployerFilter,
     EmployerLegitimacyFilter,
+    PolicyLegitimacyEvaluator,
 )
 from src.naukri_agent.utils.job_metadata import (
     extract_hiring_for_from_api,
@@ -87,3 +88,34 @@ async def test_employer_filter_skips_when_verify_disabled():
     passes, reason = await filt.evaluate(job)
     assert passes is True
     assert reason == ""
+
+
+async def test_policy_legitimacy_evaluator_caches(monkeypatch):
+    class FakeLLM:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate_content(self, **kwargs):
+            self.calls += 1
+            return (
+                '{"is_legit_company": true, "is_post_relevant_to_company": true, '
+                '"confidence": 0.9, "reason": "ok"}'
+            )
+
+    llm = FakeLLM()
+    evaluator = PolicyLegitimacyEvaluator(llm)
+    first = await evaluator.evaluate(company="Acme", title="Backend Developer", description="Role")
+    second = await evaluator.evaluate(company="Acme", title="Backend Developer", description="Role")
+    assert first == second
+    assert llm.calls == 1
+
+
+async def test_policy_legitimacy_evaluator_fails_closed_on_error():
+    class BrokenLLM:
+        async def generate_content(self, **kwargs):
+            raise RuntimeError("boom")
+
+    evaluator = PolicyLegitimacyEvaluator(BrokenLLM())
+    result = await evaluator.evaluate(company="Acme", title="Backend Developer", description="Role")
+    assert result["is_legit_company"] is False
+    assert result["is_post_relevant_to_company"] is False

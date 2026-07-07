@@ -16,7 +16,7 @@ export default function JobDetail() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -25,16 +25,16 @@ export default function JobDetail() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <Link to="/jobs" className="inline-flex items-center gap-1.5 text-sm text-[#94a3b8] hover:text-white transition-colors">
+      <Link to="/jobs" className="inline-flex items-center gap-1.5 text-sm text-secondary hover:text-text transition-colors">
         <ArrowLeft className="w-4 h-4" />
         Back to Jobs
       </Link>
 
-      <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-6">
+      <div className="bg-surface rounded-xl border border-border p-6">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-xl font-bold text-white">{job.title}</h1>
-            <div className="flex items-center gap-3 mt-2 text-sm text-[#94a3b8]">
+            <h1 className="text-xl font-bold text-text">{job.title}</h1>
+            <div className="flex items-center gap-3 mt-2 text-sm text-secondary">
               <span className="flex items-center gap-1">
                 <Building2 className="w-4 h-4" />
                 {job.company}
@@ -46,7 +46,7 @@ export default function JobDetail() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-4 mt-2 text-xs text-[#64748b]">
+            <div className="flex items-center gap-4 mt-2 text-xs text-muted">
               {job.experience && <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{job.experience}</span>}
               {job.salary && <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5" />{job.salary}</span>}
               {job.posted_date && <span>Posted: {job.posted_date}</span>}
@@ -56,7 +56,7 @@ export default function JobDetail() {
             href={job.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#38bdf8]/10 text-[#38bdf8] rounded-lg text-sm font-medium hover:bg-[#38bdf8]/20 transition-colors"
+            className="flex items-center gap-1.5 px-4 py-2 bg-primary/10 text-primary rounded-lg text-sm font-medium hover:bg-primary/20 transition-colors"
           >
             <ExternalLink className="w-4 h-4" />
             View on Naukri
@@ -66,7 +66,7 @@ export default function JobDetail() {
         {job.skills && (
           <div className="flex flex-wrap gap-1.5 mt-4">
             {job.skills.split(',').map((skill) => (
-              <span key={skill} className="px-2.5 py-1 text-xs bg-[#38bdf8]/10 text-[#38bdf8] rounded-full">
+              <span key={skill} className="px-2.5 py-1 text-xs bg-primary/10 text-primary rounded-full">
                 {skill.trim()}
               </span>
             ))}
@@ -75,15 +75,15 @@ export default function JobDetail() {
       </div>
 
       {job.application && (
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Application Details</h2>
+        <div className="bg-surface rounded-xl border border-border p-6">
+          <h2 className="text-lg font-semibold text-text mb-4">Application Details</h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
             <div>
-              <p className="text-xs text-[#64748b]">Status</p>
+              <p className="text-xs text-muted">Status</p>
               <StatusBadge status={job.application.status} className="mt-1" />
             </div>
             <div>
-              <p className="text-xs text-[#64748b]">Match Score</p>
+              <p className="text-xs text-muted">Match Score</p>
               <p className={`text-lg font-bold mt-1 ${
                 job.application.match_score >= 80 ? 'text-green-400' : job.application.match_score >= 50 ? 'text-yellow-400' : 'text-red-400'
               }`}>
@@ -91,22 +91,22 @@ export default function JobDetail() {
               </p>
             </div>
             <div>
-              <p className="text-xs text-[#64748b]">Applied At</p>
-              <p className="text-sm text-white mt-1">{job.application.applied_at.slice(0, 16).replace('T', ' ')}</p>
+              <p className="text-xs text-muted">Applied At</p>
+              <p className="text-sm text-text mt-1">{job.application.applied_at.slice(0, 16).replace('T', ' ')}</p>
             </div>
           </div>
 
           {job.application.match_reasoning && (
             <div className="mt-3">
-              <p className="text-xs text-[#64748b] mb-1">Reasoning</p>
-              <p className="text-sm text-[#94a3b8] bg-[#0f172a] rounded-lg p-3">{job.application.match_reasoning}</p>
+              <p className="text-xs text-muted mb-1">Reasoning</p>
+              <p className="text-sm text-secondary bg-bg rounded-lg p-3">{job.application.match_reasoning}</p>
             </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
             {job.application.matching_skills && (
               <div>
-                <p className="text-xs text-[#64748b] mb-1 flex items-center gap-1">
+                <p className="text-xs text-muted mb-1 flex items-center gap-1">
                   <Award className="w-3.5 h-3.5 text-green-400" />
                   Matching Skills
                 </p>
@@ -121,7 +121,7 @@ export default function JobDetail() {
             )}
             {job.application.missing_skills && (
               <div>
-                <p className="text-xs text-[#64748b] mb-1 flex items-center gap-1">
+                <p className="text-xs text-muted mb-1 flex items-center gap-1">
                   <AlertCircle className="w-3.5 h-3.5 text-yellow-400" />
                   Missing Skills
                 </p>
@@ -146,9 +146,9 @@ export default function JobDetail() {
       )}
 
       {job.description && (
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-6">
-          <h2 className="text-lg font-semibold text-white mb-4">Job Description</h2>
-          <div className="text-sm text-[#94a3b8] leading-relaxed whitespace-pre-wrap">
+        <div className="bg-surface rounded-xl border border-border p-6">
+          <h2 className="text-lg font-semibold text-text mb-4">Job Description</h2>
+          <div className="text-sm text-secondary leading-relaxed whitespace-pre-wrap">
             {job.description}
           </div>
         </div>

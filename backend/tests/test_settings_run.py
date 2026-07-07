@@ -35,3 +35,11 @@ def test_copy_for_run_applies_experience_overrides_without_mutating_source():
     assert run_settings.search.experience_max == 3
     assert base.search.experience_min == 0
     assert base.search.experience_max == 5
+
+
+def test_copy_for_run_preserves_strict_policy_mode_default():
+    base = Settings()
+    assert base.application.strict_policy_mode is False
+
+    run_settings = base.copy_for_run(experience_min=1)
+    assert run_settings.application.strict_policy_mode is False

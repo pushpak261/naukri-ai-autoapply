@@ -61,7 +61,7 @@ function TagEditor({ tags, onChange, placeholder }: {
   return (
     <div className="flex flex-wrap gap-1.5 mb-2">
       {tags.map((t, i) => (
-        <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-[#38bdf8]/10 text-[#38bdf8] rounded-full">
+        <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 text-xs bg-primary/10 text-primary rounded-full">
           {t}
           <button onClick={() => onChange(tags.filter((_, j) => j !== i))} className="hover:text-red-400">
             <X className="w-3 h-3" />
@@ -70,13 +70,13 @@ function TagEditor({ tags, onChange, placeholder }: {
       ))}
       <div className="flex gap-1">
         <input
-          className="w-28 px-2 py-1 text-xs bg-[#0f172a] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]"
+          className="w-28 px-2 py-1 text-xs bg-bg border border-border rounded text-text placeholder:text-muted outline-none focus:border-primary"
           placeholder={placeholder}
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add(); } }}
         />
-        <button onClick={add} className="p-1 bg-[#38bdf8]/20 text-[#38bdf8] rounded hover:bg-[#38bdf8]/30">
+        <button onClick={add} className="p-1 bg-primary/20 text-primary rounded hover:bg-primary/30">
           <Plus className="w-3 h-3" />
         </button>
       </div>
@@ -102,12 +102,12 @@ function DropZone({ onFile }: { onFile: (f: File) => void }) {
       onDrop={handleDrop}
       onClick={() => inputRef.current?.click()}
       className={`border-2 border-dashed rounded-xl p-12 text-center cursor-pointer transition-colors ${
-        dragging ? 'border-[#38bdf8] bg-[#38bdf8]/5' : 'border-[#334155] hover:border-[#38bdf8]/50'
+        dragging ? 'border-primary bg-primary/5' : 'border-border hover:border-primary/50'
       }`}
     >
-      <Upload className="w-12 h-12 text-[#64748b] mx-auto mb-4" />
-      <p className="text-[#94a3b8] font-medium">Drop your resume here or click to browse</p>
-      <p className="text-sm text-[#64748b] mt-2">Supports PDF and DOCX</p>
+      <Upload className="w-12 h-12 text-muted mx-auto mb-4" />
+      <p className="text-secondary font-medium">Drop your resume here or click to browse</p>
+      <p className="text-sm text-muted mt-2">Supports PDF and DOCX</p>
       <input
         ref={inputRef}
         type="file"
@@ -127,15 +127,15 @@ function SectionCard({ title, icon, children, onEdit, editing }: {
   editing?: boolean;
 }) {
   return (
-    <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+    <div className="bg-surface rounded-xl border border-border p-5">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-white flex items-center gap-2">
+        <h3 className="text-sm font-semibold text-text flex items-center gap-2">
           {icon}
           {title}
         </h3>
         {onEdit && (
           <button onClick={onEdit} className={`p-1.5 rounded transition-colors ${
-            editing ? 'bg-[#38bdf8]/20 text-[#38bdf8]' : 'text-[#64748b] hover:text-[#94a3b8] hover:bg-[#334155]'
+            editing ? 'bg-primary/20 text-primary' : 'text-muted hover:text-secondary hover:bg-surface-hover'
           }`}>
             <Edit3 className="w-3.5 h-3.5" />
           </button>
@@ -149,7 +149,7 @@ function SectionCard({ title, icon, children, onEdit, editing }: {
 function CompactUploadButton({ onUpload, uploading }: { onUpload: (f: File) => void; uploading: boolean }) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
-    <label className="px-3 py-1.5 text-sm bg-[#38bdf8]/10 text-[#38bdf8] rounded-lg hover:bg-[#38bdf8]/20 transition-colors cursor-pointer flex items-center gap-1.5">
+    <label className="px-3 py-1.5 text-sm bg-primary/10 text-primary rounded-lg hover:bg-primary/20 transition-colors cursor-pointer flex items-center gap-1.5">
       {uploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
       Upload
       <input
@@ -229,7 +229,7 @@ export default function Resume() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
       </div>
     );
   }
@@ -237,11 +237,11 @@ export default function Resume() {
   if (!data?.exists || !data.profile) {
     return (
       <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">Resume Profile</h1>
+        <h1 className="text-2xl font-bold text-text">Resume Profile</h1>
         {uploading && (
-          <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-12 text-center">
-            <Loader2 className="w-10 h-10 text-[#38bdf8] mx-auto mb-4 animate-spin" />
-            <p className="text-[#94a3b8]">Parsing resume... This may take a moment.</p>
+          <div className="bg-surface rounded-xl border border-border p-12 text-center">
+            <Loader2 className="w-10 h-10 text-primary mx-auto mb-4 animate-spin" />
+            <p className="text-secondary">Parsing resume... This may take a moment.</p>
           </div>
         )}
         {!uploading && <DropZone onFile={handleUpload} />}
@@ -269,22 +269,22 @@ export default function Resume() {
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Resume Profile</h1>
-          <p className="text-[#94a3b8] mt-1">Parsed resume information</p>
+          <h1 className="text-2xl font-bold text-text">Resume Profile</h1>
+          <p className="text-secondary mt-1">Parsed resume information</p>
         </div>
         <div className="flex gap-2">
           {editMode ? (
             <>
               <button
                 onClick={() => { setEditMode(false); setProfile(data.profile as unknown as ResumeProfileData); setError(''); }}
-                className="px-3 py-1.5 text-sm border border-[#334155] text-[#94a3b8] rounded-lg hover:bg-[#334155] transition-colors"
+                className="px-3 py-1.5 text-sm border border-border text-secondary rounded-lg hover:bg-surface-hover transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="px-3 py-1.5 text-sm bg-[#38bdf8] text-black font-medium rounded-lg hover:bg-[#7dd3fc] transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                className="px-3 py-1.5 text-sm bg-primary text-on-primary font-medium rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 flex items-center gap-1.5"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Save
@@ -294,7 +294,7 @@ export default function Resume() {
             <>
               <button
                 onClick={() => setEditMode(true)}
-                className="px-3 py-1.5 text-sm border border-[#334155] text-[#94a3b8] rounded-lg hover:bg-[#334155] transition-colors flex items-center gap-1.5"
+                className="px-3 py-1.5 text-sm border border-border text-secondary rounded-lg hover:bg-surface-hover transition-colors flex items-center gap-1.5"
               >
                 <Edit3 className="w-4 h-4" />
                 Edit
@@ -322,51 +322,51 @@ export default function Resume() {
       )}
 
       {uploading && (
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-12 text-center">
-          <Loader2 className="w-10 h-10 text-[#38bdf8] mx-auto mb-4 animate-spin" />
-          <p className="text-[#94a3b8]">Parsing resume... This may take a moment.</p>
+        <div className="bg-surface rounded-xl border border-border p-12 text-center">
+          <Loader2 className="w-10 h-10 text-primary mx-auto mb-4 animate-spin" />
+          <p className="text-secondary">Parsing resume... This may take a moment.</p>
         </div>
       )}
 
-      {!uploading && (<div className="bg-[#1e293b] rounded-xl border border-[#334155] p-6">
+      {!uploading && (<div className="bg-surface rounded-xl border border-border p-6">
         <div className="flex items-start gap-4">
-          <div className="p-3 bg-[#38bdf8]/10 rounded-xl">
-            <User className="w-8 h-8 text-[#38bdf8]" />
+          <div className="p-3 bg-primary/10 rounded-xl">
+            <User className="w-8 h-8 text-primary" />
           </div>
           <div className="flex-1">
             {editMode ? (
               <div className="space-y-3">
-                <input className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={p.name} onChange={e => update('name', e.target.value)} placeholder="Full name" />
-                <input className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={p.current_title} onChange={e => update('current_title', e.target.value)} placeholder="Current title" />
+                <input className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-text placeholder:text-muted outline-none focus:border-primary" value={p.name} onChange={e => update('name', e.target.value)} placeholder="Full name" />
+                <input className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-text placeholder:text-muted outline-none focus:border-primary" value={p.current_title} onChange={e => update('current_title', e.target.value)} placeholder="Current title" />
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div className="flex items-center gap-2 bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2">
-                    <Mail className="w-4 h-4 text-[#64748b]" />
-                    <input className="flex-1 bg-transparent text-white text-sm placeholder-[#64748b] outline-none" value={p.email} onChange={e => update('email', e.target.value)} placeholder="Email" />
+                  <div className="flex items-center gap-2 bg-bg border border-border rounded-lg px-3 py-2">
+                    <Mail className="w-4 h-4 text-muted" />
+                    <input className="flex-1 bg-transparent text-text text-sm placeholder:text-muted outline-none" value={p.email} onChange={e => update('email', e.target.value)} placeholder="Email" />
                   </div>
-                  <div className="flex items-center gap-2 bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2">
-                    <Phone className="w-4 h-4 text-[#64748b]" />
-                    <input className="flex-1 bg-transparent text-white text-sm placeholder-[#64748b] outline-none" value={p.phone} onChange={e => update('phone', e.target.value)} placeholder="Phone" />
+                  <div className="flex items-center gap-2 bg-bg border border-border rounded-lg px-3 py-2">
+                    <Phone className="w-4 h-4 text-muted" />
+                    <input className="flex-1 bg-transparent text-text text-sm placeholder:text-muted outline-none" value={p.phone} onChange={e => update('phone', e.target.value)} placeholder="Phone" />
                   </div>
-                  <div className="flex items-center gap-2 bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2">
-                    <Briefcase className="w-4 h-4 text-[#64748b]" />
-                    <input className="flex-1 bg-transparent text-white text-sm placeholder-[#64748b] outline-none" type="number" step="0.1" value={p.total_experience_years} onChange={e => update('total_experience_years', parseFloat(e.target.value) || 0)} placeholder="Years exp" />
-                    <span className="text-xs text-[#64748b]">years</span>
+                  <div className="flex items-center gap-2 bg-bg border border-border rounded-lg px-3 py-2">
+                    <Briefcase className="w-4 h-4 text-muted" />
+                    <input className="flex-1 bg-transparent text-text text-sm placeholder:text-muted outline-none" type="number" step="0.1" value={p.total_experience_years} onChange={e => update('total_experience_years', parseFloat(e.target.value) || 0)} placeholder="Years exp" />
+                    <span className="text-xs text-muted">years</span>
                   </div>
                 </div>
               </div>
             ) : (
               <>
-                <h2 className="text-xl font-bold text-white">{p.name || 'Unknown'}</h2>
-                {p.current_title && <p className="text-[#94a3b8] mt-1">{p.current_title}</p>}
+                <h2 className="text-xl font-bold text-text">{p.name || 'Unknown'}</h2>
+                {p.current_title && <p className="text-secondary mt-1">{p.current_title}</p>}
                 <div className="flex flex-wrap gap-4 mt-3 text-sm">
                   {p.email && (
-                    <span className="flex items-center gap-1.5 text-[#94a3b8]"><Mail className="w-4 h-4" />{p.email}</span>
+                    <span className="flex items-center gap-1.5 text-secondary"><Mail className="w-4 h-4" />{p.email}</span>
                   )}
                   {p.phone && (
-                    <span className="flex items-center gap-1.5 text-[#94a3b8]"><Phone className="w-4 h-4" />{p.phone}</span>
+                    <span className="flex items-center gap-1.5 text-secondary"><Phone className="w-4 h-4" />{p.phone}</span>
                   )}
                   {p.total_experience_years > 0 && (
-                    <span className="flex items-center gap-1.5 text-[#94a3b8]"><Briefcase className="w-4 h-4" />{p.total_experience_years} years experience</span>
+                    <span className="flex items-center gap-1.5 text-secondary"><Briefcase className="w-4 h-4" />{p.total_experience_years} years experience</span>
                   )}
                 </div>
               </>
@@ -377,7 +377,7 @@ export default function Resume() {
         {editMode ? (
           <div className="mt-4">
             <textarea
-              className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white text-sm placeholder-[#64748b] outline-none focus:border-[#38bdf8] resize-none"
+              className="w-full px-3 py-2 bg-bg border border-border rounded-lg text-text text-sm placeholder:text-muted outline-none focus:border-primary resize-none"
               rows={3}
               value={p.summary}
               onChange={e => update('summary', e.target.value)}
@@ -385,15 +385,15 @@ export default function Resume() {
             />
           </div>
         ) : p.summary && (
-          <div className="mt-4 p-3 bg-[#0f172a] rounded-lg">
-            <p className="text-sm text-[#94a3b8] leading-relaxed">{p.summary}</p>
+          <div className="mt-4 p-3 bg-bg rounded-lg">
+            <p className="text-sm text-secondary leading-relaxed">{p.summary}</p>
           </div>
         )}
       </div>)}
 
       {editMode ? (
         <>
-          <SectionCard title={`All Skills (${skills.length})`} icon={<Star className="w-4 h-4 text-[#38bdf8]" />}>
+          <SectionCard title={`All Skills (${skills.length})`} icon={<Star className="w-4 h-4 text-primary" />}>
             <TagEditor tags={skills} onChange={v => update('skills', v)} placeholder="Add skill" />
           </SectionCard>
 
@@ -405,22 +405,22 @@ export default function Resume() {
             <TagEditor tags={softSkills} onChange={v => update('soft_skills', v)} placeholder="Add soft skill" />
           </SectionCard>
 
-          <SectionCard title={`Work Experience (${workExperience.length})`} icon={<Briefcase className="w-4 h-4 text-[#38bdf8]" />}>
+          <SectionCard title={`Work Experience (${workExperience.length})`} icon={<Briefcase className="w-4 h-4 text-primary" />}>
             {workExperience.map((exp, i) => (
-              <div key={i} className="p-3 bg-[#0f172a] rounded-lg mb-2 space-y-2">
+              <div key={i} className="p-3 bg-bg rounded-lg mb-2 space-y-2">
                 <div className="grid grid-cols-3 gap-2">
-                  <input className="col-span-2 px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={exp.title} onChange={e => {
+                  <input className="col-span-2 px-2 py-1 text-sm bg-surface border border-border rounded text-text placeholder:text-muted outline-none focus:border-primary" value={exp.title} onChange={e => {
                     const next = [...workExperience];
                     next[i] = { ...next[i], title: e.target.value };
                     update('work_experience', next);
                   }} placeholder="Title" />
-                  <input className="px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={exp.company} onChange={e => {
+                  <input className="px-2 py-1 text-sm bg-surface border border-border rounded text-text placeholder:text-muted outline-none focus:border-primary" value={exp.company} onChange={e => {
                     const next = [...workExperience];
                     next[i] = { ...next[i], company: e.target.value };
                     update('work_experience', next);
                   }} placeholder="Company" />
                 </div>
-                <input className="w-full px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={exp.duration} onChange={e => {
+                <input className="w-full px-2 py-1 text-sm bg-surface border border-border rounded text-text placeholder:text-muted outline-none focus:border-primary" value={exp.duration} onChange={e => {
                   const next = [...workExperience];
                   next[i] = { ...next[i], duration: e.target.value };
                   update('work_experience', next);
@@ -432,32 +432,32 @@ export default function Resume() {
                 }} placeholder="Add highlight" />
               </div>
             ))}
-            <button onClick={() => update('work_experience', [...workExperience, { title: '', company: '', duration: '', highlights: [] }])} className="text-xs text-[#38bdf8] hover:text-[#7dd3fc] flex items-center gap-1">
+            <button onClick={() => update('work_experience', [...workExperience, { title: '', company: '', duration: '', highlights: [] }])} className="text-xs text-primary hover:text-primary-hover flex items-center gap-1">
               <Plus className="w-3 h-3" /> Add experience
             </button>
           </SectionCard>
 
-          <SectionCard title={`Education (${education.length})`} icon={<GraduationCap className="w-4 h-4 text-[#38bdf8]" />}>
+          <SectionCard title={`Education (${education.length})`} icon={<GraduationCap className="w-4 h-4 text-primary" />}>
             {education.map((edu, i) => (
-              <div key={i} className="p-3 bg-[#0f172a] rounded-lg mb-2 grid grid-cols-3 gap-2">
-                <input className="px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={edu.degree} onChange={e => {
+              <div key={i} className="p-3 bg-bg rounded-lg mb-2 grid grid-cols-3 gap-2">
+                <input className="px-2 py-1 text-sm bg-surface border border-border rounded text-text placeholder:text-muted outline-none focus:border-primary" value={edu.degree} onChange={e => {
                   const next = [...education];
                   next[i] = { ...next[i], degree: e.target.value };
                   update('education', next);
                 }} placeholder="Degree" />
-                <input className="px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={edu.institution} onChange={e => {
+                <input className="px-2 py-1 text-sm bg-surface border border-border rounded text-text placeholder:text-muted outline-none focus:border-primary" value={edu.institution} onChange={e => {
                   const next = [...education];
                   next[i] = { ...next[i], institution: e.target.value };
                   update('education', next);
                 }} placeholder="Institution" />
-                <input className="px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={edu.year} onChange={e => {
+                <input className="px-2 py-1 text-sm bg-surface border border-border rounded text-text placeholder:text-muted outline-none focus:border-primary" value={edu.year} onChange={e => {
                   const next = [...education];
                   next[i] = { ...next[i], year: e.target.value };
                   update('education', next);
                 }} placeholder="Year" />
               </div>
             ))}
-            <button onClick={() => update('education', [...education, { degree: '', institution: '', year: '' }])} className="text-xs text-[#38bdf8] hover:text-[#7dd3fc] flex items-center gap-1">
+            <button onClick={() => update('education', [...education, { degree: '', institution: '', year: '' }])} className="text-xs text-primary hover:text-primary-hover flex items-center gap-1">
               <Plus className="w-3 h-3" /> Add education
             </button>
           </SectionCard>
@@ -466,7 +466,7 @@ export default function Resume() {
             <TagEditor tags={certifications} onChange={v => update('certifications', v)} placeholder="Add certification" />
           </SectionCard>
 
-          <SectionCard title={`Languages (${languages.length})`} icon={<Globe className="w-4 h-4 text-[#38bdf8]" />}>
+          <SectionCard title={`Languages (${languages.length})`} icon={<Globe className="w-4 h-4 text-primary" />}>
             <TagEditor tags={languages} onChange={v => update('languages', v)} placeholder="Add language" />
           </SectionCard>
 
@@ -478,10 +478,10 @@ export default function Resume() {
         <>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {skills.length > 0 && (
-              <SectionCard title={`All Skills (${skills.length})`} icon={<Star className="w-4 h-4 text-[#38bdf8]" />}>
+              <SectionCard title={`All Skills (${skills.length})`} icon={<Star className="w-4 h-4 text-primary" />}>
                 <div className="flex flex-wrap gap-1.5">
                   {skills.map(s => (
-                    <span key={s} className="px-2.5 py-1 text-xs bg-[#38bdf8]/10 text-[#38bdf8] rounded-full">{s}</span>
+                    <span key={s} className="px-2.5 py-1 text-xs bg-primary/10 text-primary rounded-full">{s}</span>
                   ))}
                 </div>
               </SectionCard>
@@ -507,22 +507,22 @@ export default function Resume() {
           </div>
 
           {workExperience.length > 0 && (
-            <SectionCard title="Work Experience" icon={<Briefcase className="w-4 h-4 text-[#38bdf8]" />}>
+            <SectionCard title="Work Experience" icon={<Briefcase className="w-4 h-4 text-primary" />}>
               <div className="space-y-4">
                 {workExperience.map((exp, i) => (
-                  <div key={i} className="p-3 bg-[#0f172a] rounded-lg">
+                  <div key={i} className="p-3 bg-bg rounded-lg">
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="text-sm font-medium text-white">{exp.title}</p>
-                        <p className="text-xs text-[#94a3b8]">{exp.company}</p>
+                        <p className="text-sm font-medium text-text">{exp.title}</p>
+                        <p className="text-xs text-secondary">{exp.company}</p>
                       </div>
-                      {exp.duration && <span className="text-xs text-[#64748b]">{exp.duration}</span>}
+                      {exp.duration && <span className="text-xs text-muted">{exp.duration}</span>}
                     </div>
                     {exp.highlights && exp.highlights.length > 0 && (
                       <ul className="mt-2 space-y-1">
                         {exp.highlights.map((h, j) => (
-                          <li key={j} className="text-xs text-[#94a3b8] flex items-start gap-1.5">
-                            <span className="text-[#38bdf8] mt-0.5">•</span>
+                          <li key={j} className="text-xs text-secondary flex items-start gap-1.5">
+                            <span className="text-primary mt-0.5">•</span>
                             {h}
                           </li>
                         ))}
@@ -535,15 +535,15 @@ export default function Resume() {
           )}
 
           {education.length > 0 && (
-            <SectionCard title="Education" icon={<GraduationCap className="w-4 h-4 text-[#38bdf8]" />}>
+            <SectionCard title="Education" icon={<GraduationCap className="w-4 h-4 text-primary" />}>
               <div className="space-y-3">
                 {education.map((edu, i) => (
-                  <div key={i} className="flex items-start justify-between p-3 bg-[#0f172a] rounded-lg">
+                  <div key={i} className="flex items-start justify-between p-3 bg-bg rounded-lg">
                     <div>
-                      <p className="text-sm font-medium text-white">{edu.degree}</p>
-                      <p className="text-xs text-[#94a3b8]">{edu.institution}</p>
+                      <p className="text-sm font-medium text-text">{edu.degree}</p>
+                      <p className="text-xs text-secondary">{edu.institution}</p>
                     </div>
-                    {edu.year && <span className="text-xs text-[#64748b]">{edu.year}</span>}
+                    {edu.year && <span className="text-xs text-muted">{edu.year}</span>}
                   </div>
                 ))}
               </div>
@@ -561,10 +561,10 @@ export default function Resume() {
           )}
 
           {languages.length > 0 && (
-            <SectionCard title={`Languages (${languages.length})`} icon={<Globe className="w-4 h-4 text-[#38bdf8]" />}>
+            <SectionCard title={`Languages (${languages.length})`} icon={<Globe className="w-4 h-4 text-primary" />}>
               <div className="flex flex-wrap gap-1.5">
                 {languages.map(l => (
-                  <span key={l} className="px-2.5 py-1 text-xs bg-[#38bdf8]/10 text-[#38bdf8] rounded-full">{l}</span>
+                  <span key={l} className="px-2.5 py-1 text-xs bg-primary/10 text-primary rounded-full">{l}</span>
                 ))}
               </div>
             </SectionCard>
@@ -574,7 +574,7 @@ export default function Resume() {
             <SectionCard title={`Key Achievements (${achievements.length})`} icon={<Star className="w-4 h-4 text-yellow-400" />}>
               <ul className="space-y-1.5">
                 {achievements.map((a, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-[#94a3b8]">
+                  <li key={i} className="flex items-start gap-2 text-sm text-secondary">
                     <span className="text-yellow-400 mt-0.5">★</span>
                     {a}
                   </li>

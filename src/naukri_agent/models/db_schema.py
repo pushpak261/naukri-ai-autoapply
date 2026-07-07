@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from src.naukri_agent.database.manager import DatabaseManager
 
-from sqlalchemy import DateTime, ForeignKey, Index, String, Text
+from sqlalchemy import DateTime, ForeignKey, Index, String, Text, inspect, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -144,6 +144,45 @@ class RunLog(Base):
 # ---------------------------------------------------------------------------
 # Database initialization
 # ---------------------------------------------------------------------------
+def _column_default_sql(column) -> str:
+    """Render a SQLite DEFAULT clause for a new column, if one is defined."""
+    if column.server_default is not None:
+        return f" DEFAULT {column.server_default.arg}"
+
+    if column.default is None:
+        return ""
+
+    default_arg = column.default.arg
+    if callable(default_arg):
+        return ""
+
+    if isinstance(default_arg, bool):
+        return f" DEFAULT {int(default_arg)}"
+    if isinstance(default_arg, str):
+        return f" DEFAULT '{default_arg}'"
+    return f" DEFAULT {default_arg}"
+
+
+def _sync_sqlite_schema(sync_conn) -> None:
+    """Add ORM columns that are missing from existing SQLite tables."""
+    inspector = inspect(sync_conn)
+    for table_name, table in Base.metadata.tables.items():
+        if not inspector.has_table(table_name):
+            continue
+        existing = {col["name"] for col in inspector.get_columns(table_name)}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            col_type = column.type.compile(sync_conn.dialect)
+            default_sql = _column_default_sql(column)
+            sync_conn.execute(
+                text(
+                    f"ALTER TABLE {table_name} "
+                    f"ADD COLUMN {column.name} {col_type}{default_sql}"
+                )
+            )
+
+
 async def setup_database_manager(db_path: Path) -> "DatabaseManager":
     """
     Initialize the SQLite engine and return a DatabaseManager.
@@ -169,9 +208,10 @@ async def setup_database_manager(db_path: Path) -> "DatabaseManager":
         await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
         await conn.commit()
 
-    # Sync schema for SQLite
+    # Sync schema for SQLite (create tables, then add any missing columns)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await conn.run_sync(_sync_sqlite_schema)
 
     log_info(f"Using local SQLite database at {db_path}.")
 

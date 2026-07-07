@@ -36,6 +36,8 @@ class RunStatus(BaseModel):
     processed_count: int = 0
     total_queued: int = 0
     error: str | None = None
+    strict_policy_mode: bool = False
+    experience_source: str = "config_default"
 
 
 class RunSummary(BaseModel):
