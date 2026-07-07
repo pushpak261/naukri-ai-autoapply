@@ -45,7 +45,7 @@ class Job(Base):
     experience: Mapped[str] = mapped_column(String(100), default="")
     salary: Mapped[str] = mapped_column(String(200), default="")
     description: Mapped[str] = mapped_column(Text, default="")
-    skills: Mapped[str] = mapped_column(Text, default="")  # Comma-separated skill tags
+    skills: Mapped[str] = mapped_column(Text, default="")
     url: Mapped[str] = mapped_column(String(1000), nullable=False)
     posted_date: Mapped[str] = mapped_column(String(100), default="")
     openings: Mapped[int] = mapped_column(default=0)
@@ -53,8 +53,11 @@ class Job(Base):
     scraped_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+    naukri_status: Mapped[str] = mapped_column(String(50), default="")
+    status_last_synced: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
-    # Relationship
     applications: Mapped[list[Application]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
     )
@@ -77,15 +80,17 @@ class Application(Base):
     job_id: Mapped[int] = mapped_column(ForeignKey("jobs.id"), nullable=False, index=True)
     match_score: Mapped[float] = mapped_column(default=0.0)
     match_reasoning: Mapped[str] = mapped_column(Text, default="")
-    matching_skills: Mapped[str] = mapped_column(Text, default="")  # Comma-separated
-    missing_skills: Mapped[str] = mapped_column(Text, default="")  # Comma-separated
+    matching_skills: Mapped[str] = mapped_column(Text, default="")
+    missing_skills: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
     error_message: Mapped[str] = mapped_column(Text, default="")
     applied_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
     )
+    retry_count: Mapped[int] = mapped_column(default=0)
+    max_retries: Mapped[int] = mapped_column(default=3)
+    last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    # Relationship
     job: Mapped[Job] = relationship(back_populates="applications")
 
     __table_args__ = (
@@ -94,7 +99,7 @@ class Application(Base):
     )
 
     def __repr__(self) -> str:
-        return f"<Application(id={self.id}, job_id={self.job_id}, status='{self.status}')>"
+        return f"<Application(id={self.id}, job_id={self.job_id}, status='{self.status}'>"
 
 
 class ResumeProfile(Base):
@@ -154,6 +159,72 @@ class RunLog(Base):
             f"<RunLog(id={self.id}, status='{self.status}', "
             f"applied={self.jobs_applied}, skipped={self.jobs_skipped})>"
         )
+
+
+class NaukriAccount(Base):
+    """Multiple Naukri.com account profiles."""
+
+    __tablename__ = "naukri_accounts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    password: Mapped[str] = mapped_column(String(500), nullable=False)
+    name: Mapped[str] = mapped_column(String(255), default="")
+    is_active: Mapped[bool] = mapped_column(default=False)
+    is_primary: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    session_data: Mapped[str] = mapped_column(Text, default="")
+
+    def __repr__(self) -> str:
+        return f"<NaukriAccount(id={self.id}, email='{self.email}', active={self.is_active})>"
+
+
+class Webhook(Base):
+    """Webhook configuration for external service notifications."""
+
+    __tablename__ = "webhooks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    url: Mapped[str] = mapped_column(String(2000), nullable=False)
+    secret: Mapped[str] = mapped_column(String(500), default="")
+    events: Mapped[str] = mapped_column(
+        Text, default="application.created,application.failed,run.completed"
+    )
+    is_active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    last_triggered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    failure_count: Mapped[int] = mapped_column(default=0)
+
+    def __repr__(self) -> str:
+        return f"<Webhook(id={self.id}, name='{self.name}', active={self.is_active})>"
+
+
+class NotificationLog(Base):
+    """Log of all sent notifications (email, webhook)."""
+
+    __tablename__ = "notification_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    channel: Mapped[str] = mapped_column(String(50), nullable=False)
+    event: Mapped[str] = mapped_column(String(100), nullable=False)
+    recipient: Mapped[str] = mapped_column(String(500), default="")
+    subject: Mapped[str] = mapped_column(String(500), default="")
+    status: Mapped[str] = mapped_column(String(50), default="sent")
+    error_message: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<NotificationLog(id={self.id}, event='{self.event}', channel='{self.channel}')>"
 
 
 # ---------------------------------------------------------------------------

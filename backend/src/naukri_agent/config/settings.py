@@ -99,6 +99,17 @@ class ApplicationSettings(BaseModel):
     enable_project_indexer: bool = False
     min_company_rating: float = 3.0
     strict_policy_mode: bool = False
+    # Notification settings (feature 7)
+    email_notifications_enabled: bool = False
+    notify_on_apply: bool = True
+    notify_on_failure: bool = True
+    notify_on_scam: bool = True
+    notify_on_match: bool = False
+    # Retry settings (feature 3)
+    max_retries: int = 3
+    # Rate limiter settings (feature 10)
+    rate_limit_capacity: float = 10.0
+    rate_limit_refill_rate: float = 1.0
 
     @field_validator("min_company_rating")
     @classmethod

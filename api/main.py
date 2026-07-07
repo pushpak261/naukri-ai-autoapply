@@ -17,6 +17,7 @@ from fastapi.responses import PlainTextResponse
 
 from api.deps import state as deps
 from api.routes import (
+    accounts as accounts_router,
     agent as agent_router,
     applications as applications_router,
     auth as auth_router,
@@ -30,6 +31,7 @@ from api.routes import (
     stats as stats_router,
     autopilot as autopilot_router,
     market_intel as market_intel_router,
+    webhooks as webhooks_router,
 )
 from src.naukri_agent.config.settings import Settings, get_settings
 from src.naukri_agent.database.manager import DatabaseManager
@@ -87,16 +89,31 @@ PUBLIC_PREFIXES = {"/docs/", "/redoc/", "/api/auth/"}
 async def api_key_auth(request: Request, call_next):
     api_key = deps.settings.dashboard_api_key
     if not api_key:
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     if request.url.path in PUBLIC_PATHS or any(
         request.url.path.startswith(p) for p in PUBLIC_PREFIXES
     ):
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer ") and auth_header.removeprefix("Bearer ").strip() == api_key:
-        return await call_next(request)
+        response = await call_next(request)
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     return PlainTextResponse(
         '{"detail":"Unauthorized"}',
@@ -119,6 +136,8 @@ app.include_router(resume_optimization_router.router)
 app.include_router(scam_detector_router.router)
 app.include_router(autopilot_router.router)
 app.include_router(market_intel_router.router)
+app.include_router(accounts_router.router)
+app.include_router(webhooks_router.router)
 
 
 if __name__ == "__main__":

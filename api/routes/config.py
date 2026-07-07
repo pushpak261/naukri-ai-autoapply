@@ -37,6 +37,18 @@ class ConfigUpdate(BaseModel):
     total_experience: str | None = None
     delay_between_applies_min: int | None = None
     delay_between_applies_max: int | None = None
+    # Retry settings (feature 3)
+    max_retries: int | None = None
+    # Rate limit settings (feature 10)
+    rate_limit_capacity: float | None = None
+    rate_limit_refill_rate: float | None = None
+    # Notification settings (feature 7)
+    email_notifications_enabled: bool | None = None
+    email_recipient: str | None = None
+    notify_on_apply: bool | None = None
+    notify_on_failure: bool | None = None
+    notify_on_scam: bool | None = None
+    notify_on_match: bool | None = None
 
 
 @router.get("/api/config")
@@ -76,6 +88,7 @@ async def get_config():
         "application": {
             "daily_cap": s.application.daily_cap,
             "match_score_threshold": s.application.match_score_threshold,
+            "max_retries": s.application.max_retries,
             "answer_questions_with_pdf": s.application.answer_questions_with_pdf,
             "delay_between_applies_min": s.application.delay_between_applies_min,
             "delay_between_applies_max": s.application.delay_between_applies_max,
@@ -95,6 +108,42 @@ async def get_config():
             "level": s.logging.level,
             "log_to_file": s.logging.log_to_file,
         },
+        "notifications": {
+            "email_notifications_enabled": (
+                s.application.get("email_notifications_enabled", False)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "email_notifications_enabled", False)
+            ),
+            "email_recipient": (
+                s.application.get("email_recipient", "")
+                if isinstance(s.application, dict)
+                else getattr(s.application, "email_recipient", "")
+            ),
+            "notify_on_apply": (
+                s.application.get("notify_on_apply", True)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "notify_on_apply", True)
+            ),
+            "notify_on_failure": (
+                s.application.get("notify_on_failure", True)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "notify_on_failure", True)
+            ),
+            "notify_on_scam": (
+                s.application.get("notify_on_scam", True)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "notify_on_scam", True)
+            ),
+            "notify_on_match": (
+                s.application.get("notify_on_match", False)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "notify_on_match", False)
+            ),
+        },
+        "rate_limits": {
+            "rate_limit_capacity": s.application.rate_limit_capacity,
+            "rate_limit_refill_rate": s.application.rate_limit_refill_rate,
+        },
     }
 
 
@@ -112,6 +161,7 @@ async def update_config(update: ConfigUpdate):
         (["ai", "use_gemini"], update.use_gemini, False),
         (["application", "daily_cap"], update.daily_cap, False),
         (["application", "match_score_threshold"], update.match_score_threshold, False),
+        (["application", "max_retries"], update.max_retries, False),
         (["search", "keywords"], update.search_keywords, False),
         (["search", "locations"], update.search_locations, False),
         (["search", "experience_min"], update.experience_min, False),
@@ -132,6 +182,14 @@ async def update_config(update: ConfigUpdate):
         (["profile", "total_experience"], update.total_experience, False),
         (["application", "delay_between_applies_min"], update.delay_between_applies_min, False),
         (["application", "delay_between_applies_max"], update.delay_between_applies_max, False),
+        (["application", "email_notifications_enabled"], update.email_notifications_enabled, False),
+        (["application", "email_recipient"], update.email_recipient, False),
+        (["application", "notify_on_apply"], update.notify_on_apply, False),
+        (["application", "notify_on_failure"], update.notify_on_failure, False),
+        (["application", "notify_on_scam"], update.notify_on_scam, False),
+        (["application", "notify_on_match"], update.notify_on_match, False),
+        (["application", "rate_limit_capacity"], update.rate_limit_capacity, False),
+        (["application", "rate_limit_refill_rate"], update.rate_limit_refill_rate, False),
     ]
 
     apply_updates([(keys, value) for keys, value, _is_secret in updates if value is not None])

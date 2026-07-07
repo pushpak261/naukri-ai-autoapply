@@ -368,14 +368,33 @@ class NaukriAgent:
 
     async def _parse_resume(self) -> None:
         """Parse the resume PDF and cache the structured profile."""
-        resume_path = self._settings.resume.path
-        if not resume_path:
-            log_error("Resume path not configured. Set 'resume.path' in config.yaml")
-            return
+        # First check if there's an uploaded resume file path in resume_profile.json
+        uploaded_file_path: str | None = None
+        profile_json_path = self._settings.project_root / "resume_profile.json"
+        if profile_json_path.exists():
+            try:
+                import json as _json
 
-        path = Path(resume_path)
-        if not path.is_absolute():
-            path = self._settings.project_root / path
+                existing = _json.loads(profile_json_path.read_text(encoding="utf-8"))
+                uploaded = existing.get("uploaded_file_path")
+                if uploaded and Path(uploaded).exists():
+                    uploaded_file_path = uploaded
+                    log_info(f"Using uploaded resume file: {uploaded}")
+            except Exception:
+                pass
+
+        if uploaded_file_path:
+            path = Path(uploaded_file_path)
+        else:
+            resume_path = self._settings.resume.path
+            if not resume_path:
+                log_error("Resume path not configured. Set 'resume.path' in config.yaml")
+                return
+
+            path = Path(resume_path)
+            if not path.is_absolute():
+                path = self._settings.project_root / path
+
         if not path.exists():
             log_error(f"Resume file not found: {path}")
             return

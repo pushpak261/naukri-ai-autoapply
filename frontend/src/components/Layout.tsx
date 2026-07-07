@@ -3,6 +3,7 @@ import {
   LayoutDashboard, Briefcase, FileCheck, History, Settings, User,
   BarChart3, Radar, ShieldAlert, Bot, Database, FileText, HardDrive, Activity,
   Sun, Moon, Zap, GitBranch, LineChart, Download, LogOut, LogIn,
+  Users, Webhook,
 } from 'lucide-react';
 import { useTheme } from '../lib/ThemeContext';
 import { useAuth } from '../lib/AuthContext';
@@ -24,6 +25,8 @@ const navItems = [
   { to: '/backups', icon: HardDrive, label: 'Backups' },
   { to: '/config', icon: Settings, label: 'Configuration' },
   { to: '/resume', icon: User, label: 'Resume' },
+  { to: '/accounts', icon: Users, label: 'Accounts' },
+  { to: '/webhooks', icon: Webhook, label: 'Webhooks' },
 ];
 
 export default function Layout() {

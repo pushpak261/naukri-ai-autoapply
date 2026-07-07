@@ -3,6 +3,7 @@ import { AuthProvider } from './lib/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import Jobs from './pages/Jobs';
 import JobDetail from './pages/JobDetail';
@@ -20,6 +21,8 @@ import Backups from './pages/Backups';
 import MarketIntelligence from './pages/MarketIntelligence';
 import AutoPilot from './pages/AutoPilot';
 import PipelineDebugger from './pages/PipelineDebugger';
+import Accounts from './pages/Accounts';
+import WebhookManager from './pages/WebhookManager';
 
 export default function App() {
   return (
@@ -27,6 +30,7 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Dashboard />} />
             <Route path="/market-intelligence" element={<MarketIntelligence />} />
@@ -45,6 +49,8 @@ export default function App() {
             <Route path="/backups" element={<Backups />} />
             <Route path="/config" element={<Config />} />
             <Route path="/resume" element={<Resume />} />
+            <Route path="/accounts" element={<Accounts />} />
+            <Route path="/webhooks" element={<WebhookManager />} />
           </Route>
         </Routes>
       </AuthProvider>

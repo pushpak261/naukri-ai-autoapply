@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, RotateCcw, AlertCircle, CheckCircle } from 'lucide-react';
+import { Save, RotateCcw, AlertCircle, CheckCircle, Bell, Gauge } from 'lucide-react';
 import { api, type ConfigResponse } from '../lib/api';
 
 interface ConfigForm {
@@ -28,6 +28,14 @@ interface ConfigForm {
   current_location: string;
   preferred_locations: string;
   total_experience: string;
+  max_retries: number;
+  email_notifications_enabled: boolean;
+  notify_on_apply: boolean;
+  notify_on_failure: boolean;
+  notify_on_scam: boolean;
+  notify_on_match: boolean;
+  rate_limit_capacity: number;
+  rate_limit_refill_rate: number;
 }
 
 function configToForm(config: ConfigResponse): ConfigForm {
@@ -57,6 +65,14 @@ function configToForm(config: ConfigResponse): ConfigForm {
     current_location: config.profile.current_location,
     preferred_locations: config.profile.preferred_locations.join(', '),
     total_experience: config.profile.total_experience,
+    max_retries: config.application.max_retries ?? 3,
+    email_notifications_enabled: config.notifications?.email_notifications_enabled ?? false,
+    notify_on_apply: config.notifications?.notify_on_apply ?? true,
+    notify_on_failure: config.notifications?.notify_on_failure ?? true,
+    notify_on_scam: config.notifications?.notify_on_scam ?? true,
+    notify_on_match: config.notifications?.notify_on_match ?? false,
+    rate_limit_capacity: config.rate_limits?.rate_limit_capacity ?? 10,
+    rate_limit_refill_rate: config.rate_limits?.rate_limit_refill_rate ?? 1,
   };
 }
 
@@ -100,12 +116,20 @@ export default function Config() {
         use_gemini: form.use_gemini,
         enable_matching: form.enable_matching,
         ai_model: form.ai_model,
+        max_retries: form.max_retries,
         current_ctc: form.current_ctc,
         expected_ctc: form.expected_ctc,
         notice_period: form.notice_period,
         current_location: form.current_location,
         preferred_locations: form.preferred_locations.split(',').map((s: string) => s.trim()).filter(Boolean),
         total_experience: form.total_experience,
+        email_notifications_enabled: form.email_notifications_enabled,
+        notify_on_apply: form.notify_on_apply,
+        notify_on_failure: form.notify_on_failure,
+        notify_on_scam: form.notify_on_scam,
+        notify_on_match: form.notify_on_match,
+        rate_limit_capacity: form.rate_limit_capacity,
+        rate_limit_refill_rate: form.rate_limit_refill_rate,
       };
       await api.updateConfig(payload);
       setMessage({ type: 'success', text: 'Configuration saved successfully!' });
@@ -222,6 +246,10 @@ export default function Config() {
               <input type="number" value={form.match_score_threshold} onChange={(e) => setForm({ ...form, match_score_threshold: Number(e.target.value) })} className={inputClass} />
             </div>
             <div>
+              <label className={labelClass}>Max Retries (per failure)</label>
+              <input type="number" min="0" value={form.max_retries} onChange={(e) => setForm({ ...form, max_retries: Number(e.target.value) })} className={inputClass} />
+            </div>
+            <div>
               <label className={labelClass}>Delay Min (seconds)</label>
               <input type="number" value={form.delay_between_applies_min} onChange={(e) => setForm({ ...form, delay_between_applies_min: Number(e.target.value) })} className={inputClass} />
             </div>
@@ -290,6 +318,58 @@ export default function Config() {
             <div className="md:col-span-2">
               <label className={labelClass}>Preferred Locations (comma-separated)</label>
               <input type="text" value={form.preferred_locations} onChange={(e) => setForm({ ...form, preferred_locations: e.target.value })} className={inputClass} placeholder="Pune, Mumbai, Bangalore, Remote" />
+            </div>
+          </div>
+        </div>
+
+        <div className={sectionClass}>
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Bell className="w-5 h-5 text-[#38bdf8]" />
+            Notification Settings
+          </h2>
+          <div className="space-y-4">
+            <div className="flex items-center gap-3">
+              <input type="checkbox" id="email_notifications" checked={form.email_notifications_enabled} onChange={(e) => setForm({ ...form, email_notifications_enabled: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
+              <label htmlFor="email_notifications" className="text-sm text-[#94a3b8]">Enable Email Notifications</label>
+            </div>
+            {form.email_notifications_enabled && (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pl-6">
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="notify_apply" checked={form.notify_on_apply} onChange={(e) => setForm({ ...form, notify_on_apply: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
+                  <label htmlFor="notify_apply" className="text-xs text-[#94a3b8]">On Apply</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="notify_failure" checked={form.notify_on_failure} onChange={(e) => setForm({ ...form, notify_on_failure: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
+                  <label htmlFor="notify_failure" className="text-xs text-[#94a3b8]">On Failure</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="notify_scam" checked={form.notify_on_scam} onChange={(e) => setForm({ ...form, notify_on_scam: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
+                  <label htmlFor="notify_scam" className="text-xs text-[#94a3b8]">On Scam</label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input type="checkbox" id="notify_match" checked={form.notify_on_match} onChange={(e) => setForm({ ...form, notify_on_match: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
+                  <label htmlFor="notify_match" className="text-xs text-[#94a3b8]">On High Match</label>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={sectionClass}>
+          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Gauge className="w-5 h-5 text-[#38bdf8]" />
+            Rate Limit Settings
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className={labelClass}>Token Bucket Capacity</label>
+              <input type="number" min="1" value={form.rate_limit_capacity} onChange={(e) => setForm({ ...form, rate_limit_capacity: Number(e.target.value) })} className={inputClass} />
+              <p className="text-[10px] text-[#64748b] mt-1">Max requests per second burst</p>
+            </div>
+            <div>
+              <label className={labelClass}>Refill Rate (tokens/sec)</label>
+              <input type="number" min="0.1" step="0.1" value={form.rate_limit_refill_rate} onChange={(e) => setForm({ ...form, rate_limit_refill_rate: Number(e.target.value) })} className={inputClass} />
+              <p className="text-[10px] text-[#64748b] mt-1">Tokens added per second</p>
             </div>
           </div>
         </div>

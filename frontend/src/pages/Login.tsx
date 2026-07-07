@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { useTheme } from '../lib/ThemeContext';
 import { Activity, Sun, Moon } from 'lucide-react';
@@ -99,7 +99,13 @@ export default function Login() {
           </button>
         </form>
 
-        <p className="text-center mt-6 text-xs text-muted">
+        <p className="text-center mt-4 text-sm text-secondary">
+          Don't have an account?{' '}
+          <Link to="/register" className="text-primary hover:underline">
+            Register
+          </Link>
+        </p>
+        <p className="text-center mt-2 text-xs text-muted">
           Your Naukri credentials are stored securely and used only for the agent.
         </p>
       </div>

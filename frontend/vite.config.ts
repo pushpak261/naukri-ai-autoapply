@@ -28,13 +28,11 @@ export default defineConfig({
         runtimeCaching: [
           {
             urlPattern: /^\/api\/stats/,
-            handler: 'NetworkFirst',
-            options: { cacheName: 'api-stats', expiration: { maxEntries: 10, maxAgeSeconds: 300 } },
+            handler: 'NetworkOnly',
           },
           {
             urlPattern: /^\/api\/(jobs|applications)/,
-            handler: 'NetworkFirst',
-            options: { cacheName: 'api-data', expiration: { maxEntries: 50, maxAgeSeconds: 600 } },
+            handler: 'NetworkOnly',
           },
         ],
       },

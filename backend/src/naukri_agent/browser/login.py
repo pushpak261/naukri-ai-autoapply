@@ -201,6 +201,7 @@ class LoginHandler:
         """
         if await self._check_existing_session():
             log_success("Already logged in — skipping login flow.")
+            self._engine.mark_session_authenticated()
             await self._engine.save_session()
             return True
 
@@ -249,6 +250,11 @@ class LoginHandler:
     async def _perform_login(self) -> bool:
         """
         Perform a fresh login using the injected login strategy.
+
+        Session is saved ONLY after the user's authenticated state is
+        confirmed via multiple independent checks (URL, profile indicators,
+        error message absence, body text). Failed logins never persist
+        session data and never overwrite existing valid sessions.
         """
         try:
             if await self._skip_if_already_logged_in():
@@ -261,24 +267,41 @@ class LoginHandler:
             # Close any popups
             await self._login_page.close_popups()
 
-            # Delegate to strategy
+            # Delegate to strategy (enters credentials, handles OTP)
             success = await self._strategy.authenticate(self._login_page)
             if not success:
+                log_error("Login strategy failed")
                 return False
 
-            # Validate login
-            if await self._login_page.is_logged_in():
-                log_success("Login successful! 🎉")
+            # Wait for post-login navigation to settle
+            log_info("Verifying login state...")
+            await self._login_page.wait_for_navigation_settle()
+
+            # Perform comprehensive auth verification
+            verified, reason = await self._login_page.verify_auth_state()
+
+            if verified:
+                log_success("Login successful!")
                 await self._engine.save_session()
                 return True
+
+            # Login failed — diagnose the reason
+            log_warning(f"Auth verification failed: {reason}")
+
+            # Check for error message text
+            error_text = await self._login_page.get_login_error_text()
+            if error_text:
+                log_error(f"Login error: {error_text}")
+            elif await self._login_page.has_captcha():
+                log_error("CAPTCHA challenge detected — login blocked")
+            elif await self._login_page.has_otp_pending():
+                log_error("OTP verification incomplete")
+            elif await self._login_page.is_on_login_page():
+                log_error("Login failed — still on login page")
             else:
-                # Check for error messages
-                error_text = await self._login_page.get_login_error_text()
-                if error_text:
-                    log_error(f"Login failed: {error_text}")
-                else:
-                    log_error("Login failed — could not verify logged-in state")
-                return False
+                log_error("Login failed — could not verify authenticated state")
+
+            return False
 
         except (PlaywrightTimeoutError, PlaywrightError) as e:
             error_msg = str(e)

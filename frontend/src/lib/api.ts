@@ -5,12 +5,20 @@ const BASE_URL = '/api';
 // ---------------------------------------------------------------------------
 let accessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
+let refreshWaiters: Array<() => void> = [];
 
 export function setAuthToken(token: string | null) {
   accessToken = token;
 }
 
 export function getAuthToken(): string | null {
+  return accessToken;
+}
+
+/** Wait for any in-flight token refresh to complete, then return the token. */
+async function waitForRefresh(): Promise<string | null> {
+  if (!refreshPromise) return accessToken;
+  await new Promise<void>((resolve) => refreshWaiters.push(resolve));
   return accessToken;
 }
 
@@ -34,6 +42,8 @@ async function refreshAccessToken(): Promise<string | null> {
       return null;
     } finally {
       refreshPromise = null;
+      refreshWaiters.forEach((r) => r());
+      refreshWaiters = [];
     }
   })();
   return refreshPromise;
@@ -48,9 +58,23 @@ async function fetchJSON<T>(url: string, options?: RequestInit, skipAuth = false
     'Content-Type': 'application/json',
     ...(options?.headers as Record<string, string> | undefined),
   };
-  if (accessToken && !skipAuth) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+
+  // If a token refresh is in-flight, wait for it before sending this request
+  let token = accessToken;
+  if (refreshPromise) {
+    token = await waitForRefresh();
   }
+
+  // No token yet but auth is required – proactively refresh so we never
+  // send a request that will 401 (avoids noisy 401 logs on page load).
+  if (!token && !skipAuth) {
+    token = await refreshAccessToken();
+  }
+
+  if (token && !skipAuth) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   let res = await fetch(`${BASE_URL}${url}`, {
     ...options,
     headers,
@@ -79,9 +103,18 @@ async function fetchJSON<T>(url: string, options?: RequestInit, skipAuth = false
 
 async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
   const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+
+  let token = accessToken;
+  if (refreshPromise) {
+    token = await waitForRefresh();
   }
+  if (!token) {
+    token = await refreshAccessToken();
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   let res = await fetch(`${BASE_URL}${url}`, {
     method: 'POST',
     body: formData,
@@ -109,9 +142,18 @@ async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
 
 async function fetchText(url: string): Promise<string> {
   const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+
+  let token = accessToken;
+  if (refreshPromise) {
+    token = await waitForRefresh();
   }
+  if (!token) {
+    token = await refreshAccessToken();
+  }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   let res = await fetch(`${BASE_URL}${url}`, { headers, credentials: 'include' });
   if (res.status === 401) {
     const newToken = await refreshAccessToken();
@@ -219,9 +261,11 @@ export interface ConfigResponse {
   ai: { use_gemini: boolean; enable_matching: boolean; has_api_key: boolean; model: string; fallback_model: string | null; abort_on_quota: boolean; temperature: number; max_output_tokens: number };
   resume: { path: string };
   search: { keywords: string[]; locations: string[]; experience_min: number; experience_max: number; salary_min: number; freshness: number; max_pages: number; sort_by: string; enable_heuristics: boolean };
-  application: { daily_cap: number; match_score_threshold: number; answer_questions_with_pdf: boolean; delay_between_applies_min: number; delay_between_applies_max: number; skip_external_apply: boolean; dry_run: boolean; enable_project_indexer: boolean };
+  application: { daily_cap: number; match_score_threshold: number; max_retries?: number; answer_questions_with_pdf: boolean; delay_between_applies_min: number; delay_between_applies_max: number; skip_external_apply: boolean; dry_run: boolean; enable_project_indexer: boolean };
   profile: { current_ctc: string; expected_ctc: string; notice_period: string; current_location: string; preferred_locations: string[]; total_experience: string };
   logging: { level: string; log_to_file: boolean };
+  notifications?: { email_notifications_enabled: boolean; email_recipient: string; notify_on_apply: boolean; notify_on_failure: boolean; notify_on_scam: boolean; notify_on_match: boolean };
+  rate_limits?: { rate_limit_capacity: number; rate_limit_refill_rate: number };
 }
 
 export interface StatusInfo {
@@ -448,7 +492,14 @@ export const api = {
       fetchJSON<LoginResponse>('/auth/login', {
         method: 'POST',
         body: JSON.stringify({ email, password }),
-      }, true /* skipAuth: no token yet */),
+      }, true),
+    register: (email: string, password: string) =>
+      fetchJSON<LoginResponse>('/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ email, password }),
+      }, true),
+    checkRegistered: () =>
+      fetchJSON<{ registered: boolean; email: string }>('/auth/register/check', {}, true),
     logout: () =>
       fetchJSON<{ status: string; message: string }>('/auth/logout', { method: 'POST' }, true),
     me: () =>
@@ -460,7 +511,7 @@ export const api = {
     fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}`),
   job: (id: number) => fetchJSON<JobDetail>(`/jobs/${id}`),
   applications: (page = 1, perPage = 20, status = '', sort = 'newest') =>
-    fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}`),
+    fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}&_t=${Date.now()}`),
   runLogs: (limit = 20) => fetchJSON<{ items: RunLog[] }>(`/run-logs?limit=${limit}`),
   runJobs: (runId: number) => fetchJSON<{ items: ApplicationItem[]; run: RunLog }>(`/run-logs/${runId}/jobs`),
   config: () => fetchJSON<ConfigResponse>('/config'),
@@ -549,5 +600,101 @@ export const api = {
     applicationsCsv: () => `${SSE_BASE}/export/applications/csv`,
     jobsCsv: () => `${SSE_BASE}/export/jobs/csv`,
     statsJson: () => `${SSE_BASE}/export/stats/json`,
+    full: () => `${SSE_BASE}/export/full`,
+  },
+
+  // ---- Accounts (Feature 12) ----
+  accounts: {
+    list: () => fetchJSON<{ items: AccountItem[] }>('/accounts'),
+    create: (data: { email: string; password: string; name?: string; is_primary?: boolean }) =>
+      fetchJSON<{ status: string; account: AccountItem }>('/accounts', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: Record<string, unknown>) =>
+      fetchJSON<{ status: string; account: AccountItem }>(`/accounts/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      fetchJSON<{ status: string; message: string }>(`/accounts/${id}`, { method: 'DELETE' }),
+    activate: (id: number) =>
+      fetchJSON<{ status: string; message: string; account: AccountItem }>(`/accounts/${id}/activate`, { method: 'POST' }),
+  },
+
+  // ---- Webhooks (Feature 9) ----
+  webhooks: {
+    list: () => fetchJSON<{ items: WebhookItem[] }>('/webhooks'),
+    create: (data: { name: string; url: string; secret?: string; events?: string }) =>
+      fetchJSON<{ status: string; webhook: WebhookItem }>('/webhooks', { method: 'POST', body: JSON.stringify(data) }),
+    update: (id: number, data: Record<string, unknown>) =>
+      fetchJSON<{ status: string; webhook: WebhookItem }>(`/webhooks/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    delete: (id: number) =>
+      fetchJSON<{ status: string }>(`/webhooks/${id}`, { method: 'DELETE' }),
+    test: (id: number) =>
+      fetchJSON<{ status: string; result: Record<string, unknown> }>(`/webhooks/${id}/test`, { method: 'POST' }),
+  },
+
+  // ---- Application Retry & Sync (Features 3 & 6) ----
+  applicationsExtra: {
+    retry: (appId: number) =>
+      fetchJSON<{ status: string; message: string; app_id: number; retry_count: number }>(`/applications/${appId}/retry`, { method: 'POST' }),
+    retryAllFailed: () =>
+      fetchJSON<{ status: string; message: string; count: number }>('/applications/retry-all-failed', { method: 'POST' }),
+    syncStatus: () =>
+      fetchJSON<{ status: string; message: string; synced_count: number; synced_at: string }>('/applications/sync-status', { method: 'POST' }),
+    getSyncStatus: () =>
+      fetchJSON<{ items: SyncStatusItem[] }>('/applications/sync-status'),
+  },
+
+  // ---- Import (Feature 5) ----
+  importFull: (data: Record<string, unknown>) =>
+    fetchJSON<{ status: string; message: string; counts: Record<string, number> }>('/import/full', { method: 'POST', body: JSON.stringify(data) }),
+
+  // ---- Sessions (Feature 2) ----
+  sessions: {
+    list: () => fetchJSON<{ items: SessionFileItem[] }>('/sessions/list'),
+    clear: (account?: string) =>
+      fetchJSON<{ status: string; message: string }>(`/session${account ? `?account=${encodeURIComponent(account)}` : ''}`, { method: 'DELETE' }),
+  },
+
+  // ---- Backup Restore (Feature 11) ----
+  backups: {
+    list: () => fetchJSON<{ items: BackupItem[] }>('/backups'),
+    create: () => fetchJSON<{ status: string; message: string }>('/backups/create', { method: 'POST' }),
+    restore: (name: string) =>
+      fetchJSON<{ status: string; message: string }>(`/backups/restore?name=${encodeURIComponent(name)}`, { method: 'POST' }),
   },
 };
+
+// New types for the features above
+export interface AccountItem {
+  id: number;
+  email: string;
+  name: string;
+  is_active: boolean;
+  is_primary: boolean;
+  has_password?: boolean;
+  created_at: string;
+  last_used_at: string | null;
+}
+
+export interface WebhookItem {
+  id: number;
+  name: string;
+  url: string;
+  events: string[];
+  is_active: boolean;
+  failure_count: number;
+  last_triggered_at: string | null;
+  created_at: string;
+}
+
+export interface SyncStatusItem {
+  id: number;
+  title: string;
+  company: string;
+  naukri_status: string;
+  last_synced: string | null;
+}
+
+export interface SessionFileItem {
+  name: string;
+  file: string;
+  size: number;
+  modified: string;
+}

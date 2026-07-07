@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
@@ -83,12 +84,33 @@ def create_agent(settings, db_manager) -> NaukriAgent:
     )
 
 
+def _patch_resume_path_from_uploaded(settings) -> None:
+    """
+    If resume_profile.json has an uploaded_file_path that points to an existing
+    file, patch the runtime settings so the agent and validation use that file.
+    """
+    profile_json_path = settings.project_root / "resume_profile.json"
+    if not profile_json_path.exists():
+        return
+    try:
+        import json
+
+        data = json.loads(profile_json_path.read_text(encoding="utf-8"))
+        uploaded = data.get("uploaded_file_path")
+        if uploaded and Path(uploaded).exists():
+            settings.resume.path = uploaded
+    except Exception:
+        pass
+
+
 async def _run(
     dry_run: bool,
     cap: int | None,
     threshold: int | None,
     keyword: str | None,
 ):
+    import os
+
     from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
@@ -101,6 +123,10 @@ async def _run(
     if keyword is not None:
         settings.search.keywords = [keyword]
 
+    # If an uploaded resume exists (via resume_profile.json), patch the runtime
+    # settings so validation passes even if config.yaml wasn't updated.
+    _patch_resume_path_from_uploaded(settings)
+
     problems = settings.validate_required()
     if problems:
         console.print("[bold red]Configuration error — cannot start the agent:[/bold red]")
@@ -110,6 +136,35 @@ async def _run(
         raise SystemExit(1)
 
     db_manager = await setup_database_manager(settings.db_path)
+
+    # Determine which account to use: env var overrides, otherwise query DB for active account
+    from sqlalchemy import select
+    from src.naukri_agent.models.db_schema import NaukriAccount
+
+    active_account_email = os.environ.get("NAUKRI_ACTIVE_ACCOUNT")
+    if not active_account_email:
+        async with db_manager.session_factory() as session:
+            result = await session.execute(
+                select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
+            )
+            active = result.scalar_one_or_none()
+            if active:
+                active_account_email = active.email
+
+    if active_account_email:
+        async with db_manager.session_factory() as session:
+            result = await session.execute(
+                select(NaukriAccount).where(NaukriAccount.email == active_account_email)
+            )
+            account = result.scalar_one_or_none()
+        if account:
+            settings.naukri.email = account.email
+            settings.naukri.password = account.password
+            console.print(f"  ℹ️  Using Naukri account: {account.email[:3]}...")
+        else:
+            console.print(
+                f"[yellow]  ⚠️  Active account '{active_account_email}' not found in DB, falling back to default[/yellow]"
+            )
 
     # Start the incremental project indexer in the background
     if settings.application.enable_project_indexer:
@@ -129,6 +184,11 @@ async def _run(
             console.print(f"[dim]Note: Could not start background indexer ({e})[/dim]")
 
     agent = create_agent(settings, db_manager)
+
+    # If active account is set, switch the engine's session path to the per-account file
+    if active_account_email:
+        agent._engine.set_session_for_account(active_account_email)
+
     await agent.run(dry_run=dry_run)
 
 

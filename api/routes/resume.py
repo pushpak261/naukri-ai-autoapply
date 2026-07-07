@@ -5,6 +5,7 @@ REST endpoints for resume upload, parsing, and profile management.
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -28,6 +29,27 @@ def _get_profile_json_path() -> Path:
     if PROFILE_JSON_PATH is None:
         PROFILE_JSON_PATH = state.settings.project_root / "resume_profile.json"
     return PROFILE_JSON_PATH
+
+
+def _update_config_resume_path(new_rel_path: str) -> None:
+    """Update resume.path in config.yaml so it persists across restarts."""
+    config_path = state.settings.project_root / "config.yaml"
+    if not config_path.exists():
+        return
+    try:
+        content = config_path.read_text(encoding="utf-8")
+        # Replace the path: value under the resume: section
+        updated = re.sub(
+            r"(?m)^(\s*resume:\s*\n\s+path:\s*).*$",
+            rf"\1{new_rel_path}",
+            content,
+        )
+        if updated != content:
+            config_path.write_text(updated, encoding="utf-8")
+        # Also update the runtime settings so validation passes immediately
+        state.settings.resume.path = new_rel_path
+    except Exception:
+        pass
 
 
 @router.post("/api/resume/upload")
@@ -78,12 +100,17 @@ async def upload_resume(file: UploadFile = File(...)):
 
     if cached_profile:
         profile_json_path = _get_profile_json_path()
+        cached_profile["uploaded_file_path"] = str(dest_path)
         try:
             profile_json_path.write_text(
                 json.dumps(cached_profile, indent=2, ensure_ascii=False), encoding="utf-8"
             )
         except Exception:
             pass
+
+        # Update config.yaml to persist the active resume path
+        rel_path = str(dest_path.relative_to(state.settings.project_root)).replace("\\", "/")
+        _update_config_resume_path(rel_path)
 
         return {"status": "cached", "profile": cached_profile, "file_path": str(dest_path)}
 
@@ -115,6 +142,7 @@ async def upload_resume(file: UploadFile = File(...)):
 
     profile_json_path = _get_profile_json_path()
     profile_dict = {
+        "uploaded_file_path": str(dest_path),
         "name": profile.name,
         "email": profile.email,
         "phone": profile.phone,
@@ -155,16 +183,42 @@ async def upload_resume(file: UploadFile = File(...)):
     except Exception:
         pass
 
+    # Update config.yaml to persist the active resume path
+    rel_path = str(dest_path.relative_to(state.settings.project_root)).replace("\\", "/")
+    _update_config_resume_path(rel_path)
+
     return {"status": "parsed", "profile": profile_dict, "file_path": str(dest_path)}
 
 
 @router.put("/api/resume/profile")
 async def save_resume_profile(data: dict):
     profile_json_path = _get_profile_json_path()
+
+    # Preserve uploaded_file_path from the existing file if not in the new data
+    if "uploaded_file_path" not in data and profile_json_path.exists():
+        try:
+            existing = json.loads(profile_json_path.read_text(encoding="utf-8"))
+            if "uploaded_file_path" in existing:
+                data["uploaded_file_path"] = existing["uploaded_file_path"]
+        except Exception:
+            pass
+
     try:
         profile_json_path.write_text(
             json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-        return {"status": "saved", "profile": data}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save profile: {e}")
+
+    # Also update the DB cache to keep it in sync with the edited profile
+    if state.repo and data.get("file_hash"):
+        try:
+            await state.repo.save_resume_profile(
+                file_hash=data["file_hash"],
+                file_path=data.get("uploaded_file_path", ""),
+                parsed_json=json.dumps(data, ensure_ascii=False),
+            )
+        except Exception:
+            pass
+
+    return {"status": "saved", "profile": data}

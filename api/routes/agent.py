@@ -15,6 +15,7 @@ from api.deps import state
 from src.naukri_agent.config.constants import ApplicationStatus
 from src.naukri_agent.models.db_schema import Application as DBApplication
 from src.naukri_agent.models.db_schema import Job as DBJob
+from src.naukri_agent.models.db_schema import NaukriAccount
 
 router = APIRouter(tags=["agent"])
 
@@ -75,14 +76,31 @@ async def start_agent():
             "pid": state.agent_process.pid,
         }
 
+    # Fallback: if in-memory state is lost (server restart), query DB for active account
+    if not state.active_account_email:
+        try:
+            session_factory = await state.db_manager.get_session_factory()
+            async with session_factory() as session:
+                result = await session.execute(
+                    select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
+                )
+                active = result.scalar_one_or_none()
+                if active:
+                    state.active_account_email = active.email
+        except Exception:
+            pass
+
     cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
+    env = _agent_subprocess_env()
+    if state.active_account_email:
+        env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
     try:
         state.agent_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=str(state.settings.project_root),
-            env=_agent_subprocess_env(),
+            env=env,
         )
     except FileNotFoundError:
         raise HTTPException(

@@ -59,8 +59,14 @@ class PlaywrightEngine(IBrowserEngine):
         self._browser: Browser | None = None
         self._context: BrowserContext | None = None
         self._page: Page | None = None
-        self._session_path = settings.sessions_dir / "naukri_session.json"
+        self._session_path: Path | None = None
+        self._session_saved: bool = False
         self._fernet = self._init_fernet(settings)
+
+    def set_session_for_account(self, account_email: str) -> None:
+        """Switch session to a specific account's saved state."""
+        safe_name = account_email.replace("@", "_at_").replace(".", "_dot_")
+        self._session_path = self._settings.sessions_dir / f"naukri_session_{safe_name}.json"
 
     @staticmethod
     def _init_fernet(settings: Settings) -> Fernet | None:
@@ -113,6 +119,7 @@ class PlaywrightEngine(IBrowserEngine):
             The active Page instance.
         """
         logger.info("Launching browser...")
+        self._session_saved = False
 
         try:
             self._playwright = await async_playwright().start()
@@ -143,7 +150,7 @@ class PlaywrightEngine(IBrowserEngine):
             }
 
             # Restore session state if available (handles encrypted files)
-            if self._session_path.exists():
+            if self._session_path and self._session_path.exists():
                 logger.info("Restoring previous session state...")
                 try:
                     raw = self._session_path.read_bytes()
@@ -179,19 +186,39 @@ class PlaywrightEngine(IBrowserEngine):
 
     async def save_session(self) -> None:
         """Save the current browser session state (cookies, local storage) — encrypted at rest."""
-        if self._context:
+        if self._context and self._session_path:
             self._session_path.parent.mkdir(parents=True, exist_ok=True)
             state = await self._context.storage_state()
             raw = json.dumps(state, ensure_ascii=False).encode("utf-8")
             self._session_path.write_bytes(self._encrypt(raw))
+            self._session_saved = True
             logger.debug("Session state saved")
 
+    def mark_session_authenticated(self) -> None:
+        """
+        Mark the current session as authenticated without re-saving.
+
+        Used when a previously saved session was successfully restored
+        from disk and verified as valid, so close() will persist any
+        state changes made during the run.
+        """
+        self._session_saved = True
+
     async def close(self) -> None:
-        """Save session and close all browser resources."""
-        try:
-            await self.save_session()
-        except Exception as e:
-            logger.warning(f"Failed to save session state: {e}")
+        """Save session and close all browser resources.
+
+        Only saves the session if save_session() was explicitly called at
+        least once during this browser lifecycle (i.e., login succeeded).
+        This prevents overwriting a valid authenticated session with
+        unauthenticated browser state when login fails.
+        """
+        if self._session_saved:
+            try:
+                await self.save_session()
+            except Exception as e:
+                logger.warning(f"Failed to save session state: {e}")
+        else:
+            logger.info("Skipping session save — no authenticated session was established")
 
         try:
             if self._page:

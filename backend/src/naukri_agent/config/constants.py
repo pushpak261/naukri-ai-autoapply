@@ -79,6 +79,24 @@ class LoginSelectors:
     PROFILE_ICON = '//a[contains(@href, "mnjuser") or contains(@class, "nI-gNb-drawer")]'
     USER_NAME_ELEMENT = '[class*="nI-gNb-sb__main"]'
 
+    # Aggregated list of selectors that prove the user is logged in
+    LOGGED_IN_INDICATORS = [
+        PROFILE_ICON,
+        'a[href*="mnjuser"]',
+        ".nI-gNb-drawer__icon",
+        'a[href*="profile/edit"]',
+        'a[href*="logout"]',
+        USER_NAME_ELEMENT,
+        '[class*="nI-gNb-drawer"]',
+        'a:has-text("My Naukri")',
+        'a:has-text("Logout")',
+        'a:has-text("My Account")',
+        'a:has-text("My Profile")',
+        'img[class*="userImg"]',
+        'img[class*="avatar"]',
+        'span[class*="userName"]',
+    ]
+
     # Error messages
     LOGIN_ERROR = '//span[contains(@class, "err") or contains(@class, "error")]'
 

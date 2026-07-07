@@ -15,9 +15,17 @@ application:
   delay_between_applies_max: 90
   delay_between_applies_min: 30
   dry_run: false
+  email_notifications_enabled: true
   enable_project_indexer: true
   match_score_threshold: 50
   min_company_rating: 2.5
+  max_retries: 3
+  notify_on_apply: true
+  notify_on_failure: true
+  notify_on_match: true
+  notify_on_scam: true
+  rate_limit_capacity: 10.0
+  rate_limit_refill_rate: 1.0
   skip_external_apply: true
   strict_policy_mode: true
 exclusions:
@@ -156,17 +164,14 @@ profile:
   notice_period: Immediate
   preferred_locations:
   - Pune
-  - Mumbai
-  - Bangalore
-  - Remote
   total_experience: 1 years
 resume:
-  path: resume.pdf
+  path: data/resumes/resume_20260707_032253.pdf
 search:
   enable_heuristics: true
   experience_max: 2
-  experience_min: 0
-  freshness: 7
+  experience_min: 1
+  freshness: 15
   keywords:
   - Full Stack Developer
   - Java Developer
