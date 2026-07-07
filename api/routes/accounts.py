@@ -60,13 +60,15 @@ async def create_account(body: AccountCreate):
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="Account with this email already exists")
 
+        # Deactivate all other accounts so only this new one is active
+        await session.execute(sql_update(NaukriAccount).values(is_active=False))
+
         if body.is_primary:
             current_primary = (
                 await session.execute(select(NaukriAccount).where(NaukriAccount.is_primary == True))
             ).scalar_one_or_none()
             if current_primary:
                 current_primary.is_primary = False
-                current_primary.is_active = False
 
         account = NaukriAccount(
             email=body.email.strip(),
@@ -78,6 +80,9 @@ async def create_account(body: AccountCreate):
         session.add(account)
         await session.commit()
         await session.refresh(account)
+
+        # Sync in-memory state
+        state.active_account_email = account.email
 
         return {
             "status": "created",
@@ -108,6 +113,15 @@ async def update_account(account_id: int, body: AccountUpdate):
             account.name = body.name.strip()
         if body.is_active is not None:
             account.is_active = body.is_active
+            if body.is_active:
+                # Deactivate all other accounts
+                await session.execute(
+                    sql_update(NaukriAccount).where(NaukriAccount.id != account_id).values(is_active=False)
+                )
+                state.active_account_email = account.email
+            else:
+                if state.active_account_email == account.email:
+                    state.active_account_email = None
         if body.is_primary:
             current_primary = (
                 await session.execute(

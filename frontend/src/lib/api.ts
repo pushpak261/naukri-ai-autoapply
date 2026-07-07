@@ -5,12 +5,20 @@ const BASE_URL = '/api';
 // ---------------------------------------------------------------------------
 let accessToken: string | null = null;
 let refreshPromise: Promise<string | null> | null = null;
+let refreshWaiters: Array<() => void> = [];
 
 export function setAuthToken(token: string | null) {
   accessToken = token;
 }
 
 export function getAuthToken(): string | null {
+  return accessToken;
+}
+
+/** Wait for any in-flight token refresh to complete, then return the token. */
+async function waitForRefresh(): Promise<string | null> {
+  if (!refreshPromise) return accessToken;
+  await new Promise<void>((resolve) => refreshWaiters.push(resolve));
   return accessToken;
 }
 
@@ -34,6 +42,8 @@ async function refreshAccessToken(): Promise<string | null> {
       return null;
     } finally {
       refreshPromise = null;
+      refreshWaiters.forEach((r) => r());
+      refreshWaiters = [];
     }
   })();
   return refreshPromise;
@@ -48,9 +58,17 @@ async function fetchJSON<T>(url: string, options?: RequestInit, skipAuth = false
     'Content-Type': 'application/json',
     ...(options?.headers as Record<string, string> | undefined),
   };
-  if (accessToken && !skipAuth) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+
+  // If a token refresh is in-flight, wait for it before sending this request
+  // (prevents duplicate 401s from React StrictMode double-fire, etc.)
+  let token = accessToken;
+  if (refreshPromise) {
+    token = await waitForRefresh();
   }
+  if (token && !skipAuth) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   let res = await fetch(`${BASE_URL}${url}`, {
     ...options,
     headers,
@@ -79,9 +97,15 @@ async function fetchJSON<T>(url: string, options?: RequestInit, skipAuth = false
 
 async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
   const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+
+  let token = accessToken;
+  if (refreshPromise) {
+    token = await waitForRefresh();
   }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   let res = await fetch(`${BASE_URL}${url}`, {
     method: 'POST',
     body: formData,
@@ -109,9 +133,15 @@ async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
 
 async function fetchText(url: string): Promise<string> {
   const headers: Record<string, string> = {};
-  if (accessToken) {
-    headers['Authorization'] = `Bearer ${accessToken}`;
+
+  let token = accessToken;
+  if (refreshPromise) {
+    token = await waitForRefresh();
   }
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   let res = await fetch(`${BASE_URL}${url}`, { headers, credentials: 'include' });
   if (res.status === 401) {
     const newToken = await refreshAccessToken();

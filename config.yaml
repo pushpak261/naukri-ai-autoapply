@@ -145,8 +145,8 @@ logging:
   log_dir: data/logs
   log_to_file: true
 naukri:
-  email: iamchaze9604@gmail.com
-  password: Test@123
+  email: pushpak262001@gmail.com
+  password: Pushpak@123!
 profile:
   current_ctc: 4.4 LPA
   current_location: Pune
