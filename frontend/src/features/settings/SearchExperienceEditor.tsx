@@ -108,7 +108,7 @@ export function SearchExperienceEditor({
         {inputs}
         <p className="text-xs text-muted-foreground">
           Jobs requiring more than the max years are filtered out. Changes are saved to
-          config.yaml.
+          the database.
         </p>
         {saveMutation.isError && (
           <p className="text-sm text-destructive">{(saveMutation.error as Error).message}</p>

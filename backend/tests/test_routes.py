@@ -51,14 +51,23 @@ async def test_config_summary_no_secrets(app):
 
 @pytest.mark.asyncio
 async def test_update_search_experience(app, tmp_path, monkeypatch):
+    import json
+    import sqlite3
+
     from src.naukri_agent.config import settings as settings_module
 
+    db_path = tmp_path / "data" / "naukri_agent.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         "search:\n  experience_min: 0\n  experience_max: 1\n",
         encoding="utf-8",
     )
     monkeypatch.setattr(settings_module, "PROJECT_ROOT", tmp_path)
+    monkeypatch.setattr(
+        "src.naukri_agent.config.store.DEFAULT_DB_PATH",
+        db_path,
+    )
     settings_module.get_settings.cache_clear()
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
@@ -71,7 +80,16 @@ async def test_update_search_experience(app, tmp_path, monkeypatch):
     data = res.json()
     assert data["experience_min"] == 2
     assert data["experience_max"] == 5
-    assert "experience_min: 2" in config_path.read_text(encoding="utf-8")
+
+    conn = sqlite3.connect(db_path)
+    rows = {
+        key: json.loads(value)
+        for key, value in conn.execute("SELECT key, value FROM app_config").fetchall()
+    }
+    conn.close()
+    assert rows["search.experience_min"] == 2
+    assert rows["search.experience_max"] == 5
+    assert "experience_min: 2" not in config_path.read_text(encoding="utf-8")
     settings_module.get_settings.cache_clear()
 
 

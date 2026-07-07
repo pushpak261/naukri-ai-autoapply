@@ -321,10 +321,13 @@ def get_settings() -> Settings:
     """
     Load and return the application settings (cached singleton).
 
-    Loads config.yaml, applies environment variable overrides, validates
-    with Pydantic, and ensures data directories exist.
+    Loads config.yaml defaults, merges database overrides, applies environment
+    variable overrides, validates with Pydantic, and ensures data directories exist.
     """
+    from src.naukri_agent.config.store import deep_merge, load_overrides
+
     config = _load_yaml_config()
+    config = deep_merge(config, load_overrides(PROJECT_ROOT / "data" / "naukri_agent.db"))
     config = _apply_env_overrides(config)
     settings = Settings(**config)
     settings.ensure_dirs()
@@ -332,26 +335,21 @@ def get_settings() -> Settings:
 
 
 def save_search_experience(experience_min: int, experience_max: int) -> Settings:
-    """Persist search experience bounds to config.yaml and return refreshed settings."""
+    """Persist search experience bounds to the database and return refreshed settings."""
+    from src.naukri_agent.config.store import apply_updates
+
     if experience_min > experience_max:
         raise ValueError(
             f"experience_min ({experience_min}) cannot be greater than "
             f"experience_max ({experience_max})"
         )
 
-    config_path = PROJECT_ROOT / "config.yaml"
-    if not config_path.exists():
-        raise FileNotFoundError(f"config.yaml not found at {config_path}")
-
-    with open(config_path, encoding="utf-8") as f:
-        config = yaml.safe_load(f) or {}
-
-    search = config.setdefault("search", {})
-    search["experience_min"] = experience_min
-    search["experience_max"] = experience_max
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config, f, default_flow_style=False, allow_unicode=True)
+    apply_updates(
+        [
+            (["search", "experience_min"], experience_min),
+            (["search", "experience_max"], experience_max),
+        ]
+    )
 
     get_settings.cache_clear()
     return get_settings()

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import secrets
 
-import yaml
 from fastapi import APIRouter, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
@@ -97,19 +96,18 @@ def _clear_refresh_cookie(response: Response) -> None:
 
 
 def _save_naukri_credentials(email: str, password: str) -> None:
-    """Persist Naukri credentials to config.yaml so the agent can use them."""
-    config_path = state.settings.project_root / "config.yaml"
-    config_data: dict = {}
-    if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
-            config_data = yaml.safe_load(f) or {}
+    """Persist Naukri credentials to the config database so the agent can use them."""
+    from src.naukri_agent.config.settings import get_settings
+    from src.naukri_agent.config.store import apply_updates
 
-    config_data.setdefault("naukri", {})
-    config_data["naukri"]["email"] = email
-    config_data["naukri"]["password"] = password
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+    apply_updates(
+        [
+            (["naukri", "email"], email),
+            (["naukri", "password"], password),
+        ]
+    )
+    get_settings.cache_clear()
+    state.settings = get_settings()
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +119,7 @@ def _save_naukri_credentials(email: str, password: str) -> None:
 async def login(body: LoginRequest, response: Response):
     """Authenticate with Naukri email + password.
 
-    Stores credentials in config.yaml for the agent, issues a JWT access
+    Stores credentials in the config database for the agent, issues a JWT access
     token (returned in the body) and a refresh token (httpOnly cookie).
     """
     email = body.email.strip()

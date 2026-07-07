@@ -1,6 +1,5 @@
 from typing import Any
 
-import yaml
 from fastapi import APIRouter
 from pydantic import BaseModel
 
@@ -38,12 +37,6 @@ class ConfigUpdate(BaseModel):
     total_experience: str | None = None
     delay_between_applies_min: int | None = None
     delay_between_applies_max: int | None = None
-
-
-def _set_nested(d: dict, keys: list[str], value: Any) -> None:
-    for key in keys[:-1]:
-        d = d.setdefault(key, {})
-    d[keys[-1]] = value
 
 
 @router.get("/api/config")
@@ -108,15 +101,7 @@ async def get_config():
 @router.put("/api/config")
 async def update_config(update: ConfigUpdate):
     from src.naukri_agent.config.settings import get_settings
-
-    config_path = state.settings.project_root / "config.yaml"
-    if not config_path.exists():
-        from fastapi import HTTPException
-
-        raise HTTPException(status_code=404, detail="config.yaml not found")
-
-    with open(config_path, encoding="utf-8") as f:
-        config_data = yaml.safe_load(f) or {}
+    from src.naukri_agent.config.store import apply_updates
 
     updates: list[tuple[list[str], Any, bool]] = [
         (["naukri", "email"], update.naukri_email, True),
@@ -149,22 +134,7 @@ async def update_config(update: ConfigUpdate):
         (["application", "delay_between_applies_max"], update.delay_between_applies_max, False),
     ]
 
-    for keys, value, is_secret in updates:
-        if value is not None:
-            if is_secret:
-                env_var_map = {
-                    ("naukri", "email"): "NAUKRI_EMAIL",
-                    ("naukri", "password"): "NAUKRI_PASSWORD",
-                    ("ai", "gemini_api_key"): "GEMINI_API_KEY",
-                }
-                env_var = env_var_map.get(tuple(keys))
-                if env_var:
-                    _set_nested(config_data, keys, value)
-            else:
-                _set_nested(config_data, keys, value)
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+    apply_updates([(keys, value) for keys, value, _is_secret in updates if value is not None])
 
     get_settings.cache_clear()
     import api.deps

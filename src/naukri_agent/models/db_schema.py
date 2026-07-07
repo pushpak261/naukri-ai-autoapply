@@ -114,6 +114,21 @@ class ResumeProfile(Base):
         return f"<ResumeProfile(id={self.id}, file_hash='{self.file_hash[:8]}...')>"
 
 
+class AppConfig(Base):
+    """User-editable configuration overrides (dashboard / API changes)."""
+
+    __tablename__ = "app_config"
+
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    value: Mapped[str] = mapped_column(Text, nullable=False)  # JSON-encoded
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    def __repr__(self) -> str:
+        return f"<AppConfig(key='{self.key}')>"
+
+
 class RunLog(Base):
     """Log entry for each agent run session."""
 
