@@ -17,7 +17,7 @@ application:
   dry_run: false
   email_notifications_enabled: false
   enable_project_indexer: true
-  match_score_threshold: 50
+  match_score_threshold: 70
   max_retries: 3
   notify_on_apply: true
   notify_on_failure: true
@@ -157,7 +157,7 @@ naukri:
   email: ""
   password: ""
 profile:
-  current_ctc: 4.4 LPA
+  current_ctc: 4.5 LPA
   current_location: Pune
   expected_ctc: 6 LPA
   notice_period: Immediate
@@ -165,7 +165,7 @@ profile:
   - Pune
   total_experience: 1 years
 resume:
-  path: data/resumes/resume_20260707_123136.pdf
+  path: data/resumes/resume_20260707_164525.pdf
 search:
   enable_heuristics: true
   experience_max: 2
@@ -188,7 +188,7 @@ search:
   - Bangalore
   - Remote
   max_pages: 10
-  salary_min: 0
+  salary_min: 5
   sort_by: relevance
 title_whitelist:
 - software engineer
