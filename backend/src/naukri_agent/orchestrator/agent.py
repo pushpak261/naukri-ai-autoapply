@@ -55,8 +55,10 @@ from src.naukri_agent.config.constants import (
     ApplicationStatus,
     NAUKRI_DASHBOARD_URL,
     WORKER_GOTO_TIMEOUT,
+    WORKER_NAV_MAX_ATTEMPTS,
     WORKER_NAV_SETTLE_TIMEOUT,
 )
+from src.naukri_agent.utils.helpers import build_job_detail_url
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
 from src.naukri_agent.core.domain.specifications import (
@@ -469,10 +471,21 @@ class NaukriAgent:
 
     @staticmethod
     def _resolve_job_url(job: Job) -> str:
-        url = (job.url or "").strip()
-        if url and not url.startswith("http"):
-            url = f"https://www.naukri.com{url if url.startswith('/') else '/' + url}"
-        return url
+        return build_job_detail_url(url=job.url, naukri_job_id=job.naukri_job_id)
+
+    @staticmethod
+    def _is_worker_on_job_page(page: Any, job: Job) -> bool:
+        current = (page.url or "").strip()
+        if not current or current.startswith("about:"):
+            return False
+        if "naukri.com" not in current:
+            return False
+        if job.naukri_job_id and job.naukri_job_id in current:
+            return True
+        job_url = build_job_detail_url(url=job.url, naukri_job_id=job.naukri_job_id)
+        if job_url and job_url in current:
+            return True
+        return "job-listings" in current or "job-details" in current
 
     def _worker_needs_job_navigation(self, page: Any, job: Job) -> bool:
         job_url = self._resolve_job_url(job)
@@ -495,38 +508,68 @@ class NaukriAgent:
         """Navigate worker tab to the job detail page. Returns False if URL missing or navigation fails."""
         job_url = self._resolve_job_url(job)
         if not job_url:
-            log_error(f"{log_prefix} Job {job.naukri_job_id} has no URL — cannot navigate")
+            log_error(
+                f"{log_prefix} Job {job.naukri_job_id} has no URL or job id — cannot navigate"
+            )
             return False
 
         page = worker.browser.page
-        if not self._worker_needs_job_navigation(page, job):
+        if self._is_worker_on_job_page(page, job):
             return True
 
         detail_page = worker.stack.detail_page
         interactions = worker.stack.interactions
-        try:
-            await detail_page.navigate(job_url)
-            job.url = job_url
-            await detail_page.close_popups()
-            current = page.url or ""
-            if current.startswith("about:"):
-                log_warning(f"{log_prefix} Still on blank page after navigate — retrying once")
-                await page.goto(
-                    job_url,
-                    wait_until="domcontentloaded",
-                    timeout=WORKER_GOTO_TIMEOUT,
+        last_error: str | None = None
+
+        for attempt in range(1, WORKER_NAV_MAX_ATTEMPTS + 1):
+            try:
+                if page.is_closed():
+                    log_error(f"{log_prefix} Worker page closed before navigation")
+                    return False
+
+                await detail_page.navigate(job_url)
+                job.url = job_url
+                await detail_page.close_popups()
+
+                if self._is_worker_on_job_page(page, job):
+                    return True
+
+                current = page.url or ""
+                if current.startswith("about:"):
+                    log_warning(
+                        f"{log_prefix} Still on blank page after navigate "
+                        f"(attempt {attempt}/{WORKER_NAV_MAX_ATTEMPTS}) — retrying"
+                    )
+                    await page.goto(
+                        job_url,
+                        wait_until="domcontentloaded",
+                        timeout=WORKER_GOTO_TIMEOUT,
+                    )
+                    await interactions.wait_for_navigation_complete(
+                        timeout=WORKER_NAV_SETTLE_TIMEOUT
+                    )
+                    await asyncio.sleep(1)
+                    await detail_page.close_popups()
+
+                if self._is_worker_on_job_page(page, job):
+                    return True
+
+                last_error = f"unexpected URL after navigation: {page.url or 'unknown'}"
+            except Exception as e:
+                last_error = str(e)
+                log_warning(
+                    f"{log_prefix} Navigation attempt {attempt}/{WORKER_NAV_MAX_ATTEMPTS} "
+                    f"failed for {job_url}: {e}"
                 )
-                await interactions.wait_for_navigation_complete(
-                    timeout=WORKER_NAV_SETTLE_TIMEOUT
-                )
-                await asyncio.sleep(1)
-            if (page.url or "").startswith("about:"):
-                log_error(f"{log_prefix} Failed to leave about:blank for {job_url}")
-                return False
-            return True
-        except Exception as e:
-            log_error(f"{log_prefix} Failed to navigate worker to {job_url}: {e}")
-            return False
+
+            if attempt < WORKER_NAV_MAX_ATTEMPTS:
+                await asyncio.sleep(attempt)
+
+        log_error(
+            f"{log_prefix} Failed to open job page for {job.naukri_job_id} "
+            f"({job_url}): {last_error}"
+        )
+        return False
 
     async def _restart_worker(self, worker: ApplyWorker, qa: IQuestionAnswerer) -> None:
         await worker.browser.close()

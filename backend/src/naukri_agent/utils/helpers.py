@@ -153,6 +153,24 @@ class NaukriURLUtility:
         return hashlib.md5(parsed.path.encode()).hexdigest()[:16]
 
     @staticmethod
+    def build_job_detail_url(
+        *,
+        url: str | None = None,
+        naukri_job_id: str | None = None,
+    ) -> str:
+        """Resolve a navigable Naukri job detail URL from a listing URL or job id."""
+        raw = (url or "").strip()
+        if raw:
+            if raw.startswith("http"):
+                return raw
+            return f"https://www.naukri.com{raw if raw.startswith('/') else '/' + raw}"
+
+        job_id = (naukri_job_id or "").strip()
+        if job_id.isdigit():
+            return f"https://www.naukri.com/job-listings-{job_id}"
+        return ""
+
+    @staticmethod
     def build_search_url(
         keywords: str,
         location: str = "",
@@ -367,6 +385,14 @@ def async_retry(
 
 def extract_naukri_job_id(url: str) -> str:
     return NaukriURLUtility.extract_job_id(url)
+
+
+def build_job_detail_url(
+    *,
+    url: str | None = None,
+    naukri_job_id: str | None = None,
+) -> str:
+    return NaukriURLUtility.build_job_detail_url(url=url, naukri_job_id=naukri_job_id)
 
 
 def build_search_url(

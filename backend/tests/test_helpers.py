@@ -3,6 +3,7 @@ Tests for utility helper functions.
 """
 
 from src.naukri_agent.utils.helpers import (
+    build_job_detail_url,
     build_search_url,
     clean_text,
     extract_naukri_job_id,
@@ -77,6 +78,16 @@ class TestExtractNaukriJobId:
         url = "https://www.naukri.com/some-job-listing"
         result = extract_naukri_job_id(url)
         assert len(result) > 0  # Should return a hash fallback
+
+
+class TestBuildJobDetailUrl:
+    def test_relative_path(self):
+        url = build_job_detail_url(url="/job-listings-12345678")
+        assert url == "https://www.naukri.com/job-listings-12345678"
+
+    def test_from_job_id_when_url_missing(self):
+        url = build_job_detail_url(naukri_job_id="090726014511")
+        assert url == "https://www.naukri.com/job-listings-090726014511"
 
 
 class TestBuildSearchUrl:

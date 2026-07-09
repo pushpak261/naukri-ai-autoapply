@@ -276,13 +276,13 @@ async def test_worker_needs_job_navigation_detects_about_blank():
 
 
 @pytest.mark.asyncio
-async def test_worker_needs_job_navigation_skips_empty_url():
+async def test_worker_needs_job_navigation_from_blank_when_job_id_present():
     agent = _make_agent_with_settings()
     job = _make_job("12345678")
     job.url = ""
     page = MagicMock()
     page.url = "about:blank"
-    assert agent._worker_needs_job_navigation(page, job) is False
+    assert agent._worker_needs_job_navigation(page, job) is True
 
 
 @pytest.mark.asyncio
@@ -291,6 +291,23 @@ async def test_resolve_job_url_adds_domain():
     job = _make_job("12345678")
     job.url = "/job-listings-12345678"
     assert agent._resolve_job_url(job).startswith("https://www.naukri.com/")
+
+
+@pytest.mark.asyncio
+async def test_resolve_job_url_from_job_id_when_url_missing():
+    agent = _make_agent_with_settings()
+    job = _make_job("12345678")
+    job.url = ""
+    assert agent._resolve_job_url(job) == "https://www.naukri.com/job-listings-12345678"
+
+
+@pytest.mark.asyncio
+async def test_is_worker_on_job_page_detects_listing():
+    agent = _make_agent_with_settings()
+    job = _make_job("12345678")
+    page = MagicMock()
+    page.url = "https://www.naukri.com/job-listings-dev-12345678"
+    assert agent._is_worker_on_job_page(page, job) is True
 
 
 @pytest.mark.asyncio

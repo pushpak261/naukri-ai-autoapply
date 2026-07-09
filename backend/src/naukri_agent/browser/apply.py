@@ -428,6 +428,21 @@ class JobApplier:
                 return "Yes"
             return "Yes"
 
+    async def _fill_question(self, question: dict, answer: str, job: Job) -> bool:
+        answer = (answer or "").strip()
+        if not answer:
+            answer = self._generate_safe_fallback_for_question(question)
+        if not answer:
+            await self._record_failed_question(question, job)
+            return False
+
+        success = await self._detail_page.fill_question_answer(question, answer)
+        if success:
+            return True
+
+        await self._record_failed_question(question, job)
+        return False
+
     async def _fill_screening_questions(self, job: Job) -> bool:
         """
         Extract, answer, and fill screening questions iteratively.
@@ -483,7 +498,7 @@ class JobApplier:
                     for q in unfilled_questions:
                         fallback = self._generate_safe_fallback_for_question(q)
                         if fallback:
-                            await self._detail_page.fill_answer_by_metadata(q, fallback)
+                            await self._fill_question(q, fallback, job)
                             await self._detail_page.action_delay()
                     break
 
@@ -500,7 +515,7 @@ class JobApplier:
                     for q in unfilled_questions:
                         fallback = self._generate_safe_fallback_for_question(q)
                         if fallback:
-                            await self._detail_page.fill_answer_by_metadata(q, fallback)
+                            await self._fill_question(q, fallback, job)
                             await self._detail_page.action_delay()
                     break
 
@@ -545,18 +560,25 @@ class JobApplier:
                         await self._record_failed_question(matching_q, job)
 
                     if a_val:
-                        success = await self._detail_page.fill_answer_by_metadata(matching_q, a_val)
+                        success = await self._fill_question(matching_q, a_val, job)
                         if success:
                             filled_any = True
                             await self._detail_page.action_delay()
-                        else:
-                            await self._record_failed_question(matching_q, job)
 
                 # For chatbot flows, we submit immediately after filling to show next question
                 if filled_any and await self._detail_page.is_chatbot_flow():
                     await self._detail_page.submit_application()
                 elif not filled_any:
-                    break
+                    log_warning(
+                        "Could not fill screening questions via AI — trying safe fallbacks"
+                    )
+                    for q in unfilled_questions:
+                        fallback = self._generate_safe_fallback_for_question(q)
+                        if fallback and await self._fill_question(q, fallback, job):
+                            filled_any = True
+                            await self._detail_page.action_delay()
+                    if not filled_any:
+                        break
 
                 await asyncio.sleep(2)
 
@@ -582,7 +604,7 @@ class JobApplier:
                     logger.info(
                         f"Last-ditch fallback: filling '{q.get('question')}' with '{fallback}'"
                     )
-                    await self._detail_page.fill_answer_by_metadata(q, fallback)
+                    await self._fill_question(q, fallback, job)
                     await self._detail_page.action_delay()
 
                 final_check = await self._detail_page.extract_screening_questions()

@@ -841,10 +841,13 @@ class JobDetailPage(BasePage):
         q_type = question.get("type")
         q_text = question.get("question")
         selector = question.get("selector")
+        answer = (answer or "").strip()
+        if not answer:
+            return False
 
         try:
             if q_type == "dropdown":
-                select_elem = await page.query_selector(selector)
+                select_elem = await page.query_selector(selector) if selector else None
                 if select_elem:
                     tag = await select_elem.evaluate("el => el.tagName.toLowerCase()")
                     if tag == "select":
@@ -854,17 +857,21 @@ class JobDetailPage(BasePage):
                     options = question.get("options", [])
                     await select_elem.scroll_into_view_if_needed()
                     await select_elem.click()
-                    await asyncio.sleep(0.3)
-                    return await self._select_choice_option_by_metadata(
+                    await asyncio.sleep(0.4)
+                    if await self._select_choice_option_by_metadata(
                         options, answer, is_checkbox=False
-                    )
+                    ):
+                        return True
+                    return await self._click_visible_option_by_text(answer)
             elif q_type in ("radio", "checkbox"):
                 options = question.get("options", [])
-                return await self._select_choice_option_by_metadata(
+                if await self._select_choice_option_by_metadata(
                     options, answer, q_type == "checkbox"
-                )
+                ):
+                    return True
+                return await self._click_visible_option_by_text(answer)
             else:
-                input_elem = await page.query_selector(selector)
+                input_elem = await page.query_selector(selector) if selector else None
                 if input_elem:
                     await input_elem.scroll_into_view_if_needed()
                     is_contenteditable = await input_elem.evaluate(
@@ -884,6 +891,52 @@ class JobDetailPage(BasePage):
             logger.error(f"Failed to fill answer using metadata for '{q_text}': {e}")
 
         return False
+
+    async def _click_visible_option_by_text(self, answer: str) -> bool:
+        """Click a visible dropdown/list option by its label text."""
+        page = self._engine.page
+        answer = (answer or "").strip()
+        if not answer:
+            return False
+
+        try:
+            for role in ("option", "menuitem", "radio"):
+                locator = page.get_by_role(role, name=answer)
+                if await locator.count() > 0:
+                    await locator.first.scroll_into_view_if_needed()
+                    await locator.first.click(timeout=2000)
+                    return True
+
+            option_locator = page.locator(
+                f'li:has-text("{answer}"), [role="option"]:has-text("{answer}"), '
+                f'label:has-text("{answer}"), button:has-text("{answer}")'
+            )
+            if await option_locator.count() > 0:
+                await option_locator.first.scroll_into_view_if_needed()
+                await option_locator.first.click(timeout=2000)
+                return True
+        except PlaywrightError as e:
+            logger.debug(f"Visible option click failed for '{answer}': {e}")
+        return False
+
+    async def fill_question_answer(self, question: dict, answer: str) -> bool:
+        """Fill a screening answer using metadata selectors, then label-based fallbacks."""
+        answer = (answer or "").strip()
+        q_text = (question.get("question") or "").strip()
+        if not answer:
+            return False
+
+        if await self.fill_answer_by_metadata(question, answer):
+            return True
+
+        if q_text:
+            try:
+                await self.fill_answer(q_text, answer)
+                return True
+            except Exception as e:
+                logger.debug(f"Label-based fill failed for '{q_text}': {e}")
+
+        return await self._click_visible_option_by_text(answer)
 
     async def _select_dropdown_option_by_metadata(
         self, select_elem, options: list[dict], answer: str
