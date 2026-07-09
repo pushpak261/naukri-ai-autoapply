@@ -15,11 +15,12 @@ import re
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
+from src.naukri_agent.ai.question_answerer import _normalize_question_text
 from src.naukri_agent.browser.pages.detail import JobDetailPage
 from src.naukri_agent.config.constants import ApplicationStatus
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job
-from src.naukri_agent.bot.interfaces import IQuestionAnswerer
+from src.naukri_agent.bot.interfaces import IQuestionAnswerer, IRepository
 from src.naukri_agent.utils.logger import (
     get_logger,
     log_error,
@@ -51,10 +52,31 @@ class JobApplier:
         detail_page: JobDetailPage,
         settings: Settings,
         question_answerer: IQuestionAnswerer,
+        repository: IRepository | None = None,
     ) -> None:
         self._detail_page = detail_page
         self._settings = settings
         self._qa = question_answerer
+        self._repo = repository
+
+    async def _record_failed_question(
+        self,
+        question: dict,
+        job: Job,
+    ) -> None:
+        if not self._repo:
+            return
+        question_text = (question.get("question") or "").strip()
+        if not question_text:
+            return
+        question_key = _normalize_question_text(question_text)
+        await self._repo.upsert_failed_question(
+            question_text=question_text,
+            question_key=question_key,
+            question_type=question.get("type", "text"),
+            options=question.get("options"),
+            last_job_id=job.id,
+        )
 
     async def apply_to_job(self, job: Job) -> dict:
         """
@@ -135,12 +157,22 @@ class JobApplier:
         - Chatbot-style Q&A
         - Resume upload prompt
         """
-        # Wait a moment for the apply modal/flow to appear
-        await asyncio.sleep(2)
+        # Wait for apply modal/flow to render (Naukri loads questions asynchronously)
+        await self._detail_page.wait_for_apply_ui(timeout=8000)
+        await asyncio.sleep(1)
 
         # Check for early failure indicators
         failure_msg = await self._detail_page.check_application_failure()
         if failure_msg:
+            if self._is_unanswered_questions_failure(failure_msg):
+                log_info("Mandatory questions detected early — filling with AI...")
+                answered = await self._fill_screening_questions(job)
+                if answered:
+                    await self._detail_page.submit_application()
+                    await asyncio.sleep(2)
+                    if await self._detail_page.check_application_success():
+                        log_success(f"Applied successfully (after early screening fill): {job.title}")
+                        return {"status": ApplicationStatus.APPLIED, "error_message": ""}
             if not getattr(
                 self._settings.application, "answer_questions_with_pdf", True
             ) and self._is_unanswered_questions_failure(failure_msg):
@@ -151,18 +183,19 @@ class JobApplier:
                     "status": ApplicationStatus.SKIPPED_SCREENING,
                     "error_message": f"Skipped: {failure_msg} and answer_questions_with_pdf is false",
                 }
-            log_error(f"Application failed: {failure_msg}")
-            return {
-                "status": ApplicationStatus.FAILED,
-                "error_message": f"Application rejected: {failure_msg}",
-            }
+            if not self._is_unanswered_questions_failure(failure_msg):
+                log_error(f"Application failed: {failure_msg}")
+                return {
+                    "status": ApplicationStatus.FAILED,
+                    "error_message": f"Application rejected: {failure_msg}",
+                }
 
         # Check for immediate success
         if await self._detail_page.check_application_success():
             log_success(f"Applied successfully (direct): {job.title}")
             return {"status": ApplicationStatus.APPLIED, "error_message": ""}
 
-        # Check for screening questions
+        # Check for screening questions or visible apply form
         has_questions = await self._detail_page.detect_screening_questions()
         if has_questions:
             if not getattr(self._settings.application, "answer_questions_with_pdf", True):
@@ -183,8 +216,16 @@ class JobApplier:
             await self._detail_page.submit_application()
             await asyncio.sleep(2)
 
-            # Check for failure indicators
+            # Check for failure indicators — retry once on mandatory questions
             failure_msg = await self._detail_page.check_application_failure()
+            if failure_msg and self._is_unanswered_questions_failure(failure_msg):
+                log_info("Mandatory questions still unanswered — retrying screening fill...")
+                await asyncio.sleep(1)
+                if await self._fill_screening_questions(job):
+                    await self._detail_page.submit_application()
+                    await asyncio.sleep(2)
+                    failure_msg = await self._detail_page.check_application_failure()
+
             if failure_msg:
                 if not getattr(
                     self._settings.application, "answer_questions_with_pdf", True
@@ -304,6 +345,24 @@ class JobApplier:
         q_type = question.get("type")
         options = [o.get("text", "") for o in question.get("options", [])]
 
+        profile = getattr(self._qa, "_profile", None)
+        name = (profile.name if profile and profile.name else "Candidate")
+        email = (profile.email if profile and profile.email else "")
+        phone = (profile.phone if profile and profile.phone else "")
+        location = (
+            self._settings.profile.current_location
+            or (profile.current_title if profile else None)
+            or "Pune"
+        )
+        notice = self._settings.profile.notice_period or "Immediate"
+        current_ctc = self._settings.profile.current_ctc or "4.5 LPA"
+        expected_ctc = self._settings.profile.expected_ctc or "6 LPA"
+        total_exp = (
+            self._settings.profile.total_experience
+            or (f"{profile.total_experience_years} years" if profile and profile.total_experience_years else "1")
+        )
+        skills_summary = ", ".join((profile.skills[:8] if profile and profile.skills else ["Java", "React", "Spring Boot"]))
+
         # Helper to pick closest choice
         def pick_option(keywords, default):
             for kw in keywords:
@@ -313,47 +372,60 @@ class JobApplier:
             return options[0] if options else default
 
         if q_type in ("radio", "dropdown", "checkbox"):
-            if "reloc" in q_text or "travel" in q_text or "shift" in q_text or "agree" in q_text:
-                return pick_option(["yes", "agree", "true", "y"], "Yes")
+            if "reloc" in q_text or "travel" in q_text or "shift" in q_text or "agree" in q_text or "willing" in q_text:
+                return pick_option(["yes", "agree", "true", "willing", "y"], "Yes")
             if "notice" in q_text:
-                return pick_option(["immediate", "0 days", "15 days", "serving"], "Immediate")
+                return pick_option(["immediate", "0 days", "15 days", "serving", "no notice"], notice)
             if "gender" in q_text:
-                return pick_option(["male"], "Male")
+                return pick_option(["male", "female", "prefer not"], options[0] if options else "Male")
             if "experience" in q_text or "years" in q_text:
-                return pick_option(["1", "1 year", "0-1", "1-2"], options[0] if options else "1")
-            if "ctc" in q_text or "salary" in q_text:
-                return pick_option(["4", "5", "6"], options[0] if options else "6 LPA")
-            if "location" in q_text or "city" in q_text:
-                return pick_option(["pune"], "Pune")
+                return pick_option(["1", "2", "0-1", "1-2", "3"], options[0] if options else str(int(profile.total_experience_years) if profile and profile.total_experience_years else 1))
+            if "ctc" in q_text or "salary" in q_text or "package" in q_text:
+                if "expected" in q_text or "desired" in q_text:
+                    return pick_option(["6", "5", "7"], options[0] if options else expected_ctc)
+                return pick_option(["4", "5", "4.5"], options[0] if options else current_ctc)
+            if "location" in q_text or "city" in q_text or "based" in q_text:
+                return pick_option([location.lower(), "pune", "mumbai", "bangalore"], location)
+            if "skill" in q_text or "technology" in q_text or "proficien" in q_text:
+                return pick_option(["yes", "expert", "proficient", "intermediate"], "Yes")
             return options[0] if options else "Yes"
         else:
             # Text / number / date fields
             if "experience" in q_text or "years" in q_text or "month" in q_text:
-                return "1"
-            if "ctc" in q_text or "salary" in q_text:
-                if "expected" in q_text:
-                    return (
-                        "600000"
-                        if "rupee" in q_text or "rs" in q_text or "annual" in q_text
-                        else "6"
-                    )
-                return (
-                    "440000" if "rupee" in q_text or "rs" in q_text or "annual" in q_text else "4.4"
-                )
+                nums = re.findall(r"\d+(?:\.\d+)?", str(total_exp))
+                return nums[0] if nums else "1"
+            if "ctc" in q_text or "salary" in q_text or "package" in q_text:
+                ctc_val = expected_ctc if ("expected" in q_text or "desired" in q_text) else current_ctc
+                nums = re.findall(r"\d+(?:\.\d+)?", ctc_val)
+                if "rupee" in q_text or "rs" in q_text or "annual" in q_text or "lpa" not in q_text.lower():
+                    if nums:
+                        return str(int(float(nums[0]) * 100000))
+                return nums[0] if nums else "6"
             if "notice" in q_text:
-                return "Immediate"
+                return notice
             if "location" in q_text or "city" in q_text:
-                return "Pune"
+                return location
             if "phone" in q_text or "mobile" in q_text:
-                return "9921626877"
+                return phone or "9999999999"
             if "email" in q_text:
-                return "pushpak262001@gmail.com"
+                return email or "candidate@email.com"
             if "name" in q_text:
-                return "Pushpak Pandharpatte"
-            if "why" in q_text or "join" in q_text or "fit" in q_text:
-                return "I am a skilled Full-Stack Developer with hands-on experience in Java, Spring Boot, and React. I am passionate about building scalable, high-performance web applications and would love to contribute to your team."
-            if "project" in q_text or "describe" in q_text:
-                return "I built a production-grade autonomous RPA agent using Python, Playwright, and Gemini API, and a real-time ride sharing platform using Spring Boot and React."
+                return name
+            if "why" in q_text or "join" in q_text or "fit" in q_text or "motivat" in q_text:
+                return (
+                    f"I am a {profile.current_title if profile and profile.current_title else 'Full Stack Developer'} "
+                    f"with experience in {skills_summary}. I am excited about this role and confident I can contribute "
+                    f"from day one with strong problem-solving skills and a collaborative mindset."
+                )
+            if "project" in q_text or "describe" in q_text or "achievement" in q_text:
+                if profile and profile.work_experience:
+                    first = profile.work_experience[0]
+                    title = first.get("title", "Software Engineer")
+                    company = first.get("company", "my previous company")
+                    return f"In my role as {title} at {company}, I built scalable full-stack applications using modern technologies and delivered measurable business impact."
+                return "I have built production-grade full-stack applications using Java, Spring Boot, React, and cloud technologies."
+            if "relocate" in q_text or "travel" in q_text or "shift" in q_text:
+                return "Yes"
             return "Yes"
 
     async def _fill_screening_questions(self, job: Job) -> bool:
@@ -377,6 +449,10 @@ class JobApplier:
                 # Extract questions
                 questions = await self._detail_page.extract_screening_questions()
                 if not questions:
+                    if await self._detail_page._is_apply_modal_visible() or await self._detail_page.is_chatbot_flow():
+                        logger.debug("Apply modal visible but no questions parsed yet — waiting...")
+                        await asyncio.sleep(1.5)
+                        continue
                     logger.debug("No screening questions found on page.")
                     break
 
@@ -446,6 +522,7 @@ class JobApplier:
                     q_text = ans.get("question", "")
                     q_id = ans.get("id") or ""
                     a_val = str(ans.get("answer", "")).strip()
+                    confidence = str(ans.get("confidence", "")).lower()
 
                     # Find matching question in unfilled
                     matching_q = next(
@@ -461,14 +538,19 @@ class JobApplier:
 
                     # If no answer generated, use safe local fallback
                     if not a_val:
+                        await self._record_failed_question(matching_q, job)
                         a_val = self._generate_safe_fallback_for_question(matching_q)
                         logger.info(f"Using safe fallback '{a_val}' for: '{q_text}'")
+                    elif confidence == "low":
+                        await self._record_failed_question(matching_q, job)
 
                     if a_val:
                         success = await self._detail_page.fill_answer_by_metadata(matching_q, a_val)
                         if success:
                             filled_any = True
                             await self._detail_page.action_delay()
+                        else:
+                            await self._record_failed_question(matching_q, job)
 
                 # For chatbot flows, we submit immediately after filling to show next question
                 if filled_any and await self._detail_page.is_chatbot_flow():
@@ -519,6 +601,8 @@ class JobApplier:
                         f"Validation FAILED: Required questions still empty: "
                         f"{[q.get('question') for q in still_empty]}"
                     )
+                    for q in still_empty:
+                        await self._record_failed_question(q, job)
                     return False
 
             return True

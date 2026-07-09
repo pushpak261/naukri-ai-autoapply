@@ -207,6 +207,39 @@ class Webhook(Base):
         return f"<Webhook(id={self.id}, name='{self.name}', active={self.is_active})>"
 
 
+class ScreeningQuestion(Base):
+    """Screening question cache and failed-question queue for manual answers."""
+
+    __tablename__ = "screening_questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    question_key: Mapped[str] = mapped_column(String(500), unique=True, nullable=False, index=True)
+    question_text: Mapped[str] = mapped_column(Text, nullable=False)
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question_type: Mapped[str] = mapped_column(String(50), default="text")
+    options_json: Mapped[str] = mapped_column(Text, default="[]")
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    source: Mapped[str] = mapped_column(String(20), default="")
+    failure_count: Mapped[int] = mapped_column(default=0)
+    last_job_id: Mapped[int | None] = mapped_column(ForeignKey("jobs.id"), nullable=True)
+    last_application_id: Mapped[int | None] = mapped_column(
+        ForeignKey("applications.id"), nullable=True
+    )
+    last_failed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        nullable=False,
+    )
+
+    def __repr__(self) -> str:
+        return f"<ScreeningQuestion(id={self.id}, status='{self.status}')>"
+
+
 class NotificationLog(Base):
     """Log of all sent notifications (email, webhook)."""
 

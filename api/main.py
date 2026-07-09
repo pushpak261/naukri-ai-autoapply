@@ -28,6 +28,7 @@ from api.routes import (
     resume as resume_router,
     resume_optimization as resume_optimization_router,
     scam_detector as scam_detector_router,
+    screening as screening_router,
     stats as stats_router,
     autopilot as autopilot_router,
     market_intel as market_intel_router,
@@ -48,6 +49,8 @@ async def lifespan(app: FastAPI):
     deps.db_manager = await setup_database_manager(deps.settings.db_path)
     deps.repo = SQLAlchemyRepository(deps.db_manager)
     await deps.repo.initialize()
+    cache_path = deps.settings.project_root / "data" / "qa_cache.json"
+    await deps.repo.migrate_qa_cache_to_db(cache_path)
     yield
     _cleanup_agent()
 
@@ -131,6 +134,7 @@ app.include_router(applications_router.router)
 app.include_router(agent_router.router)
 app.include_router(config_router.router)
 app.include_router(data_router.router)
+app.include_router(screening_router.router)
 app.include_router(resume_router.router)
 app.include_router(resume_optimization_router.router)
 app.include_router(scam_detector_router.router)

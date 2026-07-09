@@ -60,7 +60,7 @@ class AISettings(BaseModel):
 class ResumeSettings(BaseModel):
     """Resume file settings."""
 
-    path: str = ""
+    path: str = "data/resumes/resume.pdf"
 
 
 class SearchSettings(BaseModel):
@@ -124,12 +124,21 @@ class ApplicationSettings(BaseModel):
     apply_workers: int = 1
     max_concurrent_applies: int = 5
     global_apply_interval_sec: float = 20.0
+    # Per-job ceiling for match + navigate + apply (screening questions need headroom)
+    job_processing_timeout_sec: int = 300
 
     @field_validator("min_company_rating")
     @classmethod
     def validate_min_company_rating(cls, v: float) -> float:
         if v < 0:
             raise ValueError("min_company_rating must be >= 0")
+        return v
+
+    @field_validator("job_processing_timeout_sec")
+    @classmethod
+    def validate_job_processing_timeout_sec(cls, v: int) -> int:
+        if v < 60:
+            raise ValueError("job_processing_timeout_sec must be >= 60")
         return v
 
     @field_validator("apply_workers")

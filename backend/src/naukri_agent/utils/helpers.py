@@ -9,11 +9,18 @@ import functools
 import hashlib
 import random
 import re
+import shutil
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any, TypeVar, cast, overload
+from typing import TYPE_CHECKING, Any, TypeVar, cast, overload
 
 from src.naukri_agent.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from src.naukri_agent.config.settings import Settings
+
+CANONICAL_RESUME_REL_PATH = "data/resumes/resume.pdf"
+CANONICAL_RESUME_NAME = "resume.pdf"
 
 logger = get_logger(__name__)
 
@@ -297,6 +304,56 @@ def truncate_text(text: str | None, max_length: int = 4000) -> str | None:
 
 def hash_file(file_path: str | Path) -> str:
     return CryptographicUtility.hash_file(file_path)
+
+
+def resolve_resume_path(settings: Settings, *, sync: bool = True) -> Path | None:
+    """
+    Resolve the active resume PDF path.
+
+    Prefers the canonical ``data/resumes/resume.pdf`` (under the backend project
+    root, with a repo-root fallback). When a newer copy exists outside the
+    backend tree, it is synced into the canonical location so parsing and
+    uploads always target the same file.
+    """
+    canonical = settings.resumes_dir / CANONICAL_RESUME_NAME
+    repo_root_resume = settings.project_root.parent / "data" / "resumes" / CANONICAL_RESUME_NAME
+
+    candidates: list[Path] = []
+    for path in (repo_root_resume, canonical):
+        if path.exists():
+            candidates.append(path.resolve())
+
+    if not candidates:
+        if settings.resume.path:
+            configured = Path(settings.resume.path)
+            if not configured.is_absolute():
+                configured = settings.project_root / configured
+            return configured.resolve() if configured.exists() else None
+        return None
+
+    active = max(candidates, key=lambda path: path.stat().st_mtime)
+
+    if sync and active != canonical.resolve():
+        settings.ensure_dirs()
+        shutil.copy2(active, canonical)
+        active = canonical.resolve()
+        logger.info(f"Synced resume to canonical path: {canonical}")
+
+    return active
+
+
+def patch_settings_resume_path(settings: Settings) -> Path | None:
+    """Resolve the active resume file and patch runtime settings to match."""
+    path = resolve_resume_path(settings)
+    if not path:
+        return None
+
+    try:
+        rel = path.relative_to(settings.project_root)
+        settings.resume.path = str(rel).replace("\\", "/")
+    except ValueError:
+        settings.resume.path = CANONICAL_RESUME_REL_PATH
+    return path
 
 
 def async_retry(

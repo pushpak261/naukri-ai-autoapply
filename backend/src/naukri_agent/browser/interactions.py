@@ -178,14 +178,22 @@ class HumanInteractions(IBrowserInteractions):
             logger.debug(f"Error removing overlays via JS fallback: {e}")
 
     async def wait_for_navigation_complete(self, timeout: int = DEFAULT_TIMEOUT) -> None:
-        """Wait for the page to finish loading."""
+        """Wait for the page to finish loading.
+
+        Naukri SPAs rarely reach networkidle, so try a short networkidle probe
+        then fall back to domcontentloaded without doubling the full timeout.
+        """
+        page = self._engine.page
+        idle_probe = min(5_000, timeout)
         try:
-            await self._engine.page.wait_for_load_state("networkidle", timeout=timeout)
+            await page.wait_for_load_state("networkidle", timeout=idle_probe)
+            return
         except PlaywrightTimeoutError:
-            try:
-                await self._engine.page.wait_for_load_state("domcontentloaded", timeout=timeout)
-            except PlaywrightTimeoutError:
-                logger.debug("Navigation wait timed out, continuing anyway")
+            pass
+        try:
+            await page.wait_for_load_state("domcontentloaded", timeout=timeout)
+        except PlaywrightTimeoutError:
+            logger.debug("Navigation wait timed out, continuing anyway")
 
     async def action_delay(self) -> None:
         """Insert a configurable random delay between browser actions."""

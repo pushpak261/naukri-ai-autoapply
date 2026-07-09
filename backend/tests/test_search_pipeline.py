@@ -10,6 +10,7 @@ import pytest
 from src.naukri_agent.utils.similarity import VectorSimilarityFilter
 from src.naukri_agent.browser.gate import BrowserGate
 from src.naukri_agent.browser.search import SearchBatch
+from src.naukri_agent.config.settings import ApplicationSettings
 from src.naukri_agent.core.domain.entities import Job, ResumeProfile
 from src.naukri_agent.orchestrator.agent import NaukriAgent, ProcessOutcome
 
@@ -53,7 +54,7 @@ async def test_rank_batch_jobs_orders_by_similarity():
 async def test_search_producer_enqueues_ranked_jobs_per_batch():
     mock_factory = MagicMock()
     settings = MagicMock()
-    settings.application.daily_cap = 10
+    settings.application = ApplicationSettings(daily_cap=10)
     mock_factory.get_settings.return_value = settings
 
     agent = NaukriAgent(mock_factory)
@@ -109,7 +110,7 @@ async def test_search_producer_enqueues_ranked_jobs_per_batch():
 async def test_pipeline_consumer_starts_while_producer_searches_next_batch():
     mock_factory = MagicMock()
     settings = MagicMock()
-    settings.application.daily_cap = 10
+    settings.application = ApplicationSettings(daily_cap=10)
     mock_factory.get_settings.return_value = settings
 
     agent = NaukriAgent(mock_factory)

@@ -51,7 +51,12 @@ from src.naukri_agent.browser.login import LoginHandler
 from src.naukri_agent.browser.pages.detail import JobDetailPage
 from src.naukri_agent.browser.profile import ProfileRefresher
 from src.naukri_agent.browser.search import JobSearcher
-from src.naukri_agent.config.constants import ApplicationStatus, NAUKRI_DASHBOARD_URL
+from src.naukri_agent.config.constants import (
+    ApplicationStatus,
+    NAUKRI_DASHBOARD_URL,
+    WORKER_GOTO_TIMEOUT,
+    WORKER_NAV_SETTLE_TIMEOUT,
+)
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.core.domain.entities import Job, JobApplication, ResumeProfile
 from src.naukri_agent.core.domain.specifications import (
@@ -79,7 +84,7 @@ from src.naukri_agent.core.progress import (
     job_event_payload,
 )
 from src.naukri_agent.bot.factory import ApplyWorkerStack, DependencyFactory
-from src.naukri_agent.utils.helpers import TimeUtility
+from src.naukri_agent.utils.helpers import TimeUtility, resolve_resume_path
 from src.naukri_agent.utils.filters import (
     JobQualityFilter,
     parse_experience_range,
@@ -100,6 +105,8 @@ from src.naukri_agent.utils.logger import (
 )
 
 logger = get_logger(__name__)
+
+_COUNTERS_INTERNAL_KEYS = frozenset({"force_persist"})
 
 POLICY_REASON_MISSING_COMPANY_OR_TITLE = "missing_company_or_title_mismatch"
 POLICY_REASON_RATING = "rating_below_threshold"
@@ -340,7 +347,39 @@ class NaukriAgent:
             "daily_cap_remaining": max(0, daily_cap - daily_applied),
             "phase": self._phase,
         }
-        payload.update(extra)
+        counters_extra = {
+            k: v for k, v in extra.items() if k not in _COUNTERS_INTERNAL_KEYS
+        }
+        payload.update(counters_extra)
+        # region agent log
+        try:
+            import json
+            import time
+
+            _dbg_path = self._settings.project_root.parent / "debug-c1cca3.log"
+            with open(_dbg_path, "a", encoding="utf-8") as _df:
+                _df.write(
+                    json.dumps(
+                        {
+                            "sessionId": "c1cca3",
+                            "hypothesisId": "H1",
+                            "location": "agent.py:_emit_counters",
+                            "message": "emit_counters",
+                            "data": {
+                                "extra_keys": sorted(extra.keys()),
+                                "payload_keys": sorted(payload.keys()),
+                                "filtered_internal": sorted(
+                                    k for k in extra if k in _COUNTERS_INTERNAL_KEYS
+                                ),
+                            },
+                            "timestamp": int(time.time() * 1000),
+                        }
+                    )
+                    + "\n"
+                )
+        except Exception:
+            pass
+        # endregion
         await self._emit(
             "counters_updated",
             counters_payload(self._run_log_id or 0, **payload),
@@ -400,10 +439,18 @@ class NaukriAgent:
             self._apply_workers.append(worker)
         log_info(f"Bootstrapped {len(self._apply_workers)} apply worker(s)")
 
-    async def _warm_worker_session(self, worker: ApplyWorker) -> None:
-        """Initialize worker tab with logged-in Naukri session (leaves about:blank)."""
+    async def _warm_worker_session(
+        self, worker: ApplyWorker, *, warm_dashboard: bool = True
+    ) -> None:
+        """Initialize worker tab with logged-in Naukri session.
+
+        On timeout recovery, skip the dashboard hop so the next job navigation
+        goes straight to the listing instead of flashing the home page.
+        """
         page = worker.browser.page
         if page.is_closed():
+            return
+        if not warm_dashboard:
             return
         try:
             current = page.url or ""
@@ -411,9 +458,11 @@ class NaukriAgent:
                 await page.goto(
                     NAUKRI_DASHBOARD_URL,
                     wait_until="domcontentloaded",
-                    timeout=60000,
+                    timeout=WORKER_GOTO_TIMEOUT,
                 )
-                await worker.stack.interactions.wait_for_navigation_complete()
+                await worker.stack.interactions.wait_for_navigation_complete(
+                    timeout=WORKER_NAV_SETTLE_TIMEOUT
+                )
                 log_info(f"[Worker-{worker.id}] Session warmed on Naukri dashboard")
         except Exception as e:
             log_warning(f"[Worker-{worker.id}] Session warm-up failed: {e}")
@@ -462,9 +511,15 @@ class NaukriAgent:
             current = page.url or ""
             if current.startswith("about:"):
                 log_warning(f"{log_prefix} Still on blank page after navigate — retrying once")
-                await page.goto(job_url, wait_until="domcontentloaded", timeout=60000)
-                await interactions.wait_for_navigation_complete()
-                await asyncio.sleep(2)
+                await page.goto(
+                    job_url,
+                    wait_until="domcontentloaded",
+                    timeout=WORKER_GOTO_TIMEOUT,
+                )
+                await interactions.wait_for_navigation_complete(
+                    timeout=WORKER_NAV_SETTLE_TIMEOUT
+                )
+                await asyncio.sleep(1)
             if (page.url or "").startswith("about:"):
                 log_error(f"{log_prefix} Failed to leave about:blank for {job_url}")
                 return False
@@ -480,7 +535,7 @@ class NaukriAgent:
         wb = await self._engine.new_worker_context(worker.id)  # type: ignore[attr-defined]
         worker.browser = wb
         worker.stack = self._factory.create_apply_worker_stack(WorkerBrowserEngine(wb), qa)
-        await self._warm_worker_session(worker)
+        await self._warm_worker_session(worker, warm_dashboard=False)
         log_warning(f"[Worker-{worker.id}] Browser context restarted")
 
     def set_progress_reporter(self, reporter: IProgressReporter) -> None:
@@ -518,6 +573,8 @@ class NaukriAgent:
             log_info("Starting agent run...")
             if self._repo:
                 await self._repo.initialize()
+                cache_path = self._settings.project_root / "data" / "qa_cache.json"
+                await self._repo.migrate_qa_cache_to_db(cache_path)
                 self._clear_live_progress()
                 self._run_log_id = await self._repo.create_run_log(
                     search_keywords=self._settings.search.keywords
@@ -649,17 +706,15 @@ class NaukriAgent:
 
     async def _parse_resume(self) -> None:
         """Parse the resume PDF and cache the structured profile."""
-        resume_path = self._settings.resume.path
-        if not resume_path:
-            log_error("Resume path not configured. Set 'resume.path' in config.yaml")
+        path = resolve_resume_path(self._settings)
+        if not path:
+            log_error(
+                "Resume file not found. Place your resume at data/resumes/resume.pdf "
+                "or set 'resume.path' in config.yaml"
+            )
             return
 
-        path = Path(resume_path)
-        if not path.is_absolute():
-            path = self._settings.project_root / path
-        if not path.exists():
-            log_error(f"Resume file not found: {path}")
-            return
+        log_info(f"Using resume file: {path}")
 
         parser = self._resume_parser
         if not parser:
@@ -811,21 +866,28 @@ class NaukriAgent:
                 text_to_score = f"{job.title} {job.company} {job.skills}"
                 initial_score = vector_filter.get_similarity_score(text_to_score)
 
-                try:
-                    outcome = await asyncio.wait_for(
-                        self._process_one_job(
-                            job,
-                            initial_score=initial_score,
-                            processed_count=processed_count,
-                            total_queued=self._total_queued,
-                            matcher=matcher,
-                            vector_filter=vector_filter,
-                            worker=worker,
-                        ),
-                        timeout=120,
+                job_timeout = self._settings.application.job_processing_timeout_sec
+                job_task = asyncio.create_task(
+                    self._process_one_job(
+                        job,
+                        initial_score=initial_score,
+                        processed_count=processed_count,
+                        total_queued=self._total_queued,
+                        matcher=matcher,
+                        vector_filter=vector_filter,
+                        worker=worker,
                     )
+                )
+                try:
+                    outcome = await asyncio.wait_for(job_task, timeout=job_timeout)
                 except TimeoutError:
-                    log_warning(f"{prefix} Timed out processing job {job.naukri_job_id}")
+                    log_warning(
+                        f"{prefix} Timed out processing job {job.naukri_job_id} "
+                        f"after {job_timeout}s"
+                    )
+                    job_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await job_task
                     async with self._stats_lock:
                         self._jobs_failed += 1
                     if self._factory and self._resume_profile:
@@ -1256,6 +1318,7 @@ class NaukriAgent:
                 posted_date=job.posted_date,
             )
             assert db_job.id is not None
+            job.id = db_job.id
 
         match_score = match_result.match_score
         should_apply = match_result.should_apply

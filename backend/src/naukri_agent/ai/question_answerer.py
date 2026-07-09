@@ -8,6 +8,7 @@ and Gemini AI to generate contextually appropriate answers.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 from pathlib import Path
@@ -18,7 +19,7 @@ from pydantic import BaseModel
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job, ResumeProfile
 from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
-from src.naukri_agent.bot.interfaces import ILLMProvider, IQuestionAnswerer
+from src.naukri_agent.bot.interfaces import ILLMProvider, IQuestionAnswerer, IRepository
 from src.naukri_agent.utils.logger import get_logger, log_info
 
 
@@ -75,8 +76,13 @@ CRITICAL RULES:
    - For text fields, write a concise, professional answer (no conversational filler).
    - For number fields, return only the numeric digits (e.g. "1" instead of "1 year", "440000" instead of "4.4 Lakhs") unless the options dictate otherwise.
    - For date fields, write in standard YYYY-MM-DD or DD/MM/YYYY format if applicable.
-4. DEFAULTING:
-   - Never leave an answer blank. If you are unsure, choose/write the most reasonable positive option (e.g., "Yes" for consent, relocation, or shift availability; "1" for years of experience; "Immediate" for notice period; expected CTC for CTC questions).
+4. DEFAULTING & HIREABILITY:
+   - Never leave an answer blank. If you are unsure, choose/write the most reasonable positive, hireable option.
+   - For yes/no skill questions: answer "Yes" if the candidate has the skill or a closely related one.
+   - For relocation/travel/shift/flexible work: answer positively ("Yes", "Willing", "Agree").
+   - For notice period: prefer "Immediate" or the shortest available option.
+   - For open-ended questions ("Why join?", "Describe a project?"): write 1-2 confident, professional sentences highlighting relevant experience from the resume.
+   - Present the candidate as qualified, available, and enthusiastic — never highlight gaps or weaknesses.
 
 EXPECTED JSON OUTPUT (Strictly return a JSON array of objects with the exact structure below, no markdown wrappers, no explanation):
 [
@@ -123,6 +129,35 @@ def _normalize_question_text(question_text: str) -> str:
     q = re.sub(r"[^a-z0-9 ]+", " ", q)
     q = re.sub(r"\s+", " ", q)
     return q.strip()
+
+
+def _strip_json_fences(text: str) -> str:
+    """Remove markdown code fences from LLM JSON responses."""
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    return cleaned.strip()
+
+
+def _constrain_answer_to_options(answer: str, options: list[dict]) -> str:
+    """Ensure choice-field answers match one of the provided options."""
+    if not answer or not options:
+        return answer
+    answer_lower = answer.lower().strip()
+    opt_texts = [o.get("text", "") for o in options if o.get("text")]
+    for opt in opt_texts:
+        if opt.lower().strip() == answer_lower:
+            return opt
+    for opt in opt_texts:
+        opt_lower = opt.lower().strip()
+        if answer_lower in opt_lower or opt_lower in answer_lower:
+            return opt
+    # Positive bias for yes/no style options
+    for opt in opt_texts:
+        if answer_lower in ("yes", "true", "y") and "yes" in opt.lower():
+            return opt
+    return answer
 
 
 class QACache:
@@ -179,11 +214,16 @@ class QuestionAnswerer(IQuestionAnswerer):
     """
 
     def __init__(
-        self, llm_provider: ILLMProvider, settings: Settings, resume_profile: ResumeProfile
+        self,
+        llm_provider: ILLMProvider,
+        settings: Settings,
+        resume_profile: ResumeProfile,
+        repository: IRepository | None = None,
     ) -> None:
         self._llm = llm_provider
         self._settings = settings
         self._profile = resume_profile
+        self._repository = repository
 
         # Build answer lookup from config, falling back to parsed resume profile
         profile_experience = (
@@ -364,19 +404,39 @@ class QuestionAnswerer(IQuestionAnswerer):
                         "index": q.get("index", len(answers)),
                     }
                 )
-            elif cached:
-                logger.debug(f"Cache hit for QA: {question_text}")
-                answers.append(
-                    {
-                        "id": q.get("id"),
-                        "question": question_text,
-                        "answer": cached,
-                        "confidence": "high",
-                        "index": q.get("index", len(answers)),
-                    }
-                )
             else:
-                ai_questions.append(q)
+                db_answer = None
+                if self._repository:
+                    db_answer = await self._repository.get_screening_answer(q_key)
+                if db_answer:
+                    logger.debug(f"DB user answer hit for QA: {question_text}")
+                    if q_type in ("dropdown", "radio", "checkbox") and options:
+                        db_answer = _constrain_answer_to_options(db_answer, options)
+                    answers.append(
+                        {
+                            "id": q.get("id"),
+                            "question": question_text,
+                            "answer": db_answer,
+                            "confidence": "high",
+                            "index": q.get("index", len(answers)),
+                        }
+                    )
+                elif cached:
+                    logger.debug(f"Cache hit for QA: {question_text}")
+                    cached_answer = cached
+                    if q_type in ("dropdown", "radio", "checkbox") and options:
+                        cached_answer = _constrain_answer_to_options(cached, options)
+                    answers.append(
+                        {
+                            "id": q.get("id"),
+                            "question": question_text,
+                            "answer": cached_answer,
+                            "confidence": "high",
+                            "index": q.get("index", len(answers)),
+                        }
+                    )
+                else:
+                    ai_questions.append(q)
 
         # Second pass: use AI for remaining questions
         if ai_questions:
@@ -404,10 +464,14 @@ class QuestionAnswerer(IQuestionAnswerer):
                 ]
             else:
                 ai_answers = await self._ask_ai(ai_questions, job)
-            # Map original index back to AI answers
+            # Map original index back to AI answers and constrain to options
             for ans, orig_q in zip(ai_answers, ai_questions, strict=False):
                 ans["index"] = orig_q.get("index", 0)
                 ans["id"] = orig_q.get("id")
+                q_type = orig_q.get("type", "text")
+                options = orig_q.get("options", [])
+                if ans.get("answer") and q_type in ("dropdown", "radio", "checkbox") and options:
+                    ans["answer"] = _constrain_answer_to_options(str(ans["answer"]), options)
             answers.extend(ai_answers)
 
         # Sort by original index
@@ -451,6 +515,36 @@ class QuestionAnswerer(IQuestionAnswerer):
             lines.append(" ".join(parts))
         return "\n".join(lines)
 
+    def _parse_ai_response(
+        self, response_text: str, questions: list[dict]
+    ) -> list[dict]:
+        """Parse Gemini JSON output with fence-stripping and a single repair retry."""
+        cleaned = _strip_json_fences(response_text)
+        try:
+            parsed = json.loads(cleaned)
+            if isinstance(parsed, list):
+                return parsed
+        except json.JSONDecodeError:
+            pass
+
+        # Try to extract a JSON array from the response
+        match = re.search(r"\[[\s\S]*\]", cleaned)
+        if match:
+            with contextlib.suppress(json.JSONDecodeError):
+                parsed = json.loads(match.group(0))
+                if isinstance(parsed, list):
+                    return parsed
+
+        logger.warning("AI response JSON parse failed; returning empty answers")
+        return [
+            {
+                "question": q.get("question", ""),
+                "answer": "",
+                "confidence": "low",
+            }
+            for q in questions
+        ]
+
     async def _ask_ai(
         self,
         questions: list[dict],
@@ -472,19 +566,17 @@ class QuestionAnswerer(IQuestionAnswerer):
         )
 
         raw_text_section = ""
-        if (
-            getattr(self._settings.application, "answer_questions_with_pdf", False)
-            and hasattr(self._profile, "raw_text")
-            and self._profile.raw_text
-        ):
+        if hasattr(self._profile, "raw_text") and self._profile.raw_text:
             raw_text_section = (
                 "FULL RESUME TEXT:\n"
-                "The following is the candidate's complete raw resume text. Use this to find precise, highly specific details "
-                "(such as exact years of experience in niche technologies like Dart, Flutter, etc.) that might not be in the high-level summary.\n"
+                "Use this to find precise details (years in specific technologies, project names, achievements) "
+                "that may not appear in the summary above.\n"
                 "---\n"
-                f"{self._profile.raw_text}\n"
+                f"{self._profile.raw_text[:12000]}\n"
                 "---"
             )
+        elif self._profile.summary:
+            raw_text_section = f"RESUME SUMMARY:\n{self._profile.summary}"
 
         preferred_locations = (
             ", ".join(self._settings.profile.preferred_locations)
@@ -521,15 +613,15 @@ class QuestionAnswerer(IQuestionAnswerer):
                 response_schema=list[ScreeningAnswer],
             )
 
-            ai_answers = json.loads(response_text)
+            ai_answers = self._parse_ai_response(response_text, questions)
 
-            # Save new high-confidence answers to cache
+            # Save new high-confidence answers to cache (normalized keys)
             cache_updated = False
             for ans in ai_answers:
                 q_text = ans.get("question", "")
                 a_text = ans.get("answer", "")
                 if q_text and a_text and ans.get("confidence") != "low":
-                    self._cache.set(q_text, a_text)
+                    self._cache.set(_normalize_question_text(q_text), a_text)
                     cache_updated = True
 
             if cache_updated:

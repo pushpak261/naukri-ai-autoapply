@@ -4471,5 +4471,238 @@
       "The hiring company is a consultancy firm, which is a red flag",
       "Candidate's profile is oriented toward enterprise software engineering rather than CMS-based web development"
     ]
+  },
+  "1d7e35db490abd6e3826e2eb822d99c922e5bd7f98c1ff201ea0fc861137eeaf_060726009272": {
+    "score": 95,
+    "should_apply": true,
+    "matching_skills": [
+      "Python",
+      "Java",
+      "C#",
+      "Node.js",
+      "JavaScript",
+      "CSS"
+    ],
+    "missing_skills": [],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate possesses all required technical skills and has over 4 years of relevant experience, which exceeds the 2-year requirement. Their background in building microservices and AI-powered tools aligns perfectly with the job's focus on modern engineering practices and AI-assisted development.",
+    "strengths": [
+      "Extensive experience with the required tech stack (Python, Java, C#, Node.js)",
+      "Proven track record in building microservices and AI-integrated applications",
+      "Strong alignment with the job's emphasis on SDLC and collaborative development"
+    ],
+    "concerns": [
+      "The candidate is slightly overqualified for a Junior Software Engineer role, which may impact retention or salary expectations"
+    ]
+  },
+  "1d7e35db490abd6e3826e2eb822d99c922e5bd7f98c1ff201ea0fc861137eeaf_080726933786": {
+    "score": 70,
+    "should_apply": true,
+    "matching_skills": [
+      "python",
+      "docker",
+      "kubernetes",
+      "sql",
+      "microservices",
+      "git",
+      "automation",
+      "architecture",
+      "fastapi"
+    ],
+    "missing_skills": [
+      "pyspark",
+      "aks",
+      "eks",
+      "azure databricks",
+      "azure data explorer",
+      "kusto query language (kql)"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate has strong experience in Python, microservices, and containerization, which aligns well with the technical requirements. While the candidate is slightly overqualified in terms of years of experience and lacks specific exposure to Azure-native data tools like Databricks and KQL, their background in building scalable systems makes them a strong candidate.",
+    "strengths": [
+      "Proven experience with Python and FastAPI",
+      "Strong background in microservices and container orchestration (Docker/Kubernetes)",
+      "Experience with cloud platforms (AWS/GCP)"
+    ],
+    "concerns": [
+      "Lack of specific experience with Azure-specific data tools (Databricks, KQL, Azure Data Explorer)",
+      "Candidate has 4.5 years of experience while the role targets 1-2 years"
+    ]
+  },
+  "1d7e35db490abd6e3826e2eb822d99c922e5bd7f98c1ff201ea0fc861137eeaf_030726503797": {
+    "score": 25,
+    "should_apply": false,
+    "matching_skills": [
+      "c++",
+      "c#",
+      "java",
+      "rest",
+      "microservices"
+    ],
+    "missing_skills": [
+      "electronics",
+      "circuit",
+      "pcb",
+      "microcontroller",
+      "embedded systems",
+      "hardware design"
+    ],
+    "experience_fit": "weak",
+    "location_fit": "match",
+    "reasoning": "The candidate is a software engineer with a focus on web and cloud applications, whereas the job is for a hardware design engineer requiring expertise in electronics, circuit design, and microcontrollers. There is a fundamental mismatch between the candidate's software-centric background and the hardware-focused requirements of this role.",
+    "strengths": [
+      "Strong proficiency in C++ and C#",
+      "Experience with microservices and REST APIs",
+      "Relevant years of experience"
+    ],
+    "concerns": [
+      "Candidate lacks core hardware engineering skills like PCB design and microcontroller programming",
+      "Candidate's professional background is entirely in software development, not hardware engineering",
+      "The job requires specialized knowledge in electronics and circuit design which is absent from the resume"
+    ]
+  },
+  "1d7e35db490abd6e3826e2eb822d99c922e5bd7f98c1ff201ea0fc861137eeaf_090726014511": {
+    "score": 70,
+    "should_apply": true,
+    "matching_skills": [
+      "Python",
+      "API Design and Development",
+      "Database Management",
+      "Version Control"
+    ],
+    "missing_skills": [
+      "Django",
+      "Flask"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate has strong Python and API development experience, though they primarily use FastAPI rather than the requested Django or Flask frameworks. With 4.5 years of experience, the candidate is slightly overqualified for the 1-3 year requirement, but their technical background is a solid match.",
+    "strengths": [
+      "Extensive experience with Python and microservices",
+      "Proven track record in AI-powered workflow integration",
+      "Strong background in API design and database management"
+    ],
+    "concerns": [
+      "Lack of specific professional experience with Django or Flask",
+      "Candidate is overqualified for the 1-3 year experience bracket"
+    ]
+  },
+  "1d7e35db490abd6e3826e2eb822d99c922e5bd7f98c1ff201ea0fc861137eeaf_080726015075": {
+    "score": 55,
+    "should_apply": true,
+    "matching_skills": [
+      "Java",
+      "Fullstack Development",
+      "Front End",
+      ".NET",
+      "AWS"
+    ],
+    "missing_skills": [
+      "QA Automation"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate has strong technical alignment with the required stack, including Java, .NET, and AWS. However, the candidate is slightly overqualified with 4.5 years of experience compared to the job's 0-3 year preference, and lacks specific professional QA automation experience.",
+    "strengths": [
+      "Extensive full-stack experience with .NET and Java",
+      "Proven track record in cloud deployment (AWS)",
+      "Strong technical background with relevant certifications"
+    ],
+    "concerns": [
+      "Candidate has 4.5 years of experience, exceeding the 0-3 year requirement",
+      "Lack of explicit QA Automation experience highlighted in the resume",
+      "Potential salary mismatch due to seniority"
+    ]
+  },
+  "1d7e35db490abd6e3826e2eb822d99c922e5bd7f98c1ff201ea0fc861137eeaf_030726028849": {
+    "score": 70,
+    "should_apply": true,
+    "matching_skills": [
+      "SQL",
+      "Python",
+      "GCP"
+    ],
+    "missing_skills": [
+      "PySpark",
+      "dbt",
+      "Airflow"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate possesses the core technical skills (SQL, Python, GCP) required for the role. While the candidate is slightly overqualified with 4.5 years of experience compared to the 1-2 year requirement, their background in microservices and cloud architecture provides a strong foundation for data engineering tasks.",
+    "strengths": [
+      "Strong proficiency in Python and SQL",
+      "Hands-on experience with GCP and cloud-native architectures",
+      "Experience with CI/CD and version control"
+    ],
+    "concerns": [
+      "Candidate is overqualified for a 1-2 year experience role",
+      "Lack of specific experience with PySpark and dbt, which are key requirements",
+      "Primary background is in full-stack software development rather than data engineering"
+    ]
+  },
+  "1d7e35db490abd6e3826e2eb822d99c922e5bd7f98c1ff201ea0fc861137eeaf_060726922914": {
+    "score": 65,
+    "should_apply": true,
+    "matching_skills": [
+      "Playwright",
+      "TypeScript",
+      "JavaScript",
+      "Java",
+      "API Testing",
+      "REST API",
+      "CI/CD",
+      "Docker",
+      "AWS",
+      "SQL",
+      "Communication Skills"
+    ],
+    "missing_skills": [
+      "Cucumber",
+      "Bdd",
+      "Jenkins",
+      "Selenium"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "match",
+    "reasoning": "The candidate has strong technical foundations in Playwright, API testing, and CI/CD, which are core requirements for the SDET role. While the candidate's primary experience is in full-stack development rather than dedicated QA, their technical stack and automation experience make them a strong candidate for this transition.",
+    "strengths": [
+      "Hands-on experience with Playwright and API automation",
+      "Strong background in CI/CD and cloud infrastructure (AWS)",
+      "Proficiency in both Java and TypeScript"
+    ],
+    "concerns": [
+      "Primary experience is in software development rather than dedicated QA/SDET roles",
+      "Lack of specific experience with BDD frameworks like Cucumber"
+    ]
+  },
+  "1d7e35db490abd6e3826e2eb822d99c922e5bd7f98c1ff201ea0fc861137eeaf_080726500608": {
+    "score": 35,
+    "should_apply": false,
+    "matching_skills": [
+      "C++",
+      "Visual Studio",
+      "SQL Server"
+    ],
+    "missing_skills": [
+      "ASP.Net MVC",
+      "WCF",
+      "Counsellor"
+    ],
+    "experience_fit": "overqualified",
+    "location_fit": "match",
+    "reasoning": "The candidate is overqualified with 4.5 years of experience for a 1-3 year role and the job description is highly suspicious, containing generic 'consultancy' language and outdated technology requirements like MVC 3.0 and Crystal Reports, which are red flags for a potentially low-quality or legacy role.",
+    "strengths": [
+      "Strong full-stack background",
+      "Experience with C# and .NET",
+      "Local to Pune"
+    ],
+    "concerns": [
+      "Job description mentions outdated technologies (MVC 3.0, Crystal Reports)",
+      "Candidate is overqualified for the 1-3 year experience bracket",
+      "The job posting appears to be from a consultancy/staffing firm which is a red flag"
+    ]
   }
 }

@@ -210,6 +210,7 @@ class DependencyFactory:
             llm_provider=self.get_llm_provider(),
             settings=self._settings,
             resume_profile=resume_profile,
+            repository=self.get_repository(),
         )
 
     def create_login_handler(self) -> LoginHandler:
@@ -259,6 +260,7 @@ class DependencyFactory:
             detail_page=detail_page,
             settings=self._settings,
             question_answerer=question_answerer,
+            repository=self.get_repository(),
         )
 
     def create_apply_worker_stack(

@@ -1,0 +1,17 @@
+{
+  "run_log_id": 53,
+  "applied_count": 1,
+  "jobs": [
+    {
+      "naukri_job_id": "090726014511",
+      "title": "Python/AI Developer",
+      "company": "Honeybee Tech Solutions",
+      "location": "Pune",
+      "experience": "1-3 Yrs",
+      "salary": "2.5-3.5 Lacs PA",
+      "match_score": 70.0,
+      "url": "https://www.naukri.com/job-listings-python-ai-developer-honeybee-tech-solutions-pune-1-to-3-years-090726014511",
+      "skills": "Python, Python Framework, Django, API Design and Development, Database Management, Version Control, Flask"
+    }
+  ]
+}

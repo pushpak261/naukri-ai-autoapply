@@ -136,6 +136,41 @@ class TestApplicationOperations:
         assert stats["failed"] == 1
 
     @pytest.mark.asyncio
+    async def test_save_application_updates_latest_for_job(self, repo):
+        """Re-saving for the same job updates the latest row instead of duplicating."""
+        job = await repo.save_job(
+            naukri_job_id="UPSERT1",
+            title="Upsert Job",
+            company="Upsert Corp",
+            url="https://naukri.com/job/upsert",
+        )
+        first = await repo.save_application(
+            job_id=job.id,
+            match_score=40,
+            status=ApplicationStatus.FAILED,
+            error_message="First attempt failed",
+        )
+        second = await repo.save_application(
+            job_id=job.id,
+            match_score=88,
+            status=ApplicationStatus.APPLIED,
+            match_reasoning="Strong match on retry",
+            matching_skills="Python, FastAPI",
+            error_message="",
+        )
+
+        assert first.id == second.id
+        assert second.match_score == 88
+        assert second.status == ApplicationStatus.APPLIED
+        assert second.error_message == ""
+
+        recent = await repo.get_recent_applications(limit=5)
+        job_apps = [row for row in recent if row["job_title"] == "Upsert Job"]
+        assert len(job_apps) == 1
+        assert job_apps[0]["match_score"] == 88
+        assert job_apps[0]["status"] == ApplicationStatus.APPLIED
+
+    @pytest.mark.asyncio
     async def test_recent_applications(self, repo):
         """Test getting recent applications with joined job details."""
         job = await repo.save_job(

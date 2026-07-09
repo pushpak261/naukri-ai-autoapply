@@ -116,3 +116,30 @@ class TestQuestionAnswerer:
         assert answers[2]["question"] == "Current location?"
         assert answers[2]["answer"] == "Bangalore"
         assert answers[2]["index"] == 2
+
+    @pytest.mark.asyncio
+    async def test_db_user_answer_before_ai(self, mock_settings, sample_resume):
+        """DB user answers should be used before cache and AI."""
+        mock_llm = AsyncMock()
+        mock_repo = AsyncMock()
+        mock_repo.get_screening_answer.return_value = "Saved user answer"
+
+        answerer = QuestionAnswerer(
+            mock_llm, mock_settings, sample_resume, repository=mock_repo
+        )
+
+        questions = [
+            {"question": "Why do you want this role?", "type": "text", "index": 0},
+        ]
+        job = Job(
+            naukri_job_id="test_job_3",
+            title="Python Dev",
+            company="Tech Corp",
+            url="https://example.com/3",
+        )
+        answers = await answerer.answer_questions(questions, job)
+
+        assert len(answers) == 1
+        assert answers[0]["answer"] == "Saved user answer"
+        mock_llm.generate_content.assert_not_called()
+        mock_repo.get_screening_answer.assert_awaited_once()

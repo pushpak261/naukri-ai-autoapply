@@ -1,7 +1,7 @@
 {
-  "total_runs": 7,
-  "jobs_applied": 0,
-  "jobs_failed": 17,
+  "total_runs": 9,
+  "jobs_applied": 3,
+  "jobs_failed": 22,
   "api_calls": 0,
-  "duration_seconds": 0.007863999973778846
+  "duration_seconds": 0.008279199977550888
 }

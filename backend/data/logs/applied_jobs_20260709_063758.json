@@ -1,0 +1,28 @@
+{
+  "run_log_id": 51,
+  "applied_count": 2,
+  "jobs": [
+    {
+      "naukri_job_id": "060726009272",
+      "title": "Junior Software Engineer",
+      "company": "Intelligentdx",
+      "location": "Pune",
+      "experience": "1-2 Yrs",
+      "salary": "",
+      "match_score": 95.0,
+      "url": "https://www.naukri.com/job-listings-junior-software-engineer-intelligentdx-pune-1-to-2-years-060726009272",
+      "skills": "C#, Node.js, Python, Java, CSS, Javascript"
+    },
+    {
+      "naukri_job_id": "080726933786",
+      "title": "Data Engineer",
+      "company": "Bajaj Finance",
+      "location": "Pune",
+      "experience": "1-2 Yrs",
+      "salary": "",
+      "match_score": 70.0,
+      "url": "https://www.naukri.com/job-listings-data-engineer-bajaj-finance-limited-pune-1-to-2-years-080726933786",
+      "skills": "data engineer, kubernetes, python, aks, databricks, sql, microservices, docker, data quality, system administration, etl pipelines, git, automation, linux, microservices architecture, etl, data integration, programming, architecture, azure"
+    }
+  ]
+}

@@ -23,6 +23,7 @@ import AutoPilot from './pages/AutoPilot';
 import PipelineDebugger from './pages/PipelineDebugger';
 import Accounts from './pages/Accounts';
 import WebhookManager from './pages/WebhookManager';
+import ScreeningQuestions from './pages/ScreeningQuestions';
 
 export default function App() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
             <Route path="/backups" element={<Backups />} />
             <Route path="/config" element={<Config />} />
             <Route path="/resume" element={<Resume />} />
+            <Route path="/screening-questions" element={<ScreeningQuestions />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/webhooks" element={<WebhookManager />} />
           </Route>

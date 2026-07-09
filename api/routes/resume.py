@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -15,7 +14,7 @@ from fastapi.responses import JSONResponse
 from api.deps import state
 from src.naukri_agent.ai.llm_provider import GeminiProvider
 from src.naukri_agent.ai.resume_parser import ResumeParser
-from src.naukri_agent.utils.helpers import hash_file
+from src.naukri_agent.utils.helpers import CANONICAL_RESUME_NAME, hash_file
 
 router = APIRouter(tags=["resume"])
 
@@ -70,7 +69,9 @@ async def upload_resume(file: UploadFile = File(...)):
 
     ext_map = {".pdf": ".pdf", ".docx": ".docx"}
     dest_ext = ext_map.get(ext, ".pdf")
-    dest_path = dest_dir / f"resume_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}{dest_ext}"
+    dest_path = dest_dir / (
+        CANONICAL_RESUME_NAME if dest_ext == ".pdf" else f"resume{dest_ext}"
+    )
 
     dest_path.write_bytes(contents)
     file_hash = hash_file(dest_path)

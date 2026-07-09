@@ -205,6 +205,32 @@ export interface ApplicationItem {
   missing_skills: string;
   error_message: string;
   applied_at: string;
+  retry_count?: number;
+  max_retries?: number;
+  last_retry_at?: string | null;
+  retryable?: boolean;
+}
+
+export type ApplicationSort =
+  | 'newest'
+  | 'oldest'
+  | 'score_desc'
+  | 'score_asc'
+  | 'company_asc'
+  | 'company_desc'
+  | 'title_asc'
+  | 'title_desc';
+
+export interface ApplicationQueryOptions {
+  status?: string;
+  sort?: ApplicationSort;
+  search?: string;
+  company?: string;
+  minScore?: number;
+  maxScore?: number;
+  dateFrom?: string;
+  dateTo?: string;
+  retryable?: boolean;
 }
 
 export interface PaginatedResponse<T> {
@@ -315,6 +341,32 @@ export interface MatchCacheStats {
   avg_score: number;
   would_apply: number;
   would_skip: number;
+}
+
+export interface ScreeningQuestionItem {
+  id: number;
+  question_key: string;
+  question_text: string;
+  answer_text: string;
+  question_type: string;
+  options: Array<{ text?: string; value?: string }>;
+  status: string;
+  source: string;
+  failure_count: number;
+  last_job_id: number | null;
+  last_job_title: string;
+  last_job_company: string;
+  last_application_id: number | null;
+  last_failed_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScreeningQuestionStats {
+  pending: number;
+  answered: number;
+  total: number;
+  total_failures: number;
 }
 
 export interface MetricsResponse {
@@ -483,8 +535,37 @@ export const api = {
   jobs: (page = 1, perPage = 20, search = '', status = '', sort = 'newest', matchScoreMin = 0, matchScoreMax = 100) =>
     fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}`),
   job: (id: number) => fetchJSON<JobDetail>(`/jobs/${id}`),
-  applications: (page = 1, perPage = 20, status = '', sort = 'newest') =>
-    fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}`),
+  applications: (page = 1, perPage = 20, options: ApplicationQueryOptions = {}) => {
+    const params = new URLSearchParams({
+      page: String(page),
+      per_page: String(perPage),
+      sort: options.sort ?? 'newest',
+      status: options.status ?? '',
+      search: options.search ?? '',
+      company: options.company ?? '',
+      min_score: String(options.minScore ?? 0),
+      max_score: String(options.maxScore ?? 100),
+      date_from: options.dateFrom ?? '',
+      date_to: options.dateTo ?? '',
+      retryable: options.retryable ? 'true' : 'false',
+    });
+    return fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?${params}`);
+  },
+  applicationsAll: async () => {
+    const perPage = 100;
+    const items: ApplicationItem[] = [];
+    let page = 1;
+    let total = 0;
+    do {
+      const data = await fetchJSON<PaginatedResponse<ApplicationItem>>(
+        `/applications?page=${page}&per_page=${perPage}&sort=newest`,
+      );
+      items.push(...data.items);
+      total = data.total;
+      page += 1;
+    } while (items.length < total);
+    return items;
+  },
   runLogs: (limit = 20) => fetchJSON<{ items: RunLog[] }>(`/run-logs?limit=${limit}`),
   runJobs: (runId: number) => fetchJSON<{ items: ApplicationItem[]; run: RunLog }>(`/run-logs/${runId}/jobs`),
   config: () => fetchJSON<ConfigResponse>('/config'),
@@ -523,6 +604,21 @@ export const api = {
     matchCache: (search = '') => fetchJSON<{ items: MatchCacheEntry[]; total: number }>(`/cache/match-cache?search=${encodeURIComponent(search)}`),
     matchCacheStats: () => fetchJSON<MatchCacheStats>('/cache/match-cache/stats'),
     clearMatchCache: () => fetchJSON<{ status: string; message: string }>('/cache/match-cache', { method: 'DELETE' }),
+  },
+
+  screeningQuestions: {
+    list: (status = 'pending', search = '') =>
+      fetchJSON<{ items: ScreeningQuestionItem[]; total: number }>(
+        `/screening-questions?status=${encodeURIComponent(status)}&search=${encodeURIComponent(search)}`
+      ),
+    stats: () => fetchJSON<ScreeningQuestionStats>('/screening-questions/stats'),
+    save: (id: number, answerText: string) =>
+      fetchJSON<{ status: string; item: ScreeningQuestionItem }>(`/screening-questions/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ answer_text: answerText }),
+      }),
+    delete: (id: number) =>
+      fetchJSON<{ status: string; id: number }>(`/screening-questions/${id}`, { method: 'DELETE' }),
   },
 
   metrics: () => fetchJSON<MetricsResponse>('/metrics'),

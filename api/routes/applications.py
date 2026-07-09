@@ -1,7 +1,7 @@
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query, Response
-from sqlalchemy import func, select, update
+from sqlalchemy import func, select
 
 from api.deps import state
 from src.naukri_agent.models.db_schema import Application as DBApplication
@@ -9,6 +9,34 @@ from src.naukri_agent.models.db_schema import Job as DBJob
 from src.naukri_agent.models.db_schema import RunLog as DBRunLog
 
 router = APIRouter(tags=["applications"])
+
+_SORT_OPTIONS = {
+    "newest": DBApplication.applied_at.desc(),
+    "oldest": DBApplication.applied_at.asc(),
+    "score_desc": DBApplication.match_score.desc(),
+    "score_asc": DBApplication.match_score.asc(),
+    "company_asc": DBJob.company.asc(),
+    "company_desc": DBJob.company.desc(),
+    "title_asc": DBJob.title.asc(),
+    "title_desc": DBJob.title.desc(),
+}
+
+
+def _parse_date_param(value: str, *, end_of_day: bool = False) -> datetime | None:
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        try:
+            parsed = datetime.strptime(value[:10], "%Y-%m-%d")
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    if end_of_day and len(value) <= 10:
+        parsed = parsed.replace(hour=23, minute=59, second=59, microsecond=999999)
+    return parsed
 
 
 @router.get("/api/applications")
@@ -18,37 +46,59 @@ async def get_applications(
     per_page: int = Query(20, ge=1, le=100),
     status: str = Query("", max_length=50),
     sort: str = Query("newest", max_length=20),
+    search: str = Query("", max_length=200),
+    company: str = Query("", max_length=200),
+    min_score: float = Query(0, ge=0, le=100),
+    max_score: float = Query(100, ge=0, le=100),
+    date_from: str = Query("", max_length=32),
+    date_to: str = Query("", max_length=32),
+    retryable: bool = Query(False),
 ):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
     response.headers["Expires"] = "0"
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
-        query = select(DBApplication)
-        count_query = select(func.count(DBApplication.id))
+        query = select(DBApplication, DBJob).join(DBJob, DBApplication.job_id == DBJob.id)
+        count_query = (
+            select(func.count(DBApplication.id))
+            .select_from(DBApplication)
+            .join(DBJob, DBApplication.job_id == DBJob.id)
+        )
 
-        if sort == "newest":
-            query = query.order_by(DBApplication.applied_at.desc())
-        elif sort == "oldest":
-            query = query.order_by(DBApplication.applied_at)
-        elif sort == "score_desc":
-            query = query.order_by(DBApplication.match_score.desc())
-        elif sort == "score_asc":
-            query = query.order_by(DBApplication.match_score)
-
+        filters = []
         if status:
-            query = query.where(DBApplication.status == status)
-            count_query = count_query.where(DBApplication.status == status)
+            filters.append(DBApplication.status == status)
+        if search:
+            filters.append(DBJob.title.ilike(f"%{search}%"))
+        if company:
+            filters.append(DBJob.company.ilike(f"%{company}%"))
+        if min_score > 0 or max_score < 100:
+            filters.append(DBApplication.match_score >= min_score)
+            filters.append(DBApplication.match_score <= max_score)
+        if retryable:
+            filters.append(DBApplication.status.in_(["failed", "error"]))
+            filters.append(DBApplication.retry_count < DBApplication.max_retries)
+
+        parsed_from = _parse_date_param(date_from)
+        parsed_to = _parse_date_param(date_to, end_of_day=True)
+        if parsed_from:
+            filters.append(DBApplication.applied_at >= parsed_from)
+        if parsed_to:
+            filters.append(DBApplication.applied_at <= parsed_to)
+
+        for clause in filters:
+            query = query.where(clause)
+            count_query = count_query.where(clause)
+
+        query = query.order_by(_SORT_OPTIONS.get(sort, _SORT_OPTIONS["newest"]))
 
         total = (await session.execute(count_query)).scalar_one()
         offset = (page - 1) * per_page
         result = await session.execute(query.offset(offset).limit(per_page))
-        apps = result.scalars().all()
 
         items = []
-        for app in apps:
-            job_result = await session.execute(select(DBJob).where(DBJob.id == app.job_id))
-            job = job_result.scalar_one_or_none()
+        for app, job in result.all():
             items.append(
                 {
                     "id": app.id,

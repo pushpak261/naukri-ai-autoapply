@@ -493,6 +493,16 @@ class ResumeParser(IResumeParser):
         # Check database cache
         if self._repo:
             cached = await self._repo.get_cached_profile(file_hash)
+            if (
+                cached
+                and not cached.raw_text
+                and getattr(self._settings.application, "answer_questions_with_pdf", False)
+                is True
+            ):
+                log_info(
+                    f"Cached profile for {path.name} is missing resume text; re-parsing PDF"
+                )
+                cached = None
             if cached:
                 log_info(f"Using cached resume profile for {path.name}")
                 if isinstance(cached, ResumeProfile):
@@ -502,6 +512,8 @@ class ResumeParser(IResumeParser):
                     cached_dict = cached
                     domain_cached = _map_to_domain_profile(cached, file_hash)
 
+                cached_dict["uploaded_file_path"] = str(path)
+                cached_dict["file_hash"] = file_hash
                 # Save to local resume_profile.json for synchronization and editability
                 self._write_profile_json(cached_dict)
                 log_info(f"Saved database cached profile to local {profile_json_path.name}")
@@ -576,6 +588,7 @@ class ResumeParser(IResumeParser):
             # Embed the raw resume text and file hash so QuestionAnswerer can use it for screening questions and caching works correctly
             profile["raw_text"] = resume_text
             profile["file_hash"] = file_hash
+            profile["uploaded_file_path"] = str(path)
 
             # Write to local resume_profile.json (preserves metadata like uploaded_file_path)
             self._write_profile_json(profile)

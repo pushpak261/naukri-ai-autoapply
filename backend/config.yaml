@@ -172,7 +172,7 @@ profile:
   - Pune
   total_experience: 1 years
 resume:
-  path: data/resumes/resume_20260707_171410.pdf
+  path: data/resumes/resume.pdf
 search:
   enable_heuristics: true
   experience_max: 2

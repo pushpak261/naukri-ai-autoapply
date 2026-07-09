@@ -8,6 +8,7 @@ encapsulating all database interactions behind a clean interface.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -30,6 +31,9 @@ from src.naukri_agent.models.db_schema import (
 )
 from src.naukri_agent.models.db_schema import (
     RunLog as DBRunLog,
+)
+from src.naukri_agent.models.db_schema import (
+    ScreeningQuestion as DBScreeningQuestion,
 )
 
 
@@ -227,22 +231,42 @@ class SQLAlchemyRepository(IRepository):
         missing_skills: str = "",
         error_message: str = "",
     ) -> JobApplication:
-        """Record an application attempt."""
+        """Record an application attempt, updating the latest row for this job if one exists."""
         async with self._cache_lock:
             session_factory = await self._db_manager.get_session_factory()
             async with session_factory() as session, session.begin():
-                app = DBApplication(
-                    job_id=job_id,
-                    match_score=match_score,
-                    match_reasoning=match_reasoning,
-                    matching_skills=matching_skills,
-                    missing_skills=missing_skills,
-                    status=status,
-                    error_message=error_message,
+                result = await session.execute(
+                    select(DBApplication)
+                    .filter(DBApplication.job_id == job_id)
+                    .order_by(DBApplication.id.desc())
+                    .limit(1)
                 )
-                session.add(app)
-                await session.flush()
-                await session.refresh(app)
+                existing = result.scalar_one_or_none()
+                now = datetime.now(UTC)
+
+                if existing:
+                    existing.match_score = match_score
+                    existing.match_reasoning = match_reasoning
+                    existing.matching_skills = matching_skills
+                    existing.missing_skills = missing_skills
+                    existing.status = status
+                    existing.error_message = error_message
+                    existing.applied_at = now
+                    app = existing
+                else:
+                    app = DBApplication(
+                        job_id=job_id,
+                        match_score=match_score,
+                        match_reasoning=match_reasoning,
+                        matching_skills=matching_skills,
+                        missing_skills=missing_skills,
+                        status=status,
+                        error_message=error_message,
+                        applied_at=now,
+                    )
+                    session.add(app)
+                    await session.flush()
+                    await session.refresh(app)
 
                 job_result = await session.execute(select(DBJob).filter(DBJob.id == job_id))
                 job = job_result.scalar_one_or_none()
@@ -506,3 +530,250 @@ class SQLAlchemyRepository(IRepository):
                 )
             )
             return list(result.scalars().all())
+
+    # -----------------------------------------------------------------------
+    # Screening question operations
+    # -----------------------------------------------------------------------
+    def _screening_question_row(
+        self, row: DBScreeningQuestion, job_title: str = "", job_company: str = ""
+    ) -> dict:
+        options: list = []
+        if row.options_json:
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                options = json.loads(row.options_json)
+        return {
+            "id": row.id,
+            "question_key": row.question_key,
+            "question_text": row.question_text,
+            "answer_text": row.answer_text or "",
+            "question_type": row.question_type,
+            "options": options,
+            "status": row.status,
+            "source": row.source,
+            "failure_count": row.failure_count,
+            "last_job_id": row.last_job_id,
+            "last_job_title": job_title,
+            "last_job_company": job_company,
+            "last_application_id": row.last_application_id,
+            "last_failed_at": row.last_failed_at.isoformat() if row.last_failed_at else "",
+            "created_at": row.created_at.isoformat() if row.created_at else "",
+            "updated_at": row.updated_at.isoformat() if row.updated_at else "",
+        }
+
+    @with_failover
+    async def get_screening_answer(self, question_key: str) -> str | None:
+        """Return a user-saved answer for a normalized question key."""
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
+            result = await session.execute(
+                select(DBScreeningQuestion).filter(
+                    DBScreeningQuestion.question_key == question_key,
+                    DBScreeningQuestion.status == "answered",
+                    DBScreeningQuestion.source == "user",
+                )
+            )
+            row = result.scalar_one_or_none()
+            if row and row.answer_text:
+                return row.answer_text
+            return None
+
+    @with_failover
+    async def list_screening_questions(
+        self,
+        status: str | None = None,
+        search: str = "",
+    ) -> list[dict]:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
+            query = (
+                select(DBScreeningQuestion, DBJob.title, DBJob.company)
+                .outerjoin(DBJob, DBScreeningQuestion.last_job_id == DBJob.id)
+                .order_by(DBScreeningQuestion.updated_at.desc())
+            )
+            if status and status != "all":
+                query = query.filter(DBScreeningQuestion.status == status)
+            result = await session.execute(query)
+            rows = result.all()
+
+            items = []
+            search_lower = search.lower().strip()
+            for sq, job_title, job_company in rows:
+                if search_lower:
+                    haystack = f"{sq.question_text} {sq.answer_text or ''}".lower()
+                    if search_lower not in haystack:
+                        continue
+                items.append(
+                    self._screening_question_row(
+                        sq, job_title or "", job_company or ""
+                    )
+                )
+            return items
+
+    @with_failover
+    async def get_screening_question_stats(self) -> dict[str, int]:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
+            pending = await session.scalar(
+                select(func.count())
+                .select_from(DBScreeningQuestion)
+                .filter(DBScreeningQuestion.status == "pending")
+            )
+            answered = await session.scalar(
+                select(func.count())
+                .select_from(DBScreeningQuestion)
+                .filter(DBScreeningQuestion.status == "answered")
+            )
+            total_failures = await session.scalar(
+                select(func.coalesce(func.sum(DBScreeningQuestion.failure_count), 0))
+            )
+            return {
+                "pending": pending or 0,
+                "answered": answered or 0,
+                "total": (pending or 0) + (answered or 0),
+                "total_failures": int(total_failures or 0),
+            }
+
+    @with_failover
+    async def upsert_failed_question(
+        self,
+        question_text: str,
+        question_key: str,
+        question_type: str = "text",
+        options: list | None = None,
+        last_job_id: int | None = None,
+        last_application_id: int | None = None,
+    ) -> None:
+        """Record or update a failed screening question."""
+        if not question_text or not question_key:
+            return
+
+        options_json = json.dumps(options or [])
+        now = datetime.now(UTC)
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
+            result = await session.execute(
+                select(DBScreeningQuestion).filter(
+                    DBScreeningQuestion.question_key == question_key
+                )
+            )
+            existing = result.scalar_one_or_none()
+            if existing:
+                if existing.status == "answered" and existing.source == "user":
+                    return
+                existing.question_text = question_text
+                existing.question_type = question_type
+                existing.options_json = options_json
+                existing.failure_count = (existing.failure_count or 0) + 1
+                existing.last_failed_at = now
+                existing.updated_at = now
+                if last_job_id is not None:
+                    existing.last_job_id = last_job_id
+                if last_application_id is not None:
+                    existing.last_application_id = last_application_id
+                if existing.status != "answered":
+                    existing.status = "pending"
+                return
+
+            session.add(
+                DBScreeningQuestion(
+                    question_key=question_key,
+                    question_text=question_text,
+                    question_type=question_type,
+                    options_json=options_json,
+                    status="pending",
+                    source="",
+                    failure_count=1,
+                    last_job_id=last_job_id,
+                    last_application_id=last_application_id,
+                    last_failed_at=now,
+                )
+            )
+
+    @with_failover
+    async def save_user_screening_answer(
+        self, question_id: int, answer_text: str
+    ) -> dict | None:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
+            result = await session.execute(
+                select(DBScreeningQuestion).filter(DBScreeningQuestion.id == question_id)
+            )
+            row = result.scalar_one_or_none()
+            if not row:
+                return None
+            row.answer_text = answer_text.strip()
+            row.status = "answered"
+            row.source = "user"
+            row.updated_at = datetime.now(UTC)
+            await session.flush()
+            await session.refresh(row)
+
+            job_title = ""
+            job_company = ""
+            if row.last_job_id:
+                job_result = await session.execute(
+                    select(DBJob.title, DBJob.company).filter(DBJob.id == row.last_job_id)
+                )
+                job_row = job_result.one_or_none()
+                if job_row:
+                    job_title, job_company = job_row
+
+            return self._screening_question_row(row, job_title, job_company)
+
+    @with_failover
+    async def delete_screening_question(self, question_id: int) -> bool:
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
+            result = await session.execute(
+                select(DBScreeningQuestion).filter(DBScreeningQuestion.id == question_id)
+            )
+            row = result.scalar_one_or_none()
+            if not row:
+                return False
+            await session.delete(row)
+            return True
+
+    @with_failover
+    async def migrate_qa_cache_to_db(self, cache_path) -> int:
+        """Import qa_cache.json entries into screening_questions (one-time)."""
+        from pathlib import Path
+
+        path = Path(cache_path)
+        if not path.exists():
+            return 0
+
+        try:
+            cache = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            return 0
+
+        if not isinstance(cache, dict):
+            return 0
+
+        imported = 0
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
+            for question_key, answer_text in cache.items():
+                if not question_key or not answer_text:
+                    continue
+                result = await session.execute(
+                    select(DBScreeningQuestion).filter(
+                        DBScreeningQuestion.question_key == question_key
+                    )
+                )
+                if result.scalar_one_or_none():
+                    continue
+                session.add(
+                    DBScreeningQuestion(
+                        question_key=question_key,
+                        question_text=question_key,
+                        answer_text=str(answer_text),
+                        question_type="text",
+                        options_json="[]",
+                        status="answered",
+                        source="ai",
+                        failure_count=0,
+                    )
+                )
+                imported += 1
+        return imported

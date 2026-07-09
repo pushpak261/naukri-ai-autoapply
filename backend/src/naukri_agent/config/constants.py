@@ -26,6 +26,8 @@ NAVIGATION_TIMEOUT = 45_000  # 45 seconds — page navigation
 LOGIN_TIMEOUT = 120_000  # 120 seconds — wait for OTP
 ELEMENT_TIMEOUT = 30_000  # 30 seconds — wait for element
 APPLY_TIMEOUT = 20_000  # 20 seconds — apply flow
+WORKER_GOTO_TIMEOUT = 30_000  # 30 seconds — worker job page navigation
+WORKER_NAV_SETTLE_TIMEOUT = 10_000  # 10 seconds — post-goto settle (domcontentloaded)
 
 
 # =============================================================================

@@ -91,6 +91,32 @@ class IRepository(Protocol):
 
     async def get_all_job_descriptions(self) -> list[str]: ...
 
+    async def get_screening_answer(self, question_key: str) -> str | None: ...
+
+    async def list_screening_questions(
+        self,
+        status: str | None = None,
+        search: str = "",
+    ) -> list[dict]: ...
+
+    async def get_screening_question_stats(self) -> dict[str, int]: ...
+
+    async def upsert_failed_question(
+        self,
+        question_text: str,
+        question_key: str,
+        question_type: str = "text",
+        options: list | None = None,
+        last_job_id: int | None = None,
+        last_application_id: int | None = None,
+    ) -> None: ...
+
+    async def save_user_screening_answer(self, question_id: int, answer_text: str) -> dict | None: ...
+
+    async def delete_screening_question(self, question_id: int) -> bool: ...
+
+    async def migrate_qa_cache_to_db(self, cache_path: Any) -> int: ...
+
 
 # ---------------------------------------------------------------------------
 # LLM Interfaces
