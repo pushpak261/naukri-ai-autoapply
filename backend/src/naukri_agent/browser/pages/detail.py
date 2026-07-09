@@ -1243,15 +1243,6 @@ class JobDetailPage(BasePage):
                 "thank you for applying",
                 "application sent",
                 "your application has been sent",
-                "you have applied",
-                "you applied to this job",
-                "applied to this job",
-                "we have received your application",
-                "your application is submitted",
-                "application has been submitted",
-                "you have successfully applied",
-                "successfully submitted",
-                "applied on",
             ]
             for phrase in success_phrases:
                 if phrase in body_text.lower():
