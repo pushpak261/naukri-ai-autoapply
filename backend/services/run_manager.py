@@ -16,7 +16,7 @@ from src.naukri_agent.main import create_agent
 from src.naukri_agent.models.db_schema import setup_database_manager
 
 if TYPE_CHECKING:
-    from src.naukri_agent.bot.agent import NaukriAgent
+    from src.naukri_agent.orchestrator.agent import NaukriAgent
 
 
 @dataclass
@@ -60,13 +60,17 @@ class RunManager:
             jobs_applied = getattr(agent, "_jobs_applied", 0) if agent else 0
             jobs_skipped = getattr(agent, "_jobs_skipped", 0) if agent else 0
             jobs_failed = getattr(agent, "_jobs_failed", 0) if agent else 0
+            applied_jobs = getattr(agent, "_applied_jobs_this_run", []) if agent else []
             daily_cap = 0
             daily_applied = 0
             if agent:
                 daily_cap = agent._settings.application.daily_cap
                 daily_applied = getattr(agent, "_daily_applied", 0)
+            run_id = state.run_id
+            if agent is not None and getattr(agent, "_run_log_id", None):
+                run_id = agent._run_log_id
             return RunStatus(
-                run_id=state.run_id,
+                run_id=run_id,
                 status=status,
                 phase=phase,
                 dry_run=state.dry_run,
@@ -79,6 +83,7 @@ class RunManager:
                 total_queued=jobs_found,
                 strict_policy_mode=state.strict_policy_mode,
                 experience_source=state.experience_source,
+                applied_jobs=list(applied_jobs[-50:]),
             )
         if state.task and state.task.done() and state.error:
             return RunStatus(

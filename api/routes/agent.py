@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -9,13 +10,8 @@ from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
-from sqlalchemy import func, select
 
 from api.deps import state
-from src.naukri_agent.config.constants import ApplicationStatus
-from src.naukri_agent.models.db_schema import Application as DBApplication
-from src.naukri_agent.models.db_schema import Job as DBJob
-from src.naukri_agent.models.db_schema import NaukriAccount
 
 router = APIRouter(tags=["agent"])
 
@@ -76,31 +72,14 @@ async def start_agent():
             "pid": state.agent_process.pid,
         }
 
-    # Fallback: if in-memory state is lost (server restart), query DB for active account
-    if not state.active_account_email:
-        try:
-            session_factory = await state.db_manager.get_session_factory()
-            async with session_factory() as session:
-                result = await session.execute(
-                    select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
-                )
-                active = result.scalar_one_or_none()
-                if active:
-                    state.active_account_email = active.email
-        except Exception:
-            pass
-
     cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
-    env = _agent_subprocess_env()
-    if state.active_account_email:
-        env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
     try:
         state.agent_process = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             cwd=str(state.settings.project_root),
-            env=env,
+            env=_agent_subprocess_env(),
         )
     except FileNotFoundError:
         raise HTTPException(
@@ -139,6 +118,19 @@ async def stop_agent():
     return {"status": "stopped", "message": "Agent process terminated"}
 
 
+def _read_live_run_progress() -> dict | None:
+    progress_path = state.settings.project_root / "data" / "run_progress.json"
+    if not progress_path.exists():
+        return None
+    try:
+        data = json.loads(progress_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
 @router.get("/api/agent/status")
 async def agent_status():
     running = state.agent_process is not None and state.agent_process.poll() is None
@@ -146,56 +138,42 @@ async def agent_status():
     last_runs = await state.repo.get_run_stats(limit=1)
     last_run = last_runs[0] if last_runs else None
 
+    current_run = None
+    if running:
+        current_run = _read_live_run_progress()
+        if not current_run:
+            active = await state.repo.get_active_run()
+            if active:
+                current_run = {
+                    "run_id": active["id"],
+                    "phase": "starting",
+                    "jobs_found": active.get("found", 0),
+                    "jobs_applied": active.get("applied", 0),
+                    "jobs_skipped": active.get("skipped", 0),
+                    "jobs_failed": active.get("failed", 0),
+                    "processed_count": (
+                        active.get("applied", 0)
+                        + active.get("skipped", 0)
+                        + active.get("failed", 0)
+                    ),
+                    "total_queued": active.get("found", 0),
+                    "started_at": active.get("started_at", ""),
+                    "keywords": active.get("keywords", []),
+                }
+        if current_run and last_run and last_run.get("status") == "running":
+            last_run = None
+
     uptime_seconds = None
     if running and state.agent_started_at:
         uptime_seconds = int((datetime.now(UTC) - state.agent_started_at).total_seconds())
-
-    jobs_found = None
-    jobs_applied = None
-    jobs_skipped = None
-    jobs_failed = None
-    if running and state.agent_started_at and state.db_manager is not None:
-        session_factory = await state.db_manager.get_session_factory()
-        async with session_factory() as session:
-            found_result = await session.execute(
-                select(func.count(DBJob.id)).where(DBJob.scraped_at >= state.agent_started_at)
-            )
-            jobs_found = int(found_result.scalar_one() or 0)
-
-            applied_result = await session.execute(
-                select(func.count(DBApplication.id)).where(
-                    DBApplication.applied_at >= state.agent_started_at,
-                    DBApplication.status == ApplicationStatus.APPLIED,
-                )
-            )
-            jobs_applied = int(applied_result.scalar_one() or 0)
-
-            skipped_result = await session.execute(
-                select(func.count(DBApplication.id)).where(
-                    DBApplication.applied_at >= state.agent_started_at,
-                    DBApplication.status.like("skipped%"),
-                )
-            )
-            jobs_skipped = int(skipped_result.scalar_one() or 0)
-
-            failed_result = await session.execute(
-                select(func.count(DBApplication.id)).where(
-                    DBApplication.applied_at >= state.agent_started_at,
-                    DBApplication.status.in_([ApplicationStatus.FAILED, ApplicationStatus.ERROR]),
-                )
-            )
-            jobs_failed = int(failed_result.scalar_one() or 0)
 
     return {
         "running": running,
         "pid": state.agent_process.pid if running else None,
         "started_at": state.agent_started_at.isoformat() if state.agent_started_at else None,
         "uptime_seconds": uptime_seconds,
-        "last_run": last_run,
-        "jobs_found": jobs_found,
-        "jobs_applied": jobs_applied,
-        "jobs_skipped": jobs_skipped,
-        "jobs_failed": jobs_failed,
+        "current_run": current_run,
+        "last_run": last_run if not current_run else None,
     }
 
 

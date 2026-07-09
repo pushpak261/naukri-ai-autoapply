@@ -23,7 +23,7 @@ from src.naukri_agent.config.settings import get_settings
 from src.naukri_agent.utils.logger import console
 
 if TYPE_CHECKING:
-    from src.naukri_agent.bot.agent import NaukriAgent
+    from src.naukri_agent.orchestrator.agent import NaukriAgent
 
 
 @click.group()
@@ -64,11 +64,12 @@ def run(
 
 
 def create_agent(settings, db_manager) -> NaukriAgent:
-    from src.naukri_agent.bot.agent import NaukriAgent
+    from src.naukri_agent.orchestrator.agent import NaukriAgent
     from src.naukri_agent.bot.factory import DependencyFactory
 
     factory = DependencyFactory(settings, db_manager=db_manager)
     return NaukriAgent(
+        factory=factory,
         settings=factory.get_settings(),
         repository=factory.get_repository(),
         browser_engine=factory.get_browser_engine(),
@@ -276,7 +277,7 @@ def init():
     console.print("  ✅ Data directories created")
     console.print()
     console.print("[bold cyan]Next steps:[/bold cyan]")
-    console.print("  1. Edit [bold].env[/bold] with your Naukri credentials and Gemini API key")
+    console.print("  1. Edit [bold].env[/bold] with your Naukri credentials and Cursor API key")
     console.print("  2. Edit [bold]config.yaml[/bold] with your job preferences")
     console.print("  3. Run [bold]python -m src.main run --dry-run[/bold] to test")
 

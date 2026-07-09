@@ -36,6 +36,9 @@ interface ConfigForm {
   notify_on_match: boolean;
   rate_limit_capacity: number;
   rate_limit_refill_rate: number;
+  apply_workers: number;
+  max_concurrent_applies: number;
+  global_apply_interval_sec: number;
 }
 
 function configToForm(config: ConfigResponse): ConfigForm {
@@ -73,6 +76,9 @@ function configToForm(config: ConfigResponse): ConfigForm {
     notify_on_match: config.notifications?.notify_on_match ?? false,
     rate_limit_capacity: config.rate_limits?.rate_limit_capacity ?? 10,
     rate_limit_refill_rate: config.rate_limits?.rate_limit_refill_rate ?? 1,
+    apply_workers: config.application.apply_workers ?? 1,
+    max_concurrent_applies: config.application.max_concurrent_applies ?? 5,
+    global_apply_interval_sec: config.application.global_apply_interval_sec ?? 20,
   };
 }
 
@@ -130,6 +136,9 @@ export default function Config() {
         notify_on_match: form.notify_on_match,
         rate_limit_capacity: form.rate_limit_capacity,
         rate_limit_refill_rate: form.rate_limit_refill_rate,
+        apply_workers: form.apply_workers,
+        max_concurrent_applies: form.max_concurrent_applies,
+        global_apply_interval_sec: form.global_apply_interval_sec,
       };
       await api.updateConfig(payload);
       setMessage({ type: 'success', text: 'Configuration saved successfully!' });
@@ -250,6 +259,19 @@ export default function Config() {
               <input type="number" min="0" value={form.max_retries} onChange={(e) => setForm({ ...form, max_retries: Number(e.target.value) })} className={inputClass} />
             </div>
             <div>
+              <label className={labelClass}>Apply Workers</label>
+              <input type="number" min="1" max="5" value={form.apply_workers} onChange={(e) => setForm({ ...form, apply_workers: Number(e.target.value) })} className={inputClass} />
+              <p className="text-[10px] text-[#64748b] mt-1">Parallel apply tabs (1 = sequential)</p>
+            </div>
+            <div>
+              <label className={labelClass}>Max Concurrent Applies</label>
+              <input type="number" min="1" max="5" value={form.max_concurrent_applies} onChange={(e) => setForm({ ...form, max_concurrent_applies: Number(e.target.value) })} className={inputClass} />
+            </div>
+            <div>
+              <label className={labelClass}>Global Apply Interval (sec)</label>
+              <input type="number" min="1" step="1" value={form.global_apply_interval_sec} onChange={(e) => setForm({ ...form, global_apply_interval_sec: Number(e.target.value) })} className={inputClass} />
+            </div>
+            <div>
               <label className={labelClass}>Delay Min (seconds)</label>
               <input type="number" value={form.delay_between_applies_min} onChange={(e) => setForm({ ...form, delay_between_applies_min: Number(e.target.value) })} className={inputClass} />
             </div>
@@ -279,7 +301,7 @@ export default function Config() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="flex items-center gap-3">
               <input type="checkbox" id="use_gemini" checked={form.use_gemini} onChange={(e) => setForm({ ...form, use_gemini: e.target.checked })} className="w-4 h-4 rounded border-border bg-bg text-primary focus:ring-[#38bdf8]" />
-              <label htmlFor="use_gemini" className="text-sm text-secondary">Use Gemini AI</label>
+              <label htmlFor="use_gemini" className="text-sm text-secondary">Enable AI (Cursor)</label>
             </div>
             <div className="flex items-center gap-3">
               <input type="checkbox" id="enable_matching" checked={form.enable_matching} onChange={(e) => setForm({ ...form, enable_matching: e.target.checked })} className="w-4 h-4 rounded border-border bg-bg text-primary focus:ring-[#38bdf8]" />
@@ -287,7 +309,7 @@ export default function Config() {
             </div>
             <div className="md:col-span-2">
               <label className={labelClass}>AI Model</label>
-              <input type="text" value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })} className={inputClass} placeholder="gemini-2.5-flash" />
+              <input type="text" value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })} className={inputClass} placeholder="composer-2.5" />
             </div>
           </div>
         </div>

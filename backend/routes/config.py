@@ -30,6 +30,7 @@ async def config_summary(settings: Settings = Depends(get_app_settings)) -> Conf
         excluded_companies=settings.exclusions.companies,
         excluded_title_keywords=settings.exclusions.title_keywords,
         ai_model=settings.ai.model,
+        apply_workers=settings.application.apply_workers,
     )
 
 
@@ -58,4 +59,5 @@ async def update_search_experience(body: SearchExperienceUpdate) -> ConfigSummar
         excluded_companies=settings.exclusions.companies,
         excluded_title_keywords=settings.exclusions.title_keywords,
         ai_model=settings.ai.model,
+        apply_workers=settings.application.apply_workers,
     )

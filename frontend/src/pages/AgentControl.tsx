@@ -159,20 +159,30 @@ export default function AgentControl() {
       }
     });
 
-    intervalRef.current = setInterval(async () => {
-      const s = await fetchStatus();
-      if (s?.running && !useSSE) await fetchOutput();
-    }, useSSE ? 10000 : 3000);
-
     healthIntervalRef.current = setInterval(checkHealth, 15000);
 
     return () => {
       mounted = false;
-      if (intervalRef.current) clearInterval(intervalRef.current);
       if (healthIntervalRef.current) clearInterval(healthIntervalRef.current);
       if (sseRef.current) sseRef.current.close();
     };
   }, [fetchStatus, fetchOutput, checkHealth, fetchMetrics, useSSE, connectSSE]);
+
+  // Poll status (faster while agent is running)
+  useEffect(() => {
+    const pollMs = status?.running ? 2000 : useSSE ? 10000 : 3000;
+    intervalRef.current = setInterval(async () => {
+      const s = await fetchStatus();
+      if (s?.running) {
+        await fetchMetrics();
+        if (!useSSE) await fetchOutput();
+      }
+    }, pollMs);
+
+    return () => {
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, [fetchStatus, fetchOutput, fetchMetrics, useSSE, status?.running]);
 
   // Auto-scroll
   useEffect(() => {
@@ -257,14 +267,18 @@ export default function AgentControl() {
     );
   }
 
-  const liveApplied = status?.jobs_applied ?? null;
-  const liveSkipped = status?.jobs_skipped ?? null;
-  const liveFound = status?.jobs_found ?? null;
-  const liveFailed = status?.jobs_failed ?? null;
-
   const successRate = metrics && (metrics.jobs_applied + metrics.jobs_failed) > 0
     ? Math.round((metrics.jobs_applied / (metrics.jobs_applied + metrics.jobs_failed)) * 100)
     : null;
+
+  const live = status?.current_run;
+  const liveFound = live?.jobs_found ?? 0;
+  const liveApplied = live?.jobs_applied ?? 0;
+  const liveSkipped = live?.jobs_skipped ?? 0;
+  const liveFailed = live?.jobs_failed ?? 0;
+  const liveProcessed = live?.processed_count ?? (liveApplied + liveSkipped + liveFailed);
+  const liveTotal = live?.total_queued ?? liveFound;
+  const livePct = liveTotal > 0 ? Math.min(100, Math.round((liveProcessed / liveTotal) * 100)) : 0;
 
   return (
     <div className="space-y-6">
@@ -331,6 +345,96 @@ export default function AgentControl() {
         </div>
       )}
 
+      {status?.running && (
+        <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-primary)' }}>
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <h2 className="text-sm font-medium flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
+              <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+              {live ? `Current Run #${live.run_id}` : 'Current Run'}
+            </h2>
+            <span className="text-xs px-2 py-1 rounded-full bg-primary/10 text-primary capitalize">
+              {(live?.phase || 'starting').replace(/_/g, ' ')}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <div>
+              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Searched</p>
+              <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{liveFound}</p>
+            </div>
+            <div>
+              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Applied</p>
+              <p className="text-2xl font-bold text-green-400">{liveApplied}</p>
+            </div>
+            <div>
+              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Skipped</p>
+              <p className="text-2xl font-bold text-yellow-400">{liveSkipped}</p>
+            </div>
+            <div>
+              <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Failed</p>
+              <p className="text-2xl font-bold text-red-400">{liveFailed}</p>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex justify-between text-xs" style={{ color: 'var(--color-text-muted)' }}>
+              <span>Progress</span>
+              <span>{liveProcessed} / {liveTotal} ({livePct}%)</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full" style={{ backgroundColor: 'var(--color-bg)' }}>
+              <div
+                className="h-full bg-primary transition-all duration-300"
+                style={{ width: `${livePct}%` }}
+              />
+            </div>
+          </div>
+
+          {(live?.applied_jobs?.length ?? 0) > 0 && (
+            <div className="mt-4 border-t pt-4" style={{ borderColor: 'var(--color-border)' }}>
+              <h3 className="text-sm font-medium mb-3" style={{ color: 'var(--color-text)' }}>
+                Applied Jobs ({live?.applied_jobs?.length ?? liveApplied})
+              </h3>
+              <div className="max-h-56 space-y-2 overflow-y-auto">
+                {live?.applied_jobs?.map((job, index) => (
+                  <div
+                    key={job.naukri_job_id || `${job.title}-${index}`}
+                    className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2"
+                    style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium" style={{ color: 'var(--color-text)' }}>
+                        {job.title}
+                      </p>
+                      <p className="truncate text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                        {job.company}
+                        {job.location ? ` · ${job.location}` : ''}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {job.match_score != null && (
+                        <span className="text-xs font-semibold text-green-400">
+                          {Math.round(job.match_score)}
+                        </span>
+                      )}
+                      {job.url && (
+                        <a
+                          href={job.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-primary hover:underline"
+                        >
+                          View
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <h2 className="text-xs font-medium mb-3 flex items-center gap-1.5" style={{ color: 'var(--color-text-secondary)' }}>
@@ -353,30 +457,24 @@ export default function AgentControl() {
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            {status?.running ? 'Live Run Progress' : 'Jobs Processed'}
+            {status?.running ? 'Run Applied' : 'Jobs Processed'}
           </h2>
           <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>
-            {status?.running ? (liveFound ?? 0) : (metrics?.jobs_applied ?? 0)}
+            {status?.running && live ? liveApplied : (metrics?.jobs_applied ?? 0)}
           </p>
           <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-            {status?.running
-              ? `Searched: ${liveFound ?? 0} | Applied: ${liveApplied ?? 0} | Skipped: ${liveSkipped ?? 0}`
+            {status?.running && live
+              ? `${liveSkipped} skipped · ${liveFailed} failed`
               : `Applied / ${metrics?.jobs_failed ?? 0} failed`}
           </p>
         </div>
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>
-            {status?.running ? 'Live Apply Outcomes' : 'Success Rate'}
-          </h2>
-          <p className={`text-2xl font-bold ${successRate != null && successRate >= 50 ? 'text-green-400' : successRate != null ? 'text-yellow-400' : ''}`} style={{ color: successRate == null && !status?.running ? 'var(--color-text-muted)' : undefined }}>
-            {status?.running ? `${liveApplied ?? 0}` : (successRate != null ? `${successRate}%` : 'N/A')}
+          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>Success Rate</h2>
+          <p className={`text-2xl font-bold ${successRate != null && successRate >= 50 ? 'text-green-400' : successRate != null ? 'text-yellow-400' : ''}`} style={{ color: successRate == null ? 'var(--color-text-muted)' : undefined }}>
+            {successRate != null ? `${successRate}%` : 'N/A'}
           </p>
-          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-            {status?.running
-              ? `Applied: ${liveApplied ?? 0} | Failed: ${liveFailed ?? 0}`
-              : `${metrics?.total_runs ?? 0} total runs`}
-          </p>
+          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>{metrics?.total_runs ?? 0} total runs</p>
         </div>
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
@@ -392,7 +490,9 @@ export default function AgentControl() {
             <Clock className="w-4 h-4" />
             Last Run
           </h2>
-          {status?.last_run ? (
+          {status?.running && !live ? (
+            <p className="text-sm" style={{ color: 'var(--color-text-muted)' }}>Run in progress — see live stats above</p>
+          ) : status?.last_run ? (
             <div>
               <p className="text-sm" style={{ color: 'var(--color-text)' }}>{status.last_run.started_at.slice(0, 16).replace('T', ' ')}</p>
               <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>

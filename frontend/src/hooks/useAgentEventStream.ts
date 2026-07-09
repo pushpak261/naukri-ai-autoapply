@@ -6,6 +6,23 @@ import { useRunStore } from '@/store/runStore'
 const MAX_RETRIES = 10
 const BASE_DELAY_MS = 1000
 
+const SSE_EVENT_TYPES = [
+  'counters_updated',
+  'job_updated',
+  'run_started',
+  'run_completed',
+  'run_interrupted',
+  'run_error',
+  'search_started',
+  'search_completed',
+  'search_batch_completed',
+  'login_started',
+  'login_success',
+  'login_failed',
+  'resume_parsed',
+  'applying',
+] as const
+
 export function useAgentEventStream(runId: number | null) {
   const applyEvent = useRunStore((s) => s.applyEvent)
   const retriesRef = useRef(0)
@@ -32,10 +49,9 @@ export function useAgentEventStream(runId: number | null) {
       }
 
       es.onmessage = handleMessage
-      es.addEventListener('job_updated', handleMessage)
-      es.addEventListener('counters_updated', handleMessage)
-      es.addEventListener('run_completed', handleMessage)
-      es.addEventListener('run_interrupted', handleMessage)
+      for (const eventType of SSE_EVENT_TYPES) {
+        es.addEventListener(eventType, handleMessage)
+      }
 
       es.onerror = () => {
         es?.close()

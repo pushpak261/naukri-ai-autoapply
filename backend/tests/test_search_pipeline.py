@@ -21,6 +21,8 @@ def _make_job(job_id: str, title: str = "Developer") -> Job:
         company="Acme",
         url=f"https://www.naukri.com/job/{job_id}",
         skills="Python",
+        experience="2-4 Yrs",
+        posted_date="1 day ago",
     )
 
 
@@ -59,6 +61,7 @@ async def test_search_producer_enqueues_ranked_jobs_per_batch():
     agent._emit = AsyncMock()
     agent._emit_job = AsyncMock()
     agent._emit_counters = AsyncMock()
+    agent._apply_workers = [MagicMock(id=0)]
 
     batch_one = SearchBatch(
         keyword="Software Engineer",
@@ -83,12 +86,16 @@ async def test_search_producer_enqueues_ranked_jobs_per_batch():
     await agent._search_producer(searcher, queue, gate, vector_filter)
 
     enqueued: list[str] = []
+    sentinels = 0
     while not queue.empty():
         job = queue.get_nowait()
-        if job is not None:
+        if job is None:
+            sentinels += 1
+        else:
             enqueued.append(job.naukri_job_id)
 
     assert enqueued == ["job_a", "job_b", "job_c"]
+    assert sentinels == 1
     assert agent._jobs_found == 3
     assert agent._total_queued == 3
     assert agent._phase == "processing"
@@ -110,6 +117,10 @@ async def test_pipeline_consumer_starts_while_producer_searches_next_batch():
     agent._emit = AsyncMock()
     agent._emit_job = AsyncMock()
     agent._emit_counters = AsyncMock()
+    agent._apply_workers = [MagicMock(id=0)]
+    agent._workers_paused = asyncio.Event()
+    agent._workers_paused.set()
+    agent._check_cap_reached = AsyncMock(return_value=False)
 
     first_batch_ready = asyncio.Event()
     consumer_started = asyncio.Event()
@@ -148,14 +159,14 @@ async def test_pipeline_consumer_starts_while_producer_searches_next_batch():
     )
 
     await asyncio.wait_for(first_batch_ready.wait(), timeout=2)
+    mock_worker = MagicMock()
+    mock_worker.id = 0
     consumer_task = asyncio.create_task(
-        agent._apply_consumer(
+        agent._apply_worker_loop(
+            mock_worker,
             queue,
             MagicMock(),
-            MagicMock(),
-            searcher,
             vector_filter,
-            gate,
         )
     )
 
@@ -214,6 +225,7 @@ async def test_iter_search_batches_deduplicates_across_batches():
     settings.search.freshness = 7
     settings.search.sort_by = "relevance"
     settings.application.min_company_rating = 0
+    settings.application.strict_policy_mode = False
 
     engine = MagicMock()
     engine.is_alive.return_value = True
@@ -233,3 +245,56 @@ async def test_iter_search_batches_deduplicates_across_batches():
     assert len(batches) == 2
     assert [job.naukri_job_id for job in batches[0].jobs] == ["dup", "unique_a"]
     assert [job.naukri_job_id for job in batches[1].jobs] == ["unique_b"]
+
+
+@pytest.mark.asyncio
+async def test_search_keyword_location_applies_experience_filter():
+    from src.naukri_agent.browser.search import JobSearcher
+
+    search_page = AsyncMock()
+    search_page.navigate_to_search = AsyncMock()
+    search_page.close_popups = AsyncMock()
+    search_page.apply_experience_filter = AsyncMock()
+    search_page.has_no_results = AsyncMock(return_value=False)
+    search_page.scroll_to_load = AsyncMock()
+    search_page.parse_job_cards = AsyncMock(
+        return_value=[
+            _make_job("fresh", title="Junior Dev"),
+            Job(
+                naukri_job_id="senior",
+                title="Lead Dev",
+                company="Acme",
+                url="https://www.naukri.com/job/senior",
+                skills="Python",
+                experience="5-8 Yrs",
+                posted_date="1 day ago",
+            ),
+        ]
+    )
+
+    settings = MagicMock()
+    settings.search.keywords = ["Python"]
+    settings.search.locations = ["Pune"]
+    settings.search.max_pages = 1
+    settings.search.experience_min = 1
+    settings.search.experience_max = 2
+    settings.search.salary_min = 0
+    settings.search.freshness = 7
+    settings.search.sort_by = "relevance"
+    settings.application.min_company_rating = 0
+
+    engine = MagicMock()
+    engine.is_alive.return_value = True
+
+    searcher = JobSearcher(
+        search_page=search_page,
+        detail_page=AsyncMock(),
+        engine=engine,
+        settings=settings,
+    )
+
+    with patch("src.naukri_agent.browser.search.random_delay", new=AsyncMock()):
+        jobs = await searcher._search_keyword_location("Python", "Pune", max_pages=1)
+
+    search_page.apply_experience_filter.assert_awaited_once_with(min_exp=1, max_exp=2)
+    assert [job.naukri_job_id for job in jobs] == ["fresh"]

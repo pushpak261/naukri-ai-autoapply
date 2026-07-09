@@ -35,16 +35,26 @@ class NaukriCredentials(BaseModel):
 
 
 class AISettings(BaseModel):
-    """Gemini AI configuration."""
+    """AI / LLM configuration (Cursor by default)."""
 
     use_gemini: bool = False
     gemini_api_key: str = ""
-    model: str = "gemini-2.5-flash"
+    cursor_api_key: str = ""
+    provider: str = "cursor"
+    model: str = "composer-2.5"
     fallback_model: str | None = None
     enable_matching: bool = True
     abort_on_quota: bool = True
     temperature: float = 0.3
     max_output_tokens: int = 4096
+
+    @property
+    def effective_api_key(self) -> str:
+        """Return the active provider API key (Cursor preferred)."""
+        provider = (self.provider or "cursor").strip().lower()
+        if provider == "gemini":
+            return self.gemini_api_key or self.cursor_api_key
+        return self.cursor_api_key or self.gemini_api_key
 
 
 class ResumeSettings(BaseModel):
@@ -110,6 +120,10 @@ class ApplicationSettings(BaseModel):
     # Rate limiter settings (feature 10)
     rate_limit_capacity: float = 10.0
     rate_limit_refill_rate: float = 1.0
+    # Parallel apply workers (>1 opens multiple browser tabs/windows)
+    apply_workers: int = 1
+    max_concurrent_applies: int = 5
+    global_apply_interval_sec: float = 20.0
 
     @field_validator("min_company_rating")
     @classmethod
@@ -117,6 +131,24 @@ class ApplicationSettings(BaseModel):
         if v < 0:
             raise ValueError("min_company_rating must be >= 0")
         return v
+
+    @field_validator("apply_workers")
+    @classmethod
+    def validate_apply_workers(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("apply_workers must be >= 1")
+        return v
+
+    @field_validator("max_concurrent_applies")
+    @classmethod
+    def validate_max_concurrent_applies(cls, v: int) -> int:
+        if v < 1:
+            raise ValueError("max_concurrent_applies must be >= 1")
+        return v
+
+    def effective_apply_workers(self) -> int:
+        """Cap worker count to avoid Naukri bans and excessive RAM use."""
+        return min(self.apply_workers, self.max_concurrent_applies, 5)
 
 
 class ProfileSettings(BaseModel):
@@ -243,11 +275,18 @@ class Settings(BaseModel):
                     "Naukri password is not set. Set NAUKRI_PASSWORD in your .env "
                     "or naukri.password in config.yaml."
                 )
-        if self.ai.use_gemini and not self.ai.gemini_api_key:
-            problems.append(
-                "Gemini API key is not set. Set GEMINI_API_KEY in your .env "
-                "file or ai.gemini_api_key in config.yaml."
-            )
+        if self.ai.use_gemini and not self.ai.effective_api_key:
+            provider = (self.ai.provider or "cursor").strip().lower()
+            if provider == "gemini":
+                problems.append(
+                    "Gemini API key is not set. Set GEMINI_API_KEY in your .env "
+                    "file or ai.gemini_api_key in config.yaml."
+                )
+            else:
+                problems.append(
+                    "Cursor API key is not set. Set CURSOR_API_KEY in your .env "
+                    "file or ai.cursor_api_key in config.yaml."
+                )
 
         resume_path = self.project_root / self.resume.path if self.resume.path else None
         if not resume_path:
@@ -279,7 +318,7 @@ def _apply_env_overrides(config: dict) -> dict:
     Override specific config values with environment variables.
 
     Supported env vars:
-        NAUKRI_EMAIL, NAUKRI_PASSWORD, GEMINI_API_KEY
+        NAUKRI_EMAIL, NAUKRI_PASSWORD, CURSOR_API_KEY, GEMINI_API_KEY
     """
     # Load .env file if it exists
     env_path = PROJECT_ROOT / ".env"
@@ -297,6 +336,8 @@ def _apply_env_overrides(config: dict) -> dict:
         ("naukri", "mobile_number"): "NAUKRI_MOBILE_NUMBER",
         ("naukri", "use_otp_login"): "NAUKRI_USE_OTP_LOGIN",
         ("ai", "use_gemini"): "USE_GEMINI",
+        ("ai", "provider"): "AI_PROVIDER",
+        ("ai", "cursor_api_key"): "CURSOR_API_KEY",
         ("ai", "gemini_api_key"): "GEMINI_API_KEY",
         ("dashboard_api_key",): "DASHBOARD_API_KEY",
         ("session_encryption_key",): "SESSION_ENCRYPTION_KEY",

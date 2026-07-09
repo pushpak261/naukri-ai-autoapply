@@ -12,6 +12,8 @@ class ConfigUpdate(BaseModel):
     naukri_email: str | None = None
     naukri_password: str | None = None
     gemini_api_key: str | None = None
+    cursor_api_key: str | None = None
+    ai_provider: str | None = None
     ai_model: str | None = None
     enable_matching: bool | None = None
     use_gemini: bool | None = None
@@ -42,6 +44,9 @@ class ConfigUpdate(BaseModel):
     # Rate limit settings (feature 10)
     rate_limit_capacity: float | None = None
     rate_limit_refill_rate: float | None = None
+    apply_workers: int | None = None
+    max_concurrent_applies: int | None = None
+    global_apply_interval_sec: float | None = None
     # Notification settings (feature 7)
     email_notifications_enabled: bool | None = None
     email_recipient: str | None = None
@@ -63,8 +68,9 @@ async def get_config():
         },
         "ai": {
             "use_gemini": s.ai.use_gemini,
+            "provider": getattr(s.ai, "provider", "cursor"),
             "enable_matching": s.ai.enable_matching,
-            "has_api_key": bool(s.ai.gemini_api_key),
+            "has_api_key": bool(getattr(s.ai, "effective_api_key", "") or s.ai.gemini_api_key),
             "model": s.ai.model,
             "fallback_model": s.ai.fallback_model,
             "abort_on_quota": s.ai.abort_on_quota,
@@ -95,6 +101,9 @@ async def get_config():
             "skip_external_apply": s.application.skip_external_apply,
             "dry_run": s.application.dry_run,
             "enable_project_indexer": s.application.enable_project_indexer,
+            "apply_workers": s.application.apply_workers,
+            "max_concurrent_applies": s.application.max_concurrent_applies,
+            "global_apply_interval_sec": s.application.global_apply_interval_sec,
         },
         "profile": {
             "current_ctc": s.profile.current_ctc,
@@ -156,6 +165,8 @@ async def update_config(update: ConfigUpdate):
         (["naukri", "email"], update.naukri_email, True),
         (["naukri", "password"], update.naukri_password, True),
         (["ai", "gemini_api_key"], update.gemini_api_key, True),
+        (["ai", "cursor_api_key"], update.cursor_api_key, True),
+        (["ai", "provider"], update.ai_provider, False),
         (["ai", "model"], update.ai_model, False),
         (["ai", "enable_matching"], update.enable_matching, False),
         (["ai", "use_gemini"], update.use_gemini, False),
@@ -190,6 +201,9 @@ async def update_config(update: ConfigUpdate):
         (["application", "notify_on_match"], update.notify_on_match, False),
         (["application", "rate_limit_capacity"], update.rate_limit_capacity, False),
         (["application", "rate_limit_refill_rate"], update.rate_limit_refill_rate, False),
+        (["application", "apply_workers"], update.apply_workers, False),
+        (["application", "max_concurrent_applies"], update.max_concurrent_applies, False),
+        (["application", "global_apply_interval_sec"], update.global_apply_interval_sec, False),
     ]
 
     apply_updates([(keys, value) for keys, value, _is_secret in updates if value is not None])

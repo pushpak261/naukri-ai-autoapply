@@ -3,6 +3,8 @@ ai:
   enable_matching: true
   fallback_model: gemini-3.5-flash
   gemini_api_key: ''
+  cursor_api_key: ''
+  provider: gemini
   max_output_tokens: 4096
   model: gemini-3.1-flash-lite
   temperature: 0.3
@@ -26,6 +28,9 @@ application:
   notify_on_scam: true
   rate_limit_capacity: 10.0
   rate_limit_refill_rate: 1.0
+  apply_workers: 1
+  max_concurrent_applies: 5
+  global_apply_interval_sec: 20.0
   skip_external_apply: true
   strict_policy_mode: true
 exclusions:
@@ -166,7 +171,7 @@ profile:
   - Pune
   total_experience: 1 years
 resume:
-  path: data/resumes/resume_20260707_032253.pdf
+  path: data/resumes/resume_20260707_171410.pdf
 search:
   enable_heuristics: true
   experience_max: 2

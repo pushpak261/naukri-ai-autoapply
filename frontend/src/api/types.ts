@@ -13,6 +13,17 @@ export interface RunStatus {
   strict_policy_mode: boolean
   experience_source: string
   error?: string | null
+  applied_jobs?: Array<{
+    naukri_job_id?: string
+    title: string
+    company: string
+    location?: string
+    experience?: string
+    salary?: string
+    match_score?: number | null
+    url?: string
+    skills?: string
+  }>
 }
 
 export interface RunCreate {
@@ -98,4 +109,5 @@ export interface ConfigSummary {
   excluded_companies: string[]
   excluded_title_keywords: string[]
   ai_model: string
+  apply_workers?: number
 }

@@ -160,6 +160,118 @@ class SearchPage(BasePage):
     Page Object representing the Naukri Job Search Results page.
     """
 
+    async def apply_experience_filter(self, min_exp: int, max_exp: int) -> None:
+        """
+        Apply the configured experience range on Naukri's search filter UI.
+
+        Naukri often ignores `experiencemax` in the URL; setting the filter in the
+        sidebar ensures search results match the configured min/max years.
+        """
+        page = self._engine.page
+        try:
+            min_exp = int(min_exp)
+            max_exp = int(max_exp)
+        except (TypeError, ValueError):
+            return
+
+        if max_exp <= min_exp:
+            max_exp = min_exp + 1
+
+        try:
+            exp_heading = page.locator(
+                'xpath=//*[self::span or self::div or self::label]'
+                '[contains(normalize-space(.), "Experience") and string-length(normalize-space(.)) < 24]'
+            ).first
+            if await exp_heading.count() > 0:
+                await exp_heading.click(timeout=3000)
+                await asyncio.sleep(0.4)
+
+            applied = await page.evaluate(
+                """([minExp, maxExp]) => {
+                    const dispatch = (el) => {
+                        el.dispatchEvent(new Event("input", { bubbles: true }));
+                        el.dispatchEvent(new Event("change", { bubbles: true }));
+                    };
+
+                    const containers = document.querySelectorAll(
+                        '[class*="slider-container"], [class*="slider-labels"], [class*="experience"]'
+                    );
+                    for (const container of containers) {
+                        const ranges = container.querySelectorAll('input[type="range"]');
+                        if (ranges.length >= 2) {
+                            ranges[0].value = String(minExp);
+                            ranges[1].value = String(maxExp);
+                            dispatch(ranges[0]);
+                            dispatch(ranges[1]);
+                            return true;
+                        }
+                        if (ranges.length === 1) {
+                            ranges[0].value = String(minExp);
+                            dispatch(ranges[0]);
+                            return true;
+                        }
+                    }
+
+                    const minInput = document.querySelector(
+                        'input[name*="min" i][name*="exp" i], input[placeholder*="Min" i]'
+                    );
+                    const maxInput = document.querySelector(
+                        'input[name*="max" i][name*="exp" i], input[placeholder*="Max" i]'
+                    );
+                    if (minInput && maxInput) {
+                        minInput.value = String(minExp);
+                        maxInput.value = String(maxExp);
+                        dispatch(minInput);
+                        dispatch(maxInput);
+                        return true;
+                    }
+                    return false;
+                }""",
+                [min_exp, max_exp],
+            )
+
+            if applied:
+                apply_btn = page.locator(
+                    'button:has-text("Apply"), button:has-text("View Jobs"), button:has-text("Apply Filters")'
+                ).first
+                if await apply_btn.count() > 0:
+                    await apply_btn.click(timeout=5000)
+                    await self._interactions.wait_for_navigation_complete()
+                    await asyncio.sleep(1)
+                logger.info(f"Applied Naukri experience filter: {min_exp}-{max_exp} years")
+            else:
+                logger.debug(
+                    "Experience filter controls not found on page; "
+                    "using URL params and client-side filtering"
+                )
+
+            await self.enforce_visual_slider(min_exp, max_exp)
+        except Exception as e:
+            logger.debug(f"Could not apply experience filter via UI: {e}")
+
+    async def enforce_visual_slider(self, min_exp: int, max_exp: int) -> None:
+        """Reflect the configured experience range in Naukri's filter label UI."""
+        page = self._engine.page
+        try:
+            js_payload = f"""
+                (() => {{
+                    const sliderContainers = document.querySelectorAll(
+                        '.styles_slider-container__2M_h3, .styles_slider-labels, .slider-label'
+                    );
+                    sliderContainers.forEach(container => {{
+                        if (container.innerText.includes('Yrs') || container.innerText.includes('Any')) {{
+                            container.innerHTML = '<b>{min_exp} Yrs - {max_exp} Yrs</b>';
+                            container.style.color = '#ff6c00';
+                            container.style.fontSize = '14px';
+                            container.title = 'Agent Override Active';
+                        }}
+                    }});
+                }})();
+            """
+            await page.evaluate(js_payload)
+        except Exception as e:
+            logger.debug(f"Failed to enforce visual slider: {e}")
+
     def __init__(self, engine: IBrowserEngine, interactions: IBrowserInteractions) -> None:
         super().__init__(engine, interactions)
         self._api_jobs_by_id: dict[str, dict[str, Any]] = {}

@@ -202,7 +202,10 @@ class JobSearcher:
 
         search_config = self._settings.search
 
-
+        log_info(
+            f"Search experience filter: {search_config.experience_min}-"
+            f"{search_config.experience_max} years"
+        )
 
         for keyword in search_config.keywords:
 
@@ -338,7 +341,10 @@ class JobSearcher:
 
                 await self._search_page.close_popups()
 
-
+                await self._search_page.apply_experience_filter(
+                    min_exp=self._settings.search.experience_min,
+                    max_exp=self._settings.search.experience_max,
+                )
 
                 no_results = await self._search_page.has_no_results()
 
@@ -367,13 +373,10 @@ class JobSearcher:
 
 
                 job_filter = JobFilter(
-
+                    min_experience=self._settings.search.experience_min,
                     max_experience=self._settings.search.experience_max,
-
                     max_freshness_days=self._settings.search.freshness,
-
                     sort_by=self._settings.search.sort_by,
-
                 )
 
                 quality_filter = JobQualityFilter(

@@ -234,6 +234,25 @@ class TestRunLogOperations:
         assert runs[0]["status"] == "completed"
 
     @pytest.mark.asyncio
+    async def test_get_active_run(self, repo):
+        """Test fetching the in-progress run log."""
+        run_id = await repo.create_run_log(["Active Run"])
+        active = await repo.get_active_run()
+        assert active is not None
+        assert active["id"] == run_id
+        assert active["status"] == "running"
+
+        await repo.update_run_log(
+            run_log_id=run_id,
+            jobs_found=5,
+            jobs_applied=2,
+            jobs_skipped=2,
+            jobs_failed=1,
+            status="completed",
+        )
+        assert await repo.get_active_run() is None
+
+    @pytest.mark.asyncio
     async def test_run_stats(self, repo):
         """Test getting run statistics."""
         await repo.create_run_log(["Run 1"])

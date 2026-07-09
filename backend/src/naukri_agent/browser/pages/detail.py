@@ -54,7 +54,19 @@ class JobDetailPage(BasePage):
                 if not text:
                     continue
                 # Check for past-tense indicators of a completed application to avoid false positive on "apply"
-                if any(x in text for x in ["applied", "already applied", "submitted", "received"]):
+                if any(
+                    x in text
+                    for x in [
+                        "applied",
+                        "already applied",
+                        "submitted",
+                        "received",
+                        "application sent",
+                        "you applied",
+                    ]
+                ):
+                    return True
+                if text in {"applied", "application submitted"}:
                     return True
         except PlaywrightError:
             pass
@@ -1178,6 +1190,10 @@ class JobDetailPage(BasePage):
                 "thank you for applying",
                 "application sent",
                 "your application has been sent",
+                "you have applied",
+                "you applied to this job",
+                "applied to this job",
+                "we have received your application",
             ]
             for phrase in success_phrases:
                 if phrase in body_text.lower():

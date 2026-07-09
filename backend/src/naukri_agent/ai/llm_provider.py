@@ -45,7 +45,14 @@ class GeminiProvider(ILLMProvider):
     LLM Provider implementation using Google Gemini.
     """
 
-    def __init__(self, api_key: str | list[str], model_name: str = "gemini-2.5-flash") -> None:
+    def __init__(
+        self,
+        api_key: str | list[str],
+        model_name: str = "gemini-2.5-flash",
+        *,
+        rate_limit_capacity: float = 15.0,
+        rate_limit_refill_rate: float = 15.0 / 60.0,
+    ) -> None:
         """
         Initialize the Gemini provider.
 
@@ -65,8 +72,11 @@ class GeminiProvider(ILLMProvider):
         self._client: genai.Client | None = None
         from src.naukri_agent.utils.rate_limiter import TokenBucketRateLimiter
 
-        # Initialize token bucket rate limiter: default 15 RPM for free tier (0.25 tokens/sec)
-        self._rate_limiter = TokenBucketRateLimiter(capacity=15.0, refill_rate=15.0 / 60.0)
+        # Initialize token bucket rate limiter from settings (default ~15 RPM)
+        self._rate_limiter = TokenBucketRateLimiter(
+            capacity=rate_limit_capacity,
+            refill_rate=rate_limit_refill_rate,
+        )
 
     def _get_client(self) -> genai.Client:
         """Lazy-initialize the genai.Client on demand."""

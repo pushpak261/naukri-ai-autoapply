@@ -14,6 +14,7 @@ export function ConfigSummary({ config }: { config: ConfigSummaryType }) {
     ['Match threshold', `${config.match_score_threshold}%`],
     ['Dry run', config.dry_run ? 'Yes' : 'No'],
     ['Min company rating', config.min_company_rating],
+    ['Apply workers', config.apply_workers ?? 1],
     ['AI model', config.ai_model],
     ['Excluded companies', config.excluded_companies.join(', ') || '—'],
     ['Excluded title keywords', config.excluded_title_keywords.join(', ') || '—'],

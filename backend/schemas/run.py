@@ -23,6 +23,18 @@ class RunCreate(BaseModel):
         return self
 
 
+class AppliedJobSummary(BaseModel):
+    naukri_job_id: str = ""
+    title: str
+    company: str
+    location: str = ""
+    experience: str = ""
+    salary: str = ""
+    match_score: float | None = None
+    url: str = ""
+    skills: str = ""
+
+
 class RunStatus(BaseModel):
     run_id: int | None = None
     status: str = "idle"
@@ -38,6 +50,7 @@ class RunStatus(BaseModel):
     error: str | None = None
     strict_policy_mode: bool = False
     experience_source: str = "config_default"
+    applied_jobs: list[AppliedJobSummary] = Field(default_factory=list)
 
 
 class RunSummary(BaseModel):

@@ -6,6 +6,8 @@ the Dependency Inversion Principle.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from src.naukri_agent.database.manager import DatabaseManager
 
@@ -14,7 +16,7 @@ from src.naukri_agent.ai.llm_provider import GeminiProvider
 from src.naukri_agent.ai.question_answerer import QuestionAnswerer
 from src.naukri_agent.ai.resume_parser import ResumeParser
 from src.naukri_agent.browser.apply import JobApplier
-from src.naukri_agent.browser.engine import PlaywrightEngine
+from src.naukri_agent.browser.engine import PlaywrightEngine, WorkerBrowserEngine
 from src.naukri_agent.browser.interactions import HumanInteractions
 from src.naukri_agent.browser.login import LoginHandler
 from src.naukri_agent.browser.pages import JobDetailPage, LoginPage, SearchPage
@@ -35,6 +37,13 @@ from src.naukri_agent.bot.interfaces import (
 )
 from src.naukri_agent.models.entities import ResumeProfile
 from src.naukri_agent.database.repository import SQLAlchemyRepository
+
+
+@dataclass
+class ApplyWorkerStack:
+    detail_page: JobDetailPage
+    applier: JobApplier
+    interactions: HumanInteractions
 
 
 class DependencyFactory:
@@ -124,10 +133,30 @@ class DependencyFactory:
 
     def get_llm_provider(self) -> ILLMProvider:
         if not self._llm_provider:
-            self._llm_provider = GeminiProvider(
-                api_key=self._settings.ai.gemini_api_key,
+            # Default to Gemini; Cursor remains optional and lazy-imported only if selected.
+            provider = (getattr(self._settings.ai, "provider", None) or "gemini").strip().lower()
+            api_key = getattr(self._settings.ai, "effective_api_key", None) or self._settings.ai.gemini_api_key
+            common = dict(
                 model_name=self._settings.ai.model,
+                rate_limit_capacity=self._settings.application.rate_limit_capacity,
+                rate_limit_refill_rate=self._settings.application.rate_limit_refill_rate,
             )
+            if provider == "cursor":
+                try:
+                    from src.naukri_agent.ai.cursor_provider import CursorProvider
+                except ModuleNotFoundError as e:
+                    raise RuntimeError(
+                        "Cursor provider is not available in this build. "
+                        "Set ai.provider to 'gemini' (or AI_PROVIDER=gemini) and ensure "
+                        "GEMINI_API_KEY is configured."
+                    ) from e
+                self._llm_provider = CursorProvider(
+                    api_key=api_key,
+                    cwd=str(self._settings.project_root),
+                    **common,
+                )
+            else:
+                self._llm_provider = GeminiProvider(api_key=api_key, **common)
         return self._llm_provider
 
     def get_stealth_patcher(self) -> IStealthPatcher:
@@ -230,6 +259,24 @@ class DependencyFactory:
             detail_page=detail_page,
             settings=self._settings,
             question_answerer=question_answerer,
+        )
+
+    def create_apply_worker_stack(
+        self,
+        worker_browser: WorkerBrowserEngine,
+        question_answerer: IQuestionAnswerer,
+    ) -> ApplyWorkerStack:
+        interactions = HumanInteractions(worker_browser, self._settings)
+        detail_page = JobDetailPage(worker_browser, interactions)
+        applier = JobApplier(
+            detail_page=detail_page,
+            settings=self._settings,
+            question_answerer=question_answerer,
+        )
+        return ApplyWorkerStack(
+            detail_page=detail_page,
+            applier=applier,
+            interactions=interactions,
         )
 
     def create_profile_refresher(self) -> ProfileRefresher:

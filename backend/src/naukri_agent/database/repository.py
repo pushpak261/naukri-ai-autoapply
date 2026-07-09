@@ -7,6 +7,7 @@ encapsulating all database interactions behind a clean interface.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import UTC, datetime, timedelta
 
@@ -104,6 +105,7 @@ class SQLAlchemyRepository(IRepository):
         self._db_manager = db_manager
         self._applied_jobs_cache: set[str] = set()
         self._applied_composite_cache: set[tuple[str, str]] = set()
+        self._cache_lock = asyncio.Lock()
 
     @with_failover
     async def initialize(self) -> None:
@@ -226,43 +228,43 @@ class SQLAlchemyRepository(IRepository):
         error_message: str = "",
     ) -> JobApplication:
         """Record an application attempt."""
-        session_factory = await self._db_manager.get_session_factory()
-        async with session_factory() as session, session.begin():
-            app = DBApplication(
-                job_id=job_id,
-                match_score=match_score,
-                match_reasoning=match_reasoning,
-                matching_skills=matching_skills,
-                missing_skills=missing_skills,
-                status=status,
-                error_message=error_message,
-            )
-            session.add(app)
-            await session.flush()
-            await session.refresh(app)
+        async with self._cache_lock:
+            session_factory = await self._db_manager.get_session_factory()
+            async with session_factory() as session, session.begin():
+                app = DBApplication(
+                    job_id=job_id,
+                    match_score=match_score,
+                    match_reasoning=match_reasoning,
+                    matching_skills=matching_skills,
+                    missing_skills=missing_skills,
+                    status=status,
+                    error_message=error_message,
+                )
+                session.add(app)
+                await session.flush()
+                await session.refresh(app)
 
-            # Update O(1) cache
-            job_result = await session.execute(select(DBJob).filter(DBJob.id == job_id))
-            job = job_result.scalar_one_or_none()
-            if job:
-                if job.naukri_job_id:
-                    self._applied_jobs_cache.add(job.naukri_job_id)
-                if job.title and job.company:
-                    self._applied_composite_cache.add(
-                        (job.title.lower().strip(), job.company.lower().strip())
-                    )
+                job_result = await session.execute(select(DBJob).filter(DBJob.id == job_id))
+                job = job_result.scalar_one_or_none()
+                if job:
+                    if job.naukri_job_id:
+                        self._applied_jobs_cache.add(job.naukri_job_id)
+                    if job.title and job.company:
+                        self._applied_composite_cache.add(
+                            (job.title.lower().strip(), job.company.lower().strip())
+                        )
 
-            return JobApplication(
-                id=app.id,
-                job_id=app.job_id,
-                match_score=app.match_score,
-                status=app.status,
-                match_reasoning=app.match_reasoning,
-                matching_skills=app.matching_skills,
-                missing_skills=app.missing_skills,
-                error_message=app.error_message,
-                applied_at=app.applied_at,
-            )
+                return JobApplication(
+                    id=app.id,
+                    job_id=app.job_id,
+                    match_score=app.match_score,
+                    status=app.status,
+                    match_reasoning=app.match_reasoning,
+                    matching_skills=app.matching_skills,
+                    missing_skills=app.missing_skills,
+                    error_message=app.error_message,
+                    applied_at=app.applied_at,
+                )
 
     @with_failover
     async def get_today_application_count(self) -> int:
@@ -429,6 +431,33 @@ class SQLAlchemyRepository(IRepository):
                 run_log.status = status
                 run_log.error_message = error_message
 
+    def _run_log_row(self, log: DBRunLog) -> dict:
+        return {
+            "id": log.id,
+            "started_at": log.started_at.isoformat() if log.started_at else "",
+            "ended_at": log.ended_at.isoformat() if log.ended_at else "",
+            "keywords": parse_search_keywords(log.search_keywords),
+            "found": log.jobs_found,
+            "applied": log.jobs_applied,
+            "skipped": log.jobs_skipped,
+            "failed": log.jobs_failed,
+            "status": log.status,
+        }
+
+    @with_failover
+    async def get_active_run(self) -> dict | None:
+        """Return the in-progress run log, if any."""
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session:
+            result = await session.execute(
+                select(DBRunLog)
+                .filter(DBRunLog.status == "running")
+                .order_by(DBRunLog.started_at.desc())
+                .limit(1)
+            )
+            log = result.scalar_one_or_none()
+            return self._run_log_row(log) if log else None
+
     @with_failover
     async def get_run_stats(self, limit: int = 10) -> list[dict]:
         """Get the most recent run logs."""
@@ -438,20 +467,7 @@ class SQLAlchemyRepository(IRepository):
                 select(DBRunLog).order_by(DBRunLog.started_at.desc()).limit(limit)
             )
             logs = result.scalars().all()
-            return [
-                {
-                    "id": log.id,
-                    "started_at": log.started_at.isoformat() if log.started_at else "",
-                    "ended_at": log.ended_at.isoformat() if log.ended_at else "",
-                    "keywords": parse_search_keywords(log.search_keywords),
-                    "found": log.jobs_found,
-                    "applied": log.jobs_applied,
-                    "skipped": log.jobs_skipped,
-                    "failed": log.jobs_failed,
-                    "status": log.status,
-                }
-                for log in logs
-            ]
+            return [self._run_log_row(log) for log in logs]
 
     @with_failover
     async def get_all_applications(self) -> list[dict]:

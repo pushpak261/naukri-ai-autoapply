@@ -251,6 +251,10 @@ class JobApplier:
                     "error_message": "Skipped: Unsubmitted form detected and answer_questions_with_pdf is false",
                 }
 
+        if await self._detail_page.is_already_applied():
+            log_success(f"Application confirmed (already applied indicator): {job.title}")
+            return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+
         log_warning(f"Application status uncertain: {job.title}")
         return {
             "status": ApplicationStatus.UNCERTAIN,

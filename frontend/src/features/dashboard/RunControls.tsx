@@ -9,6 +9,7 @@ import { Switch } from '@/components/ui/switch'
 import { validateExperienceRange } from '@/features/settings/SearchExperienceEditor'
 import { useRunStore } from '@/store/runStore'
 import { LiveStatsCards } from './LiveStatsCards'
+import { LiveAppliedJobs } from './LiveAppliedJobs'
 import { RunProgressBar } from './RunProgressBar'
 
 export function RunControls() {
@@ -20,6 +21,7 @@ export function RunControls() {
   const queryClient = useQueryClient()
   const setRunId = useRunStore((s) => s.setRunId)
   const reset = useRunStore((s) => s.reset)
+  const applyEvent = useRunStore((s) => s.applyEvent)
 
   const { data: config } = useQuery({
     queryKey: ['config-summary'],
@@ -41,6 +43,47 @@ export function RunControls() {
 
   const isRunning = status?.status === 'running'
   const showLoginBanner = isRunning && status?.phase === 'logging_in'
+
+  useEffect(() => {
+    if (!status || status.status !== 'running') return
+    applyEvent({
+      id: `poll-${status.run_id ?? 0}`,
+      run_id: status.run_id ?? 0,
+      type: 'counters_updated',
+      timestamp: new Date().toISOString(),
+      data: {
+        jobs_found: status.jobs_found,
+        jobs_applied: status.jobs_applied,
+        jobs_skipped: status.jobs_skipped,
+        jobs_failed: status.jobs_failed,
+        daily_cap_remaining: status.daily_cap_remaining,
+        processed_count: status.processed_count,
+        total_queued: status.total_queued,
+        phase: status.phase,
+      },
+    })
+  }, [status, applyEvent])
+
+  useEffect(() => {
+    if (!status?.applied_jobs?.length) return
+    const jobs = new Map(useRunStore.getState().jobs)
+    for (const entry of status.applied_jobs) {
+      const id = entry.naukri_job_id || `${entry.title}-${entry.company}`
+      jobs.set(id, {
+        naukri_job_id: id,
+        title: entry.title,
+        company: entry.company,
+        location: entry.location,
+        experience: entry.experience,
+        salary: entry.salary,
+        url: entry.url,
+        skills: entry.skills,
+        status: 'applied',
+        match_score: entry.match_score ?? null,
+      })
+    }
+    useRunStore.setState({ jobs })
+  }, [status?.applied_jobs])
 
   const startMutation = useMutation({
     mutationFn: () => {
@@ -186,6 +229,7 @@ export function RunControls() {
 
         <LiveStatsCards status={status} />
         <RunProgressBar status={status} />
+        <LiveAppliedJobs status={status} />
       </CardContent>
     </Card>
   )
