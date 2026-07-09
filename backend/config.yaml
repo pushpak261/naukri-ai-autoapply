@@ -1,4 +1,4 @@
-ai:
+﻿ai:
   abort_on_quota: true
   enable_matching: true
   fallback_model: gemini-3.5-flash
@@ -17,7 +17,7 @@ application:
   delay_between_applies_max: 90
   delay_between_applies_min: 30
   dry_run: false
-  email_notifications_enabled: true
+  email_notifications_enabled: false
   enable_project_indexer: true
   match_score_threshold: 50
   min_company_rating: 2.5
@@ -155,6 +155,7 @@ exclusions:
   - teacher
   - faculty
   - management
+  - leading client
 logging:
   level: INFO
   log_dir: data/logs
@@ -163,7 +164,7 @@ naukri:
   email: iamchaze9604@gmail.com
   password: Test@123
 profile:
-  current_ctc: 4.4 LPA
+  current_ctc: 4.5 LPA
   current_location: Pune
   expected_ctc: 6 LPA
   notice_period: Immediate
@@ -175,8 +176,8 @@ resume:
 search:
   enable_heuristics: true
   experience_max: 2
-  experience_min: 1
-  freshness: 15
+  experience_min: 0
+  freshness: 7
   keywords:
   - Full Stack Developer
   - Java Developer
@@ -194,7 +195,7 @@ search:
   - Bangalore
   - Remote
   max_pages: 10
-  salary_min: 0
+  salary_min: 5
   sort_by: relevance
 title_whitelist:
 - software engineer

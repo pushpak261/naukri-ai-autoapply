@@ -275,6 +275,53 @@ class JobDetailPage(BasePage):
                 continue
         return None
 
+    async def _is_apply_modal_visible(self) -> bool:
+        """Check if an apply-specific modal/form is visible (not generic page forms)."""
+        page = self._engine.page
+        specific_selectors = [
+            ApplyFlowSelectors.APPLY_FORM,
+            ApplyFlowSelectors.FORM_FALLBACK,
+            ApplyFlowSelectors.SCREENING_FALLBACK,
+            '[class*="apply-modal"]',
+            '[class*="apply-form"]',
+            '[class*="chatbot"]',
+            '[class*="chat" i]',
+        ]
+        for selector in specific_selectors:
+            try:
+                elements = await page.query_selector_all(selector)
+                for el in elements:
+                    if await el.is_visible():
+                        return True
+            except PlaywrightError:
+                continue
+        return False
+
+    async def _is_apply_button_present(self) -> bool:
+        """Check if an active Apply button still exists on the page."""
+        page = self._engine.page
+        try:
+            result = await page.evaluate("""
+                () => {
+                    const candidates = document.querySelectorAll('button, a, [role="button"], input[type="button"], input[type="submit"]');
+                    for (const el of candidates) {
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) continue;
+                        const text = (el.textContent || el.value || '').trim().toLowerCase();
+                        if (text === 'apply' || text === 'apply now' || text.startsWith('apply ')) {
+                            if (el.disabled) continue;
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            """)
+            return result
+        except Exception:
+            return True  # Assume button is present if check fails (safe default)
+
     async def detect_screening_questions(self) -> bool:
         """Check if the apply flow is showing screening questions."""
         page = self._engine.page
@@ -1070,8 +1117,12 @@ class JobDetailPage(BasePage):
         except PlaywrightError as e:
             logger.debug(f"Radio selection failed: {e}")
 
-    async def submit_application(self) -> None:
-        """Click the submit/apply button to finalize the application."""
+    async def submit_application(self) -> bool:
+        """Click the submit/apply button to finalize the application.
+
+        Returns:
+            True if a button was successfully clicked, False otherwise.
+        """
         page = self._engine.page
 
         # Try a robust JavaScript evaluator click first to find the best visible, enabled button
@@ -1119,7 +1170,7 @@ class JobDetailPage(BasePage):
             clicked = await page.evaluate(js_click_script)
             if clicked:
                 logger.debug("Successfully clicked submit/apply button via JS evaluator.")
-                return
+                return True
         except Exception as e:
             logger.debug(f"JS submit click failed: {e}")
 
@@ -1139,7 +1190,9 @@ class JobDetailPage(BasePage):
             clicked = await self._interactions.safe_click(selector, timeout=2000)
             if clicked:
                 logger.debug(f"Clicked submit with fallback selector: {selector}")
-                return
+                return True
+
+        return False
 
     async def check_application_failure(self) -> str | None:
         """Check if the application failed with an explicit error/warning on the page."""
@@ -1164,16 +1217,16 @@ class JobDetailPage(BasePage):
         """Check if the application was submitted successfully."""
         page = self._engine.page
 
-        # Check for success indicators
+        # Check for success indicators via selectors
         success_selectors = [
             ApplyFlowSelectors.APPLICATION_SUCCESS,
             '//*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "applied successfully")]',
             '//*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "successfully applied")]',
             ApplyFlowSelectors.SUCCESS_SUBMITTED,
             ApplyFlowSelectors.SUCCESS_RECEIVED,
+            '//button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "applied") and not(contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "apply "))]',
         ]
 
-        # Fast check of selectors
         for selector in success_selectors:
             if await self._interactions.element_exists(selector):
                 return True
@@ -1194,6 +1247,11 @@ class JobDetailPage(BasePage):
                 "you applied to this job",
                 "applied to this job",
                 "we have received your application",
+                "your application is submitted",
+                "application has been submitted",
+                "you have successfully applied",
+                "successfully submitted",
+                "applied on",
             ]
             for phrase in success_phrases:
                 if phrase in body_text.lower():
