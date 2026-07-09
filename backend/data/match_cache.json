@@ -4704,5 +4704,48 @@
       "Candidate is overqualified for the 1-3 year experience bracket",
       "The job posting appears to be from a consultancy/staffing firm which is a red flag"
     ]
+  },
+  "f71527b43ce0ac0a73d087be7d0f1c5bc84f8ea4b6d336c2d4b71b13556b6f4a_090726503536": {
+    "score": 78,
+    "should_apply": true,
+    "matching_skills": [
+      "c#",
+      "c++",
+      "c",
+      "software development",
+      "analytical",
+      "problem solving",
+      "sql server",
+      "sql",
+      "stored procedures",
+      "design patterns",
+      "linux",
+      ".net",
+      "gui",
+      "software engineering",
+      "mvc",
+      "sdlc",
+      "programming",
+      "communication skills"
+    ],
+    "missing_skills": [
+      "android",
+      "ios",
+      "vb",
+      "vc++"
+    ],
+    "experience_fit": "strong",
+    "location_fit": "match",
+    "reasoning": "The candidate has a strong background in full-stack development with relevant experience in .NET, C#, and SQL Server, which aligns well with the core technical requirements. While the candidate lacks specific experience in legacy technologies like VB or VC++, their proficiency in modern software engineering practices makes them a highly qualified applicant for this role.",
+    "strengths": [
+      "Strong proficiency in .NET and C#",
+      "Extensive experience with SQL Server and database optimization",
+      "Solid understanding of SDLC and design patterns",
+      "Relevant experience in Pune"
+    ],
+    "concerns": [
+      "Lack of specific experience in legacy technologies like VB and VC++",
+      "No professional experience in mobile development (Android/iOS) mentioned"
+    ]
   }
 }

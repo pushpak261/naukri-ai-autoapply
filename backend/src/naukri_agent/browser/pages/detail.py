@@ -327,10 +327,18 @@ class JobDetailPage(BasePage):
             return True  # Assume button is present if check fails (safe default)
 
     async def wait_for_apply_ui(self, timeout: int = 8000) -> bool:
-        """Wait until an apply modal, form, or chatbot UI appears."""
+        """Wait until an apply modal, form, or chatbot UI appears.
+
+        Skips polling iterations where the page is at about:blank — this
+        happens during Naukri's myapply redirect and is not a final state.
+        """
         page = self._engine.page
         deadline = asyncio.get_event_loop().time() + (timeout / 1000)
         while asyncio.get_event_loop().time() < deadline:
+            # Page is mid-navigation (about:blank intermediate); don't poll yet
+            if page.url.startswith("about:"):
+                await asyncio.sleep(0.5)
+                continue
             if await self._is_apply_modal_visible():
                 return True
             if await self.is_chatbot_flow():

@@ -182,12 +182,19 @@ class HumanInteractions(IBrowserInteractions):
 
         Naukri SPAs rarely reach networkidle, so try a short networkidle probe
         then fall back to domcontentloaded without doubling the full timeout.
+
+        Explicitly avoids short-circuiting on about:blank — Naukri's apply
+        redirect goes through an about:blank intermediate before landing on the
+        real myapply URL, and about:blank registers as networkidle instantly.
         """
         page = self._engine.page
         idle_probe = min(5_000, timeout)
         try:
             await page.wait_for_load_state("networkidle", timeout=idle_probe)
-            return
+            # Do NOT return early if we're still at about:blank — the page is
+            # mid-navigation and has not reached its final destination yet.
+            if not page.url.startswith("about:"):
+                return
         except PlaywrightTimeoutError:
             pass
         try:

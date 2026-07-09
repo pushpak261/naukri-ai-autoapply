@@ -135,6 +135,24 @@ class JobApplier:
                 await self._detail_page._interactions.wait_for_navigation_complete(timeout=5000)
             except Exception:
                 pass
+
+            # Naukri's apply redirect goes through about:blank before landing on
+            # the real myapply URL. If we ended up there, keep waiting until the
+            # actual destination loads (up to 10 s).
+            page = self._detail_page._engine.page
+            if page.url.startswith("about:"):
+                for _ in range(20):
+                    await asyncio.sleep(0.5)
+                    if not page.url.startswith("about:"):
+                        break
+                if not page.url.startswith("about:"):
+                    try:
+                        await self._detail_page._interactions.wait_for_navigation_complete(
+                            timeout=8000
+                        )
+                    except Exception:
+                        pass
+
             await asyncio.sleep(2)
 
             # Step 5: Handle the apply flow (questions, confirmation, etc.)
@@ -160,6 +178,20 @@ class JobApplier:
         # Wait for apply modal/flow to render (Naukri loads questions asynchronously)
         await self._detail_page.wait_for_apply_ui(timeout=8000)
         await asyncio.sleep(1)
+
+        # If the page is still at about:blank at this point the navigation did
+        # not complete correctly. Abort early to avoid burning the full 300 s
+        # job timeout on LLM retries against an empty page.
+        page = self._detail_page._engine.page
+        if page.url.startswith("about:"):
+            log_warning(
+                f"Page stuck at about:blank after Apply click for '{job.title}' — "
+                "navigation did not complete. Marking as failed."
+            )
+            return {
+                "status": ApplicationStatus.FAILED,
+                "error_message": "Page remained at about:blank after Apply click; navigation incomplete",
+            }
 
         # Check for early failure indicators
         failure_msg = await self._detail_page.check_application_failure()
