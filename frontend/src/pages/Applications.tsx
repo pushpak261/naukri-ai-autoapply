@@ -10,6 +10,7 @@ export default function Applications() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<number | null>(null);
@@ -23,11 +24,11 @@ export default function Applications() {
     return () => { mountedRef.current = false; };
   }, []);
 
-  const loadApps = useCallback(async (currentPage: number, currentFilter: string) => {
+  const loadApps = useCallback(async (currentPage: number, currentFilter: string, currentSource: string) => {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.applications(currentPage, perPage, currentFilter);
+      const data = await api.applications(currentPage, perPage, currentFilter, 'newest', currentSource);
       if (mountedRef.current) {
         setApps(data.items);
         setTotal(data.total);
@@ -55,11 +56,11 @@ export default function Applications() {
   }, []);
 
   useEffect(() => {
-    loadApps(page, statusFilter);
+    loadApps(page, statusFilter, sourceFilter);
     loadStatuses();
-  }, [page, statusFilter, loadApps, loadStatuses]);
+  }, [page, statusFilter, sourceFilter, loadApps, loadStatuses]);
 
-  useEffect(() => { setPage(1); }, [statusFilter]);
+  useEffect(() => { setPage(1); }, [statusFilter, sourceFilter]);
 
   const handleRetry = async (appId: number) => {
     setRetryingId(appId);
@@ -67,7 +68,7 @@ export default function Applications() {
     try {
       const r = await api.applicationsExtra.retry(appId);
       setMessage({ type: 'success', text: `Retry queued for app #${r.app_id} (attempt ${r.retry_count})` });
-      await loadApps(page, statusFilter);
+      await loadApps(page, statusFilter, sourceFilter);
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Retry failed' });
     }
@@ -81,7 +82,7 @@ export default function Applications() {
     try {
       const r = await api.applicationsExtra.retryAllFailed();
       setMessage({ type: 'success', text: `Retrying ${r.count} failed applications` });
-      await loadApps(page, statusFilter);
+      await loadApps(page, statusFilter, sourceFilter);
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Retry all failed' });
     }
@@ -93,7 +94,7 @@ export default function Applications() {
     setMessage(null);
     try {
       await api.applicationsExtra.syncStatus();
-      await loadApps(page, statusFilter);
+      await loadApps(page, statusFilter, sourceFilter);
       setMessage({ type: 'success', text: 'Applications refreshed' });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Sync failed' });
@@ -155,6 +156,35 @@ export default function Applications() {
             {s.label}
           </button>
         ))}
+        <span className="self-center text-[#64748b] text-xs mx-1">|</span>
+        <button
+          onClick={() => setSourceFilter('')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            sourceFilter === '' ? 'bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/30' : 'bg-[#1e293b] text-[#94a3b8] border border-[#334155] hover:bg-[#334155]'
+          }`}
+        >
+          All Platforms
+        </button>
+        <button
+          onClick={() => setSourceFilter('naukri')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            sourceFilter === 'naukri'
+              ? 'bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/30'
+              : 'bg-[#1e293b] text-[#94a3b8] border border-[#334155] hover:bg-[#334155]'
+          }`}
+        >
+          Naukri
+        </button>
+        <button
+          onClick={() => setSourceFilter('linkedin')}
+          className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+            sourceFilter === 'linkedin'
+              ? 'bg-[#0077b5]/10 text-[#0077b5] border border-[#0077b5]/30'
+              : 'bg-[#1e293b] text-[#94a3b8] border border-[#334155] hover:bg-[#334155]'
+          }`}
+        >
+          LinkedIn
+        </button>
       </div>
 
       <div className="bg-[#1e293b] rounded-xl border border-[#334155] overflow-hidden">
@@ -162,7 +192,7 @@ export default function Applications() {
           <div className="flex flex-col items-center justify-center h-64 gap-3">
             <AlertTriangle className="w-8 h-8 text-red-400" />
             <p className="text-red-400 text-sm">{error}</p>
-            <button onClick={() => loadApps(page, statusFilter)}
+            <button onClick={() => loadApps(page, statusFilter, sourceFilter)}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-[#334155] hover:bg-[#475569] text-white rounded-lg text-xs transition-colors">
               <RefreshCw className="w-3 h-3" />
               Retry
@@ -191,6 +221,15 @@ export default function Applications() {
                         Score: {app.match_score.toFixed(0)}
                       </span>
                       <StatusBadge status={app.status} />
+                      {app.source && (
+                        <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${
+                          app.source === 'linkedin'
+                            ? 'bg-[#0077b5]/10 text-[#0077b5] border border-[#0077b5]/20'
+                            : 'bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/20'
+                        }`}>
+                          {app.source === 'linkedin' ? 'LinkedIn' : 'Naukri'}
+                        </span>
+                      )}
                     </div>
                     {app.match_reasoning && (
                       <p className="text-xs text-[#64748b] mt-1.5 line-clamp-2">{app.match_reasoning}</p>

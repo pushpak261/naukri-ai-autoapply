@@ -39,7 +39,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Match scoring prompt
 # ---------------------------------------------------------------------------
-MATCH_PROMPT = """You are an expert job-resume matching engine. Compare the candidate's resume profile with the job description and provide a detailed match assessment.
+MATCH_PROMPT = """You are a strict, precise job-resume matching engine. Compare the candidate's resume profile with the job description and assess whether they are a genuinely strong fit. Be critical — only recommend applying when there is clear, substantive overlap in core technical skills and relevant domain experience.
 
 CANDIDATE RESUME PROFILE:
 {resume_profile}
@@ -72,30 +72,31 @@ Analyze the match and return a valid JSON object with EXACTLY this structure (no
 }}
 
 SCORING GUIDELINES:
-- 90-100: Perfect match — skills, experience, and role align extremely well
-- 75-89: Strong match — most required skills present, good experience fit
-- 60-74: Moderate match — some skill gaps but transferable experience
-- 40-59: Weak match — significant gaps, stretch role
-- 0-39: Poor match — fundamentally different role or experience level
-- 0: AUTOMATIC ZERO — assign score 0 and should_apply false if ANY of the RED FLAGS below are detected
+- Base score on ACTUAL core skill overlap. The candidate's primary stack is Java, Spring Boot, React, AWS, Microservices, SQL, Docker.
+- Score 80+ only if the job clearly requires the candidate's primary stack and the candidate meets most requirements.
+- Score 60-79 if there is reasonable overlap but some gaps in secondary skills or domain.
+- Score 40-59 if only peripheral skills match (e.g., generic "JavaScript" or "Python" overlap but core stack is different).
+- Score below 40 if the role requires a fundamentally different tech stack (e.g., .NET-only, Salesforce, SAP, Oracle ERP, data science, DevOps-only, mobile-only) or a completely different domain (finance, banking, healthcare, manufacturing, civil, mechanical).
+- Subtract 20-40 for missing core skills that are central to the role.
+- Subtract 10-20 if the industry/domain is completely different from the candidate's experience (retail, ERP, review management systems).
+- Score 0 ONLY for clear SCAMS (asks for money/fees) or completely unrelated roles.
 
-RED FLAGS (score = 0, should_apply = false):
-1. FAKE / MISLEADING JOBS: The description is extremely vague with no specific technical requirements, the company name is missing or generic (e.g. "Confidential", "A Leading MNC", "Company Name"), or the salary is unrealistically high for the role.
-2. STAFFING / CONSULTANCY / RECRUITMENT AGENCY: The posting is from a staffing firm, recruitment agency, consultancy, manpower company, or talent solutions provider — NOT from the actual hiring company. Look for phrases like "hiring for client", "deputation", "contract staffing", "payroll of [agency]", "C2H", "contract to hire", "walk-in interview", "urgent requirement", "bulk hiring", "immediate joiners only", or the company name contains words like "consultancy", "consulting", "staffing", "manpower", "solutions", "services", "recruitment", "HR", "talent", "placement".
-3. DUPLICATE / REPOSTED: The job description is nearly identical to another listing but with a different title or slight rewording.
-4. WRONG ROLE: The title says one thing but the description is for a completely different role (e.g. title says "Python Developer" but description is for a manual testing role).
-5. EXPIRED / UNAVAILABLE: The description mentions the position is filled, closed, or no longer available.
+CRITICAL — DO NOT APPLY TO THESE:
+1. SCAM / FINANCIAL FRAUD: money request → score 0
+2. DIFFERENT TECH STACK: Salesforce, SAP, Oracle ERP, ServiceNow, Workday, data science, AI/ML-only, DevOps-only, mobile-only (iOS/Android/Flutter), embedded systems, hardware, IoT, mainframe, COBOL → score below 40
+3. DIFFERENT DOMAIN: banking, finance, insurance, healthcare, pharma, civil, mechanical, electrical, electronics, automobile, teacher, faculty, nurse, doctor → score below 40
+4. COMPLETELY WRONG ROLE: title says one thing but description is for something fundamentally different
+5. EXPIRED / UNAVAILABLE
+6. DUPLICATE / REPOSTED
 
-RULES:
-1. Be extremely realistic and honest in scoring. Do NOT inflate scores.
-2. You MUST cross-reference the CANDIDATE RESUME PROFILE against the JOB SKILLS REQUIRED. If the candidate lacks core required skills, the score MUST be below {threshold}.
-3. STRICT ROLE & EXPERIENCE MATCHING:
-   - If the candidate's experience level does not match the job's requirements (e.g., candidate is junior but job wants senior/lead, or candidate has experience but job is for intern/fresher), assign a score below 40.
-   - If the candidate's core role (e.g., Software Developer) fundamentally differs from the job (e.g., Testing, QA, Support, BPO, Sales), assign a score below 30.
-4. "should_apply" MUST be true ONLY if score >= {threshold} AND NO red flags are detected.
-5. FAKE JOB DETECTION IS YOUR TOP PRIORITY. If a job looks even slightly suspicious (e.g., generic consulting firm, no client mentioned, vague description), you MUST assign score 0.
-6. Return ONLY the JSON object. No explanations outside the JSON.
-7. ALWAYS check for red flags FIRST before scoring skills match."""
+IMPORTANT:
+- The candidate is a Full-Stack Software Engineer with 3 years experience in Java, Spring Boot, React, AWS, microservices. They have worked on enterprise web applications (ERP, review management, retail). Do NOT recommend roles from unrelated domains or fundamentally different tech stacks.
+- Indian IT services companies (TCS, Infosys, Wipro, Accenture, Cognizant, Capgemini, etc.) posting real Java/React developer roles ARE relevant and should be scored normally on skill match.
+- Short descriptions that clearly ask for the candidate's stack are fine.
+- DO NOT be generous. A score of {threshold} means "highly relevant and should apply." Only recommend applying when there is genuine, strong alignment.
+
+"should_apply" should be true only if score >= {threshold} AND no red flags are detected.
+Return ONLY the JSON object. No explanations outside the JSON."""
 
 
 class MatchCache:
@@ -334,10 +335,7 @@ class JobMatcher(IJobMatcher):
         matching_skills = list(job_skills.intersection(resume_skills))
         missing_skills = list(job_skills.difference(resume_skills))
 
-        if not job_skills:
-            score = 80.0
-        else:
-            score = (len(matching_skills) / len(job_skills)) * 100.0
+        score = 80.0 if not job_skills else (len(matching_skills) / len(job_skills)) * 100.0
 
         should_apply = score >= self._threshold
 

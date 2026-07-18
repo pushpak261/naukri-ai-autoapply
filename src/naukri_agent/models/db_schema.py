@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from src.naukri_agent.database.manager import DatabaseManager
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -57,6 +57,7 @@ class Job(Base):
     status_last_synced: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    source: Mapped[str] = mapped_column(String(20), default="naukri", index=True)
 
     applications: Mapped[list[Application]] = relationship(
         back_populates="job", cascade="all, delete-orphan"
@@ -90,6 +91,7 @@ class Application(Base):
     retry_count: Mapped[int] = mapped_column(default=0)
     max_retries: Mapped[int] = mapped_column(default=3)
     last_retry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="naukri", index=True)
 
     job: Mapped[Job] = relationship(back_populates="applications")
 
@@ -239,9 +241,17 @@ def _run_migrations(sync_conn: Any) -> None:
         )
     if not column_exists("jobs", "status_last_synced"):
         sync_conn.execute(sa_text("ALTER TABLE jobs ADD COLUMN status_last_synced DATETIME"))
+    if not column_exists("jobs", "source"):
+        sync_conn.execute(
+            sa_text("ALTER TABLE jobs ADD COLUMN source VARCHAR(20) DEFAULT 'naukri'")
+        )
+    if not column_exists("applications", "source"):
+        sync_conn.execute(
+            sa_text("ALTER TABLE applications ADD COLUMN source VARCHAR(20) DEFAULT 'naukri'")
+        )
 
 
-async def setup_database_manager(db_path: Path) -> "DatabaseManager":
+async def setup_database_manager(db_path: Path) -> DatabaseManager:
     """
     Initialize the SQLite engine and return a DatabaseManager.
     """

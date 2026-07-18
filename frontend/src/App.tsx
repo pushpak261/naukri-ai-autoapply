@@ -21,8 +21,11 @@ import Backups from './pages/Backups';
 import MarketIntelligence from './pages/MarketIntelligence';
 import AutoPilot from './pages/AutoPilot';
 import PipelineDebugger from './pages/PipelineDebugger';
+import PipelineJobs from './pages/PipelineJobs';
 import Accounts from './pages/Accounts';
 import WebhookManager from './pages/WebhookManager';
+import LinkedIn from './pages/LinkedIn';
+import ClearData from './pages/ClearData';
 
 export default function App() {
   return (
@@ -38,8 +41,10 @@ export default function App() {
             <Route path="/skills-gap" element={<SkillsGap />} />
             <Route path="/autopilot" element={<AutoPilot />} />
             <Route path="/pipeline-debugger" element={<PipelineDebugger />} />
+            <Route path="/pipeline-jobs" element={<PipelineJobs />} />
             <Route path="/scam-detector" element={<ScamDetector />} />
             <Route path="/agent-control" element={<AgentControl />} />
+            <Route path="/linkedin" element={<LinkedIn />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/jobs/:id" element={<JobDetail />} />
             <Route path="/applications" element={<Applications />} />
@@ -51,6 +56,7 @@ export default function App() {
             <Route path="/resume" element={<Resume />} />
             <Route path="/accounts" element={<Accounts />} />
             <Route path="/webhooks" element={<WebhookManager />} />
+            <Route path="/clear-data" element={<ClearData />} />
           </Route>
         </Routes>
       </AuthProvider>

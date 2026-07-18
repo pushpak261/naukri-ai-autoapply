@@ -2,11 +2,11 @@ import base64
 import hashlib
 import json
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 from cryptography.fernet import Fernet
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy import select
 
 from api.deps import state
 from src.naukri_agent.models.db_schema import Job as DBJob
@@ -157,32 +157,128 @@ async def read_log(log_path: str = Query(...), max_lines: int = Query(200, ge=1,
             "name": full_path.name,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/api/session/status")
-async def session_status():
-    session_path = state.settings.project_root / "data" / "sessions" / "naukri_session.json"
-    if not session_path.exists():
-        return {"exists": False, "valid": False, "message": "No saved session found"}
-    try:
-        raw = session_path.read_bytes()
-        decrypted = _try_decrypt_session(raw, state.settings)
-        session_data = json.loads(decrypted.decode("utf-8"))
-        cookies = session_data.get("cookies", [])
-        naukri_cookies = [c for c in cookies if "naukri.com" in c.get("domain", "")]
-        now = datetime.now(UTC)
-        return {
-            "exists": True,
-            "valid": len(naukri_cookies) > 0,
-            "cookie_count": len(naukri_cookies),
-            "last_modified": datetime.fromtimestamp(
-                session_path.stat().st_mtime, tz=UTC
-            ).isoformat(),
-            "message": "Session valid" if naukri_cookies else "Session expired or invalid",
-        }
-    except Exception:
-        return {"exists": True, "valid": False, "message": "Corrupted session file"}
+async def session_status(
+    platform: str = Query("naukri", max_length=50), account: str = Query("", max_length=255)
+):
+    import os
+    import yaml
+
+    # 1. Resolve Naukri session
+    naukri_email = account or state.active_account_email
+    naukri_valid = False
+    naukri_cookie_count = 0
+    naukri_last_modified = None
+
+    if naukri_email:
+        safe_name = naukri_email.replace("@", "_at_").replace(".", "_dot_")
+        naukri_path = (
+            state.settings.project_root / "data" / "sessions" / f"naukri_session_{safe_name}.json"
+        )
+    else:
+        naukri_path = state.settings.project_root / "data" / "sessions" / "naukri_session.json"
+
+    if not naukri_path.exists():
+        fallback_path = state.settings.project_root / "data" / "sessions" / "naukri_session.json"
+        if fallback_path.exists():
+            naukri_path = fallback_path
+
+    if naukri_path.exists():
+        try:
+            raw = naukri_path.read_bytes()
+            decrypted = _try_decrypt_session(raw, state.settings)
+            session_data = json.loads(decrypted.decode("utf-8"))
+            cookies = session_data.get("cookies", [])
+            naukri_cookies = [c for c in cookies if "naukri.com" in c.get("domain", "")]
+            naukri_valid = len(naukri_cookies) > 0
+            naukri_cookie_count = len(naukri_cookies)
+            naukri_last_modified = datetime.fromtimestamp(
+                naukri_path.stat().st_mtime, tz=UTC
+            ).isoformat()
+        except Exception:
+            pass
+
+    # 2. Resolve LinkedIn session
+    linkedin_email = os.environ.get("LINKEDIN_EMAIL", "")
+    if not linkedin_email:
+        config_path = state.settings.project_root / "linkedin_config.yaml"
+        if config_path.exists():
+            try:
+                with open(config_path, encoding="utf-8") as f:
+                    config_data = yaml.safe_load(f) or {}
+                    linkedin_email = config_data.get("linkedin", {}).get("email", "")
+            except Exception:
+                pass
+
+    linkedin_valid = False
+    linkedin_cookie_count = 0
+    linkedin_last_modified = None
+
+    if linkedin_email:
+        safe_name = linkedin_email.replace("@", "_at_").replace(".", "_dot_")
+        linkedin_path = (
+            state.settings.project_root / "data" / "linkedin" / "sessions" / f"linkedin_session_{safe_name}.json"
+        )
+    else:
+        linkedin_path = state.settings.project_root / "data" / "linkedin" / "sessions" / "linkedin_session.json"
+
+    if not linkedin_path.exists():
+        fallback_path = state.settings.project_root / "data" / "linkedin" / "sessions" / "linkedin_session.json"
+        if fallback_path.exists():
+            linkedin_path = fallback_path
+
+    if linkedin_path.exists():
+        try:
+            raw = linkedin_path.read_bytes()
+            decrypted = _try_decrypt_session(raw, state.settings)
+            session_data = json.loads(decrypted.decode("utf-8"))
+            cookies = session_data.get("cookies", [])
+            linkedin_cookies = [c for c in cookies if "linkedin.com" in c.get("domain", "")]
+            linkedin_valid = len(linkedin_cookies) > 0
+            linkedin_cookie_count = len(linkedin_cookies)
+            linkedin_last_modified = datetime.fromtimestamp(
+                linkedin_path.stat().st_mtime, tz=UTC
+            ).isoformat()
+        except Exception:
+            pass
+
+    # 3. Determine active state based on active platform or running agent
+    is_linkedin_running = False
+    if state.agent_process:
+        try:
+            args = getattr(state.agent_process, "args", [])
+            if any("linked_agent" in str(arg) for arg in args):
+                is_linkedin_running = True
+        except Exception:
+            pass
+
+    if is_linkedin_running or platform == "linkedin":
+        exists = linkedin_path.exists()
+        valid = linkedin_valid
+        cookie_count = linkedin_cookie_count
+        last_modified = linkedin_last_modified
+    else:
+        valid = naukri_valid or linkedin_valid
+        cookie_count = naukri_cookie_count if naukri_valid else linkedin_cookie_count
+        exists = naukri_path.exists() or linkedin_path.exists()
+        last_modified = naukri_last_modified if naukri_valid else linkedin_last_modified
+
+    # Create descriptive status message
+    msg_parts = []
+    msg_parts.append(f"Naukri: {'Active' if naukri_valid else 'Inactive'}")
+    msg_parts.append(f"LinkedIn: {'Active' if linkedin_valid else 'Inactive'}")
+    message = " | ".join(msg_parts)
+
+    return {
+        "exists": exists,
+        "valid": valid,
+        "cookie_count": cookie_count,
+        "last_modified": last_modified,
+        "message": message,
+    }
 
 
 def _fernet_for_settings(settings: Any) -> Fernet | None:
@@ -207,25 +303,38 @@ def _try_decrypt_session(raw: bytes, settings: Any) -> bytes:
 
 
 @router.delete("/api/session")
-async def clear_session(account: str = Query("", max_length=255)):
+async def clear_session(
+    account: str = Query("", max_length=255), platform: str = Query("naukri", max_length=50)
+):
+    prefix = "linkedin_session" if platform == "linkedin" else "naukri_session"
+    if platform == "linkedin":
+        sessions_dir = state.settings.project_root / "data" / "linkedin" / "sessions"
+    else:
+        sessions_dir = state.settings.project_root / "data" / "sessions"
+
     if account:
         safe_name = account.replace("@", "_at_").replace(".", "_dot_")
-        session_path = (
-            state.settings.project_root / "data" / "sessions" / f"naukri_session_{safe_name}.json"
-        )
+        session_path = sessions_dir / f"{prefix}_{safe_name}.json"
     else:
-        session_path = state.settings.project_root / "data" / "sessions" / "naukri_session.json"
+        session_path = sessions_dir / f"{prefix}.json"
+
     if session_path.exists():
         session_path.unlink()
-    return {"status": "cleared", "message": "Session cleared. Agent will need to re-login."}
+    return {
+        "status": "cleared",
+        "message": f"{platform.capitalize()} session cleared. Agent will need to re-login.",
+    }
 
 
 @router.get("/api/sessions/list")
 async def list_sessions():
-    sessions_dir = state.settings.project_root / "data" / "sessions"
+    naukri_dir = state.settings.project_root / "data" / "sessions"
+    linkedin_dir = state.settings.project_root / "data" / "linkedin" / "sessions"
     sessions = []
-    if sessions_dir.exists():
-        for f in sorted(sessions_dir.glob("naukri_session*.json"), reverse=True):
+
+    if naukri_dir.exists():
+        # Naukri sessions
+        for f in sorted(naukri_dir.glob("naukri_session*.json"), reverse=True):
             size = f.stat().st_size
             modified = datetime.fromtimestamp(f.stat().st_mtime, tz=UTC).isoformat()
             name = f.stem.replace("naukri_session_", "")
@@ -233,7 +342,24 @@ async def list_sessions():
                 name = "default"
             sessions.append(
                 {
-                    "name": name,
+                    "name": f"Naukri ({name})",
+                    "file": f.name,
+                    "size": size,
+                    "modified": modified,
+                }
+            )
+
+    if linkedin_dir.exists():
+        # LinkedIn sessions
+        for f in sorted(linkedin_dir.glob("linkedin_session*.json"), reverse=True):
+            size = f.stat().st_size
+            modified = datetime.fromtimestamp(f.stat().st_mtime, tz=UTC).isoformat()
+            name = f.stem.replace("linkedin_session_", "")
+            if name == "":
+                name = "default"
+            sessions.append(
+                {
+                    "name": f"LinkedIn ({name})",
                     "file": f.name,
                     "size": size,
                     "modified": modified,
@@ -486,3 +612,108 @@ async def export_stats_json():
         media_type="application/json",
         headers={"Content-Disposition": "attachment; filename=dashboard_stats.json"},
     )
+
+
+@router.delete("/api/data/clear-all")
+async def clear_all_data():
+    """Clear all data from SQLite DB, cache files, sessions, and logs."""
+    import os
+    from pathlib import Path
+
+    project_root = state.settings.project_root
+    cleared_items = []
+    errors = []
+
+    # 1. Drop all tables and recreate them (Naukri DB)
+    from src.naukri_agent.models.db_schema import Base as NaukriBase
+    from src.naukri_agent.models.db_schema import _run_migrations
+
+    try:
+        async with state.db_manager.engine.begin() as conn:
+            await conn.run_sync(NaukriBase.metadata.drop_all)
+            await conn.run_sync(NaukriBase.metadata.create_all)
+            await conn.run_sync(_run_migrations)
+        cleared_items.append("Naukri database tables reset")
+    except Exception as e:
+        errors.append(f"Naukri database reset failed: {e}")
+
+    # 1b. Drop and recreate LinkedIn DB tables if the file exists
+    linkedin_db_path = project_root / "data" / "linkedin" / "linkedin_agent.db"
+    if linkedin_db_path.exists():
+        try:
+            from sqlalchemy.ext.asyncio import create_async_engine
+            from src.linked_agent.models.db_schema import Base as LinkedInBase
+
+            linkedin_engine = create_async_engine(
+                f"sqlite+aiosqlite:///{linkedin_db_path}",
+                echo=False,
+                connect_args={"check_same_thread": False},
+            )
+            async with linkedin_engine.begin() as conn:
+                await conn.run_sync(LinkedInBase.metadata.drop_all)
+                await conn.run_sync(LinkedInBase.metadata.create_all)
+            await linkedin_engine.dispose()
+            cleared_items.append("LinkedIn database tables reset")
+        except Exception as e:
+            errors.append(f"LinkedIn database reset failed: {e}")
+
+    # 2. Reinitialize the repository (clear in-memory caches)
+    try:
+        await state.repo.initialize()
+        cleared_items.append("Repository caches reset")
+    except Exception as e:
+        errors.append(f"Repository reinit failed: {e}")
+
+    # 3. Clear cache JSON files
+    cache_files = [
+        project_root / "data" / "match_cache.json",
+        project_root / "data" / "qa_cache.json",
+        project_root / "data" / "linkedin" / "linkedin_match_cache.json",
+        project_root / "data" / "logs" / ".alert_cooldowns.json",
+        project_root / "data" / "logs" / "metrics.json",
+    ]
+    for cache_file in cache_files:
+        if cache_file.exists():
+            try:
+                os.remove(cache_file)
+                cleared_items.append(f"Deleted cache: {cache_file.relative_to(project_root)}")
+            except Exception:
+                pass
+
+    # 4. Clear session files
+    session_dirs = [
+        project_root / "data" / "sessions",
+        project_root / "data" / "linkedin" / "sessions",
+    ]
+    for s_dir in session_dirs:
+        if s_dir.exists():
+            for p in s_dir.glob("*.json*"):
+                try:
+                    os.remove(p)
+                    cleared_items.append(f"Deleted session: {p.relative_to(project_root)}")
+                except Exception:
+                    pass
+
+    # 5. Clear log files
+    log_dir = project_root / "data" / "logs"
+    if log_dir.exists():
+        for p in log_dir.glob("*.log"):
+            try:
+                os.remove(p)
+                cleared_items.append(f"Deleted log: {p.relative_to(project_root)}")
+            except Exception:
+                pass
+
+    if errors:
+        return {
+            "status": "partial",
+            "message": "Some items could not be cleared",
+            "details": cleared_items,
+            "errors": errors,
+        }
+
+    return {
+        "status": "cleared",
+        "message": "All data cleared successfully",
+        "details": cleared_items,
+    }

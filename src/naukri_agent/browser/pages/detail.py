@@ -6,7 +6,6 @@ Encapsulates parsing job details, detecting screening forms, answering questions
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
@@ -64,6 +63,22 @@ class JobDetailPage(BasePage):
     async def is_external_apply(self) -> bool:
         """Check if the job apply button redirects to an external site."""
         return await self._interactions.element_exists(JobDetailSelectors.EXTERNAL_APPLY)
+
+    async def click_external_apply_button(self) -> bool:
+        """Click the external apply button to navigate to the company site."""
+        return await self._interactions.safe_click(JobDetailSelectors.EXTERNAL_APPLY, timeout=5000)
+
+    async def is_external_apply_successful(self) -> bool:
+        """Check if the external apply page shows a success/confirmation."""
+        page = self._engine.page
+        try:
+            text = await page.inner_text("body") or ""
+            text_lower = text.lower()
+            if any(x in text_lower for x in ["application submitted", "thank you", "we received", "successfully applied"]):
+                return True
+        except Exception:
+            pass
+        return False
 
     async def get_job_details(self) -> dict:
         """
@@ -189,7 +204,7 @@ class JobDetailPage(BasePage):
                         if (text.includes('applied') || text.includes('already applied')) continue;
                         
                         if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
-                            if (text === 'apply' || text === 'apply now' || text.startsWith('apply') || text.includes('walk-in') || text.includes('walkin') || text === 'interested') {
+                            if (text === 'apply' || text === 'apply now' || (text.startsWith('apply') && !text.includes('application') && !text.includes('applicant') && !text.includes('applying')) || text.includes('walk-in') || text.includes('walkin') || text === 'interested') {
                                 el.click();
                                 return true;
                             }
@@ -330,137 +345,198 @@ class JobDetailPage(BasePage):
     async def extract_screening_questions(self) -> list[dict]:
         """
         Extract screening questions from the current apply form using a robust JS-based DOM engine.
+        Generates stable selectors that survive re-renders (CSS path, element fingerprints).
 
         Returns:
-            List of dicts with question text, type, and available options.
+            List of dicts with question text, type, options, stable selectors, and current value.
         """
         page = self._engine.page
         try:
             js_script = r"""
             () => {
-                // Helper to check if an element is visible
+                // ---- CSS.escape polyfill ----
+                if (!CSS.escape) {
+                    CSS.escape = function(value) {
+                        if (typeof value !== 'string') return '';
+                        var result = '';
+                        for (var i = 0; i < value.length; i++) {
+                            var ch = value.charAt(i);
+                            if (ch === '\\') result += '\\\\';
+                            else if (/[ !"#$%&'()*+,./:;<=>?@\[\]^`{|}~]/.test(ch) || ch.charCodeAt(0) <= 0x1f) {
+                                result += '\\' + ch.charCodeAt(0).toString(16) + ' ';
+                            } else result += ch;
+                        }
+                        return result;
+                    };
+                }
+
+                // ---- Helpers ----
+
                 function isVisible(el) {
-                    if (!el) return false;
-                    const style = window.getComputedStyle(el);
-                    if (style.display === 'none' || style.visibility === 'hidden') return false;
-                    
-                    // For radio/checkbox, they might be styled invisible (opacity: 0, or size 0)
-                    // but their associated labels or parent elements are visible.
-                    const type = (el.getAttribute('type') || '').toLowerCase();
-                    if (type === 'radio' || type === 'checkbox') {
-                        const parentLabel = el.closest('label');
-                        if (parentLabel) {
-                            const pStyle = window.getComputedStyle(parentLabel);
-                            if (pStyle.display !== 'none' && pStyle.visibility !== 'hidden') {
-                                const pRect = parentLabel.getBoundingClientRect();
-                                if (pRect.width > 0 && pRect.height > 0) {
-                                    return true;
+                    if (!el || !el.getBoundingClientRect) return false;
+                    try {
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden') return false;
+
+                        const type = (el.getAttribute('type') || '').toLowerCase();
+                        if (type === 'radio' || type === 'checkbox') {
+                            const parentLabel = el.closest('label');
+                            if (parentLabel) {
+                                const pStyle = window.getComputedStyle(parentLabel);
+                                if (pStyle.display !== 'none' && pStyle.visibility !== 'hidden') {
+                                    const pRect = parentLabel.getBoundingClientRect();
+                                    if (pRect.width > 0 && pRect.height > 0) return true;
                                 }
                             }
-                        }
-                        if (el.id) {
-                            const label = document.querySelector('label[for="' + el.id + '"]');
-                            if (label) {
-                                const lStyle = window.getComputedStyle(label);
-                                if (lStyle.display !== 'none' && lStyle.visibility !== 'hidden') {
-                                    const lRect = label.getBoundingClientRect();
-                                    if (lRect.width > 0 && lRect.height > 0) {
-                                        return true;
+                            if (el.id) {
+                                const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+                                if (label) {
+                                    const lStyle = window.getComputedStyle(label);
+                                    if (lStyle.display !== 'none' && lStyle.visibility !== 'hidden') {
+                                        const lRect = label.getBoundingClientRect();
+                                        if (lRect.width > 0 && lRect.height > 0) return true;
                                     }
                                 }
                             }
                         }
-                    }
 
-                    if (style.opacity === '0') return false;
-                    const rect = el.getBoundingClientRect();
-                    return rect.width > 0 && rect.height > 0;
+                        if (style.opacity === '0' || parseFloat(style.opacity) < 0.1) return false;
+                        const rect = el.getBoundingClientRect();
+                        return rect.width > 0 && rect.height > 0;
+                    } catch(e) { return false; }
                 }
 
-                // Helper to clean question text
                 function cleanQuestionText(text) {
                     if (!text) return "";
                     let cleaned = text.trim();
-                    // Remove trailing colons, asterisks, spaces, newlines
                     cleaned = cleaned.replace(/[\*:\s]+$/, "");
                     cleaned = cleaned.replace(/^\s*[\*:\s]+/, "");
-                    // Remove common labels like (Required), (Mandatory), etc.
                     cleaned = cleaned.replace(/\((required|mandatory|optional|must answer|choose)\)/gi, "");
-                    return cleaned.trim();
+                    cleaned = cleaned.trim();
+
+                    // === EXCLUDE system/error/success messages posing as questions ===
+                    if (!cleaned) return "";
+                    const lower = cleaned.toLowerCase();
+                    const skipPatterns = [
+                        'oops', 'not accepted', 'incomplete information',
+                        'reapplying', 'already applied', 'applied successfully',
+                        'successfully applied', 'application submitted',
+                        'thank you for applying', 'we have received',
+                        'your application has been', 'please answer all mandatory',
+                        'please fill', 'click here to highlight',
+                        'want callbacks', 'increase your chances',
+                        'upload resume', 'attach resume',
+                        'deselect resume', 'remove resume',
+                        'error', 'warning', 'alert',
+                    ];
+                    for (const pat of skipPatterns) {
+                        if (lower.includes(pat)) return "";
+                    }
+                    // Skip very long text that is likely a description, not a question
+                    if (cleaned.length > 150) return "";
+
+                    return cleaned;
                 }
 
-                // Helper to find the closest shared ancestor of multiple elements
                 function findSharedAncestor(elements) {
                     if (elements.length === 0) return null;
                     if (elements.length === 1) return elements[0].parentElement;
                     let ancestor = elements[0].parentElement;
                     while (ancestor) {
-                        if (elements.every(el => ancestor.contains(el))) {
-                            return ancestor;
-                        }
+                        if (elements.every(el => ancestor.contains(el))) return ancestor;
                         ancestor = ancestor.parentElement;
                     }
                     return document.body;
                 }
 
-                // Helper to get text content of an element excluding specific child elements (like option labels or inputs themselves)
                 function getCleanedTextExcluding(element, excludeElements) {
                     let text = "";
                     for (let node of element.childNodes) {
                         if (node.nodeType === Node.TEXT_NODE) {
                             text += node.textContent;
                         } else if (node.nodeType === Node.ELEMENT_NODE) {
-                            // If it is in excluded, skip
-                            if (excludeElements.some(ex => ex === node || ex.contains(node))) {
-                                continue;
-                            }
+                            if (excludeElements.some(ex => ex === node || ex.contains(node))) continue;
                             text += " " + getCleanedTextExcluding(node, excludeElements);
                         }
                     }
                     return text;
                 }
 
-                // Helper to locate label text for a control group
+                // Generate a stable CSS selector for an element that survives re-renders
+                function generateStableSelector(el) {
+                    if (!el || el === document.body || el === document.documentElement) return '';
+                    // Prefer id
+                    if (el.id) return '#' + CSS.escape(el.id);
+                    // Build from tag + attributes
+                    const tag = el.tagName.toLowerCase();
+                    const attrs = [];
+                    const name = el.getAttribute('name');
+                    const type = el.getAttribute('type');
+                    const placeholder = el.getAttribute('placeholder');
+                    const ariaLabel = el.getAttribute('aria-label');
+                    const className = el.getAttribute('class');
+                    if (name) attrs.push('[name="' + CSS.escape(name) + '"]');
+                    if (type) attrs.push('[type="' + type + '"]');
+                    if (placeholder) attrs.push('[placeholder="' + CSS.escape(placeholder) + '"]');
+                    if (ariaLabel) attrs.push('[aria-label="' + CSS.escape(ariaLabel) + '"]');
+
+                    // Build a path as fallback
+                    let path = tag + attrs.join('');
+                    // Check uniqueness; if not unique, prepend parent path
+                    let matches = document.querySelectorAll(path);
+                    if (matches.length > 1) {
+                        // Try with nth-of-type
+                        let parent = el.parentElement;
+                        let parentPath = '';
+                        if (parent && parent !== document.body) {
+                            parentPath = generateStableSelector(parent);
+                            let candidate = parentPath + ' > ' + path;
+                            let parentMatches = document.querySelectorAll(candidate);
+                            if (parentMatches.length === 1) return candidate;
+                        }
+                        // Use n-th child approach
+                        let childIndex = 1;
+                        let sibling = el.previousElementSibling;
+                        while (sibling) { childIndex++; sibling = sibling.previousElementSibling; }
+                        path = tag + ':nth-of-type(' + childIndex + ')' + attrs.join('');
+                    }
+                    return path;
+                }
+
                 function getLabelForGroup(elements, formContainer) {
                     if (elements.length === 0) return "";
                     const first = elements[0];
 
-                    // 1. Check for explicit label tag with 'for' attribute
+                    // 1. Explicit label[for]
                     if (first.id) {
-                        const label = document.querySelector('label[for="' + first.id + '"]');
+                        const label = document.querySelector('label[for="' + CSS.escape(first.id) + '"]');
                         if (label && isVisible(label)) {
                             const text = label.innerText.trim();
                             if (text.length > 2) return text;
                         }
                     }
 
-                    // 2. Check if first is inside a label tag
+                    // 2. Inside label tag
                     const parentLabel = first.closest('label');
                     if (parentLabel && isVisible(parentLabel)) {
                         const text = parentLabel.innerText.trim();
                         if (text.length > 2) return text;
                     }
 
-                    // 3. Find closest shared ancestor container (like div.form-row)
+                    // 3. Shared ancestor
                     let ancestor = findSharedAncestor(elements);
-                    // Don't climb above form container
                     if (formContainer && formContainer.contains(ancestor) && ancestor !== formContainer) {
-                        // Find all text inside ancestor excluding option inputs/labels themselves
-                        // We want to collect the inputs and their parent labels (option labels) to exclude them
                         const optionLabelsAndInputs = [];
                         elements.forEach(el => {
                             optionLabelsAndInputs.push(el);
                             const parentLbl = el.closest('label');
                             if (parentLbl) optionLabelsAndInputs.push(parentLbl);
                         });
-
                         const ancestorText = getCleanedTextExcluding(ancestor, optionLabelsAndInputs).trim();
-                        if (ancestorText.length > 3) {
-                            return ancestorText;
-                        }
+                        if (ancestorText.length > 3) return ancestorText;
                     }
 
-                    // 4. Fallback to preceding sibling text
+                    // 4. Preceding sibling text
                     let prev = first.previousElementSibling;
                     while (prev) {
                         if (isVisible(prev)) {
@@ -470,56 +546,133 @@ class JobDetailPage(BasePage):
                         prev = prev.previousElementSibling;
                     }
 
-                    // 5. Fallback to attributes
+                    // 5. Parent container heading/label text
+                    if (first.parentElement) {
+                        let walker = first.parentElement;
+                        for (let i = 0; i < 3 && walker; i++) {
+                            const heading = walker.querySelector('h1, h2, h3, h4, h5, h6, strong, b, label:not(:has(input)), span:not(:has(input))');
+                            if (heading && isVisible(heading)) {
+                                const ht = heading.innerText.trim();
+                                if (ht.length > 3 && ht.length < 200) return ht;
+                            }
+                            walker = walker.parentElement;
+                        }
+                    }
+
+                    // 6. Attributes
                     const placeholder = first.getAttribute('placeholder');
                     if (placeholder && placeholder.length > 2) return placeholder;
                     const name = first.getAttribute('name');
                     if (name && name.length > 2) return name;
+                    const ariaLabel = first.getAttribute('aria-label');
+                    if (ariaLabel && ariaLabel.length > 2) return ariaLabel;
 
                     return "";
                 }
 
-                // Identify the active form container
-                const selectors = [
-                    '[class*="apply-modal"]', '[class*="apply-form"]', 
+                // Build element fingerprint for matching across re-renders
+                function elementFingerprint(el) {
+                    const tag = el.tagName.toLowerCase();
+                    const type = (el.getAttribute('type') || '').toLowerCase();
+                    const name = el.getAttribute('name') || '';
+                    const id = el.id || '';
+                    const placeholder = (el.getAttribute('placeholder') || '').toLowerCase();
+                    const ariaLabel = (el.getAttribute('aria-label') || '').toLowerCase();
+                    const className = (el.className || '').toString().toLowerCase().replace(/\\s+/g, ' ').trim();
+                    // Get the label text if available
+                    let labelText = '';
+                    const label = el.closest('label') || (id ? document.querySelector('label[for="' + CSS.escape(id) + '"]') : null);
+                    if (label) labelText = (label.innerText || '').trim().toLowerCase();
+                    // Get surrounding question text (first 60 chars)
+                    const parentText = (el.parentElement ? (el.parentElement.innerText || '').trim().toLowerCase() : '');
+                    const surrounding = parentText.replace(/\\s+/g, ' ').substring(0, 120);
+                    return JSON.stringify({
+                        tag: tag, type: type, name: name, id: id,
+                        placeholder: placeholder.substring(0, 50),
+                        ariaLabel: ariaLabel.substring(0, 50),
+                        class: className.substring(0, 100),
+                        labelText: labelText.substring(0, 80),
+                        surrounding: surrounding
+                    });
+                }
+
+                // Find element by its fingerprint (after re-render)
+                function findElementByFingerprint(fp) {
+                    if (!fp) return null;
+                    try { fp = JSON.parse(fp); } catch(e) { return null; }
+                    const candidates = Array.from(document.querySelectorAll(
+                        'input' + (fp.type ? '[type="' + fp.type + '"]' : '') +
+                        ', select, textarea, [contenteditable="true"], [role="switch"], [role="checkbox"]'
+                    )).filter(el => {
+                        try {
+                            if (!isVisible(el)) return false;
+                            const hType = (el.getAttribute('type') || '').toLowerCase();
+                            if (['hidden', 'submit', 'button', 'image', 'file'].includes(hType)) return false;
+                            const tag = el.tagName.toLowerCase();
+                            if (fp.tag && fp.tag !== tag) return false;
+                            if (fp.name && el.getAttribute('name') !== fp.name) return false;
+                            if (fp.id && el.id !== fp.id) return false;
+                            if (fp.placeholder && fp.placeholder.length > 3) {
+                                const ph = (el.getAttribute('placeholder') || '').toLowerCase();
+                                if (ph !== fp.placeholder && !ph.includes(fp.placeholder) && !fp.placeholder.includes(ph)) {
+                                    // placeholder mismatch - not strict
+                                }
+                            }
+                            return true;
+                        } catch(e) { return false; }
+                    });
+                    if (candidates.length === 1) return candidates[0];
+                    // Try additional matching by surrounding text
+                    if (fp.surrounding && fp.surrounding.length > 20) {
+                        for (const c of candidates) {
+                            const ctx = (c.parentElement ? (c.parentElement.innerText || '').trim().toLowerCase() : '');
+                            const ctxNorm = ctx.replace(/\\s+/g, ' ').substring(0, 120);
+                            if (ctxNorm === fp.surrounding) return c;
+                        }
+                    }
+                    return candidates.length > 0 ? candidates[0] : null;
+                }
+
+                // ---- Main extraction ----
+
+                // Identify form container
+                const containerSelectors = [
+                    '[class*="apply-modal"]', '[class*="apply-form"]',
                     '[class*="chatbot"]', '[class*="chat" i]', '[class*="bot" i]',
                     '[class*="modal" i]', '[class*="popup" i]', '[class*="dialog" i]',
                     'form[class*="apply"]', '[class*="screening"]', 'form', 'body'
                 ];
                 let formContainer = null;
-                for (let sel of selectors) {
+                for (let sel of containerSelectors) {
                     const elements = document.querySelectorAll(sel);
                     for (let el of elements) {
-                        if (isVisible(el)) {
-                            // Check if this container ACTUALLY HAS ANY INPUTS
-                            const hasInputs = el.querySelector('input:not([type="hidden"]), select, textarea, [contenteditable="true"]');
-                            if (hasInputs) {
-                                formContainer = el;
-                                break;
-                            }
+                        if (isVisible(el) && el.querySelector('input:not([type="hidden"]), select, textarea, [contenteditable="true"]')) {
+                            formContainer = el;
+                            break;
                         }
                     }
                     if (formContainer && formContainer.tagName !== 'BODY') break;
                 }
                 if (!formContainer) formContainer = document.body;
 
-                // Find all visible interactive elements in formContainer
-                let rawControls = Array.from(formContainer.querySelectorAll('input, select, textarea'));
-                let visibleControls = rawControls.filter(el => {
+                // Collect ALL visible interactive elements
+                let allControls = Array.from(formContainer.querySelectorAll(
+                    'input, select, textarea, [contenteditable="true"], [role="switch"], [role="checkbox"]:not(input)'
+                ));
+                let visibleControls = allControls.filter(el => {
                     if (!isVisible(el)) return false;
                     const type = (el.getAttribute('type') || '').toLowerCase();
-                    // Ignore hidden, file, buttons
                     if (['hidden', 'submit', 'button', 'image', 'file'].includes(type)) return false;
-                    // Ignore search bar and header/nav inputs to prevent false positives when falling back to body
                     if (el.closest('header, nav, [class*="header" i], [class*="nav" i], [class*="qsb" i], [class*="search-bar" i], [class*="searchBar" i]')) return false;
                     return true;
                 });
 
                 if (visibleControls.length === 0 && formContainer !== document.body) {
-                    // Fallback to searching the entire body if the chosen container had no valid inputs
                     formContainer = document.body;
-                    rawControls = Array.from(formContainer.querySelectorAll('input, select, textarea'));
-                    visibleControls = rawControls.filter(el => {
+                    allControls = Array.from(formContainer.querySelectorAll(
+                        'input, select, textarea, [contenteditable="true"], [role="switch"], [role="checkbox"]:not(input)'
+                    ));
+                    visibleControls = allControls.filter(el => {
                         if (!isVisible(el)) return false;
                         const type = (el.getAttribute('type') || '').toLowerCase();
                         if (['hidden', 'submit', 'button', 'image', 'file'].includes(type)) return false;
@@ -528,105 +681,175 @@ class JobDetailPage(BasePage):
                     });
                 }
 
-                // Group elements by name/grouping
+                // ---- Detect toggle/switch elements (styled as switches, not standard input) ----
+                // Use simple selectors + JS visibility filter (NO :visible/:hidden which are jQuery-only)
+                const rawToggleCandidates = Array.from(formContainer.querySelectorAll(
+                    '[role="switch"], [class*="toggle" i], [class*="switch" i]'
+                )).filter(el => {
+                    // Skip standard form controls
+                    const tag = el.tagName.toLowerCase();
+                    if (tag === 'input' || tag === 'select' || tag === 'textarea') return false;
+                    return isVisible(el);
+                });
+
+                // Find labels containing hidden/opacity-zero checkboxes by iterating JS
+                const allLabels = Array.from(formContainer.querySelectorAll('label')).filter(isVisible);
+                const styledCheckboxLabels = allLabels.filter(lbl => {
+                    const cb = lbl.querySelector('input[type="checkbox"]');
+                    if (!cb) return false;
+                    try {
+                        const style = window.getComputedStyle(cb);
+                        if (style.display === 'none' || style.visibility === 'hidden') return true;
+                        if (parseFloat(style.opacity) < 0.1) return true;
+                        const rect = cb.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) return true;
+                    } catch(e) { /* ignore */ }
+                    return false;
+                });
+
+                // Combine toggle candidates
+                const toggleCandidates = rawToggleCandidates.concat(styledCheckboxLabels);
+
+                for (const toggle of toggleCandidates) {
+                    // Check if toggle is already represented by a visible checkbox input
+                    const innerCheckbox = toggle.querySelector('input[type="checkbox"]');
+                    if (innerCheckbox && visibleControls.includes(innerCheckbox)) continue;
+
+                    // It's a custom toggle - synthesize a question
+                    const label = toggle.querySelector('label') || toggle;
+                    const qText = (label.innerText || label.textContent || '').trim();
+                    if (qText && qText.length > 3) {
+                        const isChecked = toggle.getAttribute('aria-checked') === 'true' ||
+                            toggle.classList.contains('active') ||
+                            toggle.classList.contains('on') ||
+                            (innerCheckbox && innerCheckbox.checked);
+                        const stableSel = generateStableSelector(toggle);
+                        visibleControls.push({
+                            tagName: 'DIV',
+                            getAttribute: function(a) {
+                                if (a === 'type') return 'checkbox';
+                                if (a === 'name') return toggle.getAttribute('name') || '';
+                                if (a === 'id') return toggle.id || '';
+                                if (a === 'aria-label') return qText;
+                                if (a === 'placeholder') return '';
+                                if (a === 'required') return toggle.hasAttribute('aria-required') || qText.includes('*');
+                                if (a === 'aria-required') return toggle.getAttribute('aria-required');
+                                return toggle.getAttribute(a);
+                            },
+                            hasAttribute: function(a) {
+                                if (a === 'required') return toggle.hasAttribute('aria-required') || qText.includes('*');
+                                return toggle.hasAttribute(a);
+                            },
+                            __isToggle: true,
+                            __toggleEl: toggle,
+                            __stableSelector: stableSel,
+                            __qText: qText,
+                            __checked: isChecked,
+                            closest: function(s) { return toggle.closest ? toggle.closest(s) : null; },
+                            parentElement: toggle.parentElement,
+                            value: isChecked ? 'Yes' : '',
+                            checked: isChecked,
+                            __actualCheckbox: innerCheckbox
+                        });
+                    }
+                }
+
+                // Group controls by name + type for radio/checkbox, individually for others
                 const groups = [];
                 const processedNames = new Set();
 
                 visibleControls.forEach(control => {
-                    const tagName = control.tagName.toLowerCase();
+                    const tagName = control.tagName ? control.tagName.toLowerCase() : 'div';
                     const typeAttr = (control.getAttribute('type') || '').toLowerCase();
                     const name = control.getAttribute('name') || '';
 
                     if ((typeAttr === 'radio' || typeAttr === 'checkbox') && name) {
                         if (processedNames.has(name)) return;
                         processedNames.add(name);
-                        // Find all sibling radio/checkbox inputs with the same name
                         const groupInputs = visibleControls.filter(el => {
                             const elType = (el.getAttribute('type') || '').toLowerCase();
                             return elType === typeAttr && el.getAttribute('name') === name;
                         });
-                        groups.push({
-                            type: typeAttr,
-                            name: name,
-                            elements: groupInputs
-                        });
+                        groups.push({ type: typeAttr, name: name, elements: groupInputs });
                     } else {
-                        groups.push({
-                            type: tagName === 'select' ? 'dropdown' : (tagName === 'textarea' ? 'text_area' : typeAttr || 'text'),
-                            name: name,
-                            elements: [control]
-                        });
+                        let detectedType = typeAttr || 'text';
+                        if (tagName === 'select') detectedType = 'dropdown';
+                        else if (tagName === 'textarea') detectedType = 'text_area';
+                        else if (control.__isToggle) detectedType = 'checkbox';
+                        groups.push({ type: detectedType, name: name, elements: [control] });
                     }
                 });
 
-                // Process each group to extract question info
+                // Process each group
                 const questions = [];
                 groups.forEach((group, index) => {
                     const fieldId = 'agent_q_' + index;
                     const rawQuestion = getLabelForGroup(group.elements, formContainer);
-                    const cleanedQuestion = cleanQuestionText(rawQuestion);
+                    const cleanedQuestion = cleanQuestionText(rawQuestion) || group.elements[0].__qText || '';
 
-                    // Determine if required
                     let required = false;
                     group.elements.forEach(el => {
-                        if (el.hasAttribute('required') || el.getAttribute('aria-required') === 'true') {
+                        if (el.hasAttribute && (el.hasAttribute('required') || el.getAttribute('aria-required') === 'true')) {
                             required = true;
                         }
                     });
-                    // Or check if rawQuestion has asterisk/required marker
                     if (rawQuestion.includes('*') || /required|mandatory|must\s*answer/i.test(rawQuestion)) {
                         required = true;
                     }
 
-                    // Extract options if dropdown/radio/checkbox
                     let options = [];
                     let value = "";
+                    const firstEl = group.elements[0];
+                    let stableSelector = '';
 
                     if (group.type === 'dropdown') {
-                        const selectEl = group.elements[0];
-                        selectEl.setAttribute('data-agent-field-id', fieldId);
-                        value = selectEl.value || "";
-                        const optionElems = selectEl.querySelectorAll('option');
-                        optionElems.forEach(opt => {
+                        const el = firstEl;
+                        el.setAttribute('data-agent-field-id', fieldId);
+                        stableSelector = generateStableSelector(el);
+                        value = el.value || "";
+                        el.querySelectorAll('option').forEach(opt => {
                             const optText = opt.textContent.trim();
-                            const optVal = opt.value;
                             if (optText && !/select|choose|--/i.test(optText)) {
-                                options.push({ text: optText, value: optVal });
+                                options.push({ text: optText, value: opt.value });
                             }
                         });
                     } else if (group.type === 'radio' || group.type === 'checkbox') {
                         group.elements.forEach((el, optIdx) => {
                             const optFieldId = fieldId + '_opt_' + optIdx;
                             el.setAttribute('data-agent-field-id', optFieldId);
-                            
-                            // Find label text for this specific option
+                            const optStableSel = el.__stableSelector || generateStableSelector(el);
+
                             let optText = "";
-                            const parentLabel = el.closest('label');
-                            if (parentLabel) {
-                                optText = parentLabel.innerText.trim();
-                            } else if (el.id) {
-                                const label = document.querySelector('label[for="' + el.id + '"]');
-                                if (label) optText = label.innerText.trim();
+                            if (el.__qText) {
+                                optText = el.__qText;
+                            } else {
+                                const parentLabel = el.closest ? el.closest('label') : null;
+                                if (parentLabel) {
+                                    optText = parentLabel.innerText.trim();
+                                } else if (el.id) {
+                                    const label = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+                                    if (label) optText = label.innerText.trim();
+                                }
                             }
                             if (!optText) optText = el.value || "";
 
-                            if (el.checked) {
-                                value = optText;
-                            }
+                            if (el.checked || el.__checked) value = optText;
 
                             options.push({
                                 text: optText,
-                                value: el.value || "",
-                                selector: "[data-agent-field-id='" + optFieldId + "']"
+                                value: el.value || optText,
+                                selector: "[data-agent-field-id='" + optFieldId + "']",
+                                stableSelector: optStableSel,
+                                elementFingerprint: elementFingerprint(el)
                             });
                         });
+                        stableSelector = options.length > 0 ? options[0].stableSelector : '';
                     } else {
-                        // Text, number, date, etc.
-                        const inputEl = group.elements[0];
-                        inputEl.setAttribute('data-agent-field-id', fieldId);
-                        value = inputEl.value !== undefined ? inputEl.value : (inputEl.innerText || inputEl.textContent || "");
+                        const el = firstEl;
+                        el.setAttribute('data-agent-field-id', fieldId);
+                        stableSelector = generateStableSelector(el);
+                        value = el.value !== undefined ? el.value : (el.innerText || el.textContent || "");
 
-                        // Refine type if text but matches certain patterns
                         let refinedType = group.type;
                         const qLower = cleanedQuestion.toLowerCase();
                         if (refinedType === 'text') {
@@ -639,7 +862,6 @@ class JobDetailPage(BasePage):
                         group.type = refinedType;
                     }
 
-                    // Skip if the question is blank and it's not a required text field
                     if (!cleanedQuestion && !required) return;
 
                     questions.push({
@@ -650,11 +872,13 @@ class JobDetailPage(BasePage):
                         options: options,
                         required: required,
                         selector: "[data-agent-field-id='" + fieldId + "']",
+                        stableSelector: stableSelector,
+                        elementFingerprint: elementFingerprint(firstEl),
                         value: value
                     });
                 });
 
-                // Chatbot Flow Fallback if traditional questions are 0
+                // Chatbot flow fallback
                 if (questions.length === 0) {
                     const chatbotMsgs = document.querySelectorAll('[class*="chatbot-msg"], [class*="bot-msg"], [class*="chat-msg"], [class*="msg-bubble"], [class*="message"]:not([class*="error"])');
                     if (chatbotMsgs.length > 0) {
@@ -675,17 +899,17 @@ class JobDetailPage(BasePage):
                                         options.push({
                                             text: optText,
                                             value: optText,
-                                            selector: "[data-agent-field-id='" + optFieldId + "']"
+                                            selector: "[data-agent-field-id='" + optFieldId + "']",
+                                            stableSelector: generateStableSelector(opt)
                                         });
                                     }
                                 });
                             }
 
-                            // Find the text input robustly, preferring inside the chatbot container but falling back to any visible non-search input
-                            const inputCandidates = chatbotContainer 
+                            const inputCandidates = chatbotContainer
                                 ? Array.from(chatbotContainer.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea, [contenteditable="true"]'))
                                 : [];
-                                
+
                             if (inputCandidates.length === 0) {
                                 const globals = Array.from(document.querySelectorAll('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea, [contenteditable="true"]'));
                                 globals.forEach(el => {
@@ -710,6 +934,8 @@ class JobDetailPage(BasePage):
                                 options: options,
                                 required: true,
                                 selector: chatbotInputSelector || "input:not([type='hidden'])",
+                                stableSelector: chatbotInputSelector,
+                                elementFingerprint: "",
                                 value: ""
                             });
                         }
@@ -730,35 +956,532 @@ class JobDetailPage(BasePage):
     async def fill_answer_by_metadata(self, question: dict, answer: str) -> bool:
         """
         Fill a question answer using precise metadata and selectors assigned during extraction.
+        Uses a multi-strategy fallback chain for robustness against DOM re-renders.
         """
         page = self._engine.page
         q_type = question.get("type")
         q_text = question.get("question")
         selector = question.get("selector")
+        stable_selector = question.get("stableSelector", "")
+        fingerprint = question.get("elementFingerprint", "")
+        options = question.get("options", [])
 
         try:
+            # ---- Strategy chain for each type ----
             if q_type == "dropdown":
-                select_elem = await page.query_selector(selector)
-                if select_elem:
-                    return await self._select_dropdown_option_by_metadata(
-                        select_elem, question.get("options", []), answer
-                    )
+                return await self._fill_dropdown_multi_strategy(
+                    page, question, options, answer, selector, stable_selector, fingerprint
+                )
             elif q_type in ("radio", "checkbox"):
-                options = question.get("options", [])
-                return await self._select_choice_option_by_metadata(
-                    options, answer, q_type == "checkbox"
+                return await self._fill_choice_multi_strategy(
+                    page, question, options, answer, q_type == "checkbox"
                 )
             else:
-                input_elem = await page.query_selector(selector)
-                if input_elem:
-                    await input_elem.scroll_into_view_if_needed()
-                    await input_elem.fill("")
-                    await input_elem.type(answer, delay=50)
-                    return True
+                return await self._fill_text_multi_strategy(
+                    page, question, answer, selector, stable_selector, fingerprint
+                )
         except Exception as e:
             logger.error(f"Failed to fill answer using metadata for '{q_text}': {e}")
 
         return False
+
+    async def _fill_dropdown_multi_strategy(
+        self, page, question: dict, options: list[dict], answer: str,
+        selector: str, stable_selector: str, fingerprint: str
+    ) -> bool:
+        """Multi-strategy dropdown fill."""
+        select_elem = None
+
+        # Strategy 1: data-agent-field-id selector
+        if selector:
+            select_elem = await page.query_selector(selector)
+
+        # Strategy 2: stable CSS selector
+        if not select_elem and stable_selector:
+            select_elem = await page.query_selector(stable_selector)
+
+        # Strategy 3: fingerprint lookup
+        if not select_elem and fingerprint:
+            select_elem = await page.evaluate_handle(
+                """(fp) => {
+                    try {
+                        const data = JSON.parse(fp);
+                        const candidates = Array.from(document.querySelectorAll('select'));
+                        for (const c of candidates) {
+                            if (data.name && c.getAttribute('name') === data.name) return c;
+                            if (data.id && c.id === data.id) return c;
+                        }
+                        return null;
+                    } catch(e) { return null; }
+                }""",
+                fingerprint
+            )
+            if select_elem:
+                select_elem = select_elem.as_element()
+
+        # Strategy 4: find any visible select in form
+        if not select_elem:
+            select_elem = await page.query_selector('select:not([style*="display: none"])')
+
+        if select_elem:
+            try:
+                is_visible = await select_elem.is_visible()
+            except Exception:
+                is_visible = False
+            if is_visible:
+                result = await self._select_dropdown_option_by_metadata(
+                    select_elem, options, answer
+                )
+                if result:
+                    return True
+                # Fallback: select by visible text matching
+                return await self._select_dropdown_option(select_elem, answer) or True
+        return False
+
+    async def _fill_choice_multi_strategy(
+        self, page, question: dict, options: list[dict], answer: str, is_checkbox: bool
+    ) -> bool:
+        """Multi-strategy radio/checkbox fill with label text and DOM fallback."""
+        q_text = question.get("question", "")
+
+        # Strategy 1: Try metadata-based selection (using data-agent-field-id)
+        if await self._select_choice_option_by_metadata(options, answer, is_checkbox):
+            return True
+
+        # Strategy 2: Try stable selectors for each option
+        for opt in options:
+            stable_sel = opt.get("stableSelector", "")
+            if stable_sel:
+                elem = await page.query_selector(stable_sel)
+                if elem:
+                    try:
+                        parent_label = await elem.evaluate_handle("el => el.closest('label')")
+                        label_elem = parent_label.as_element()
+                        if label_elem:
+                            await label_elem.scroll_into_view_if_needed()
+                            await label_elem.click()
+                            return True
+                        await elem.scroll_into_view_if_needed()
+                        await elem.click()
+                        return True
+                    except Exception:
+                        pass
+
+        # Strategy 3: Try by element fingerprint for each option
+        for opt in options:
+            fp = opt.get("elementFingerprint", "")
+            if fp:
+                elem = await page.evaluate_handle(
+                    """(fp) => {
+                        try {
+                            const d = JSON.parse(fp);
+                            const sel = d.type ? 'input[type="' + d.type + '"]' : 'input';
+                            const candidates = Array.from(document.querySelectorAll(sel));
+                            for (const c of candidates) {
+                                if (d.name && c.getAttribute('name') === d.name) return c;
+                                if (d.id && c.id === d.id) return c;
+                                // Match by label text
+                                if (d.labelText && d.labelText.length > 5) {
+                                    const lbl = c.closest('label') || (c.id && document.querySelector('label[for="' + CSS.escape(c.id) + '"]'));
+                                    if (lbl && (lbl.innerText || '').trim().toLowerCase() === d.labelText) return c;
+                                }
+                            }
+                            return null;
+                        } catch(e) { return null; }
+                    }""",
+                    fp
+                )
+                if elem:
+                    elem = elem.as_element()
+                    if elem:
+                        try:
+                            await elem.scroll_into_view_if_needed()
+                            await elem.click()
+                            return True
+                        except Exception:
+                            pass
+
+        # Strategy 4: Find by label text matching on page
+        answer_lower = answer.lower().strip()
+        try:
+            labels = await page.query_selector_all("label")
+            for label in labels:
+                try:
+                    label_text = (await label.text_content() or "").strip()
+                    if not label_text:
+                        continue
+                    # Check if this label contains the question text
+                    if q_text and (q_text.lower() in label_text.lower() or label_text.lower() in q_text.lower()):
+                        radio = await label.query_selector('input[type="radio"], input[type="checkbox"]')
+                        if radio:
+                            await label.scroll_into_view_if_needed()
+                            await label.click()
+                            return True
+                except Exception:
+                    pass
+
+            # Strategy 5: Find by answer text in labels
+            for label in labels:
+                try:
+                    label_text = (await label.text_content() or "").strip().lower()
+                    if answer_lower == label_text or answer_lower in label_text or label_text in answer_lower:
+                        radio = await label.query_selector('input[type="radio"], input[type="checkbox"]')
+                        if radio:
+                            await label.scroll_into_view_if_needed()
+                            await label.click()
+                            return True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # Strategy 6: JS direct DOM manipulation for toggles/switches
+        if q_text:
+            js_result = await page.evaluate(
+                """({ qText, answer, isCheckbox }) => {
+                    if (!CSS.escape) {
+                        CSS.escape = function(value) {
+                            if (typeof value !== 'string') return '';
+                            var result = '';
+                            for (var i = 0; i < value.length; i++) {
+                                var ch = value.charAt(i);
+                                if (ch === '\\') result += '\\\\';
+                            else if (/[ !"#$%&'()*+,./:;<=>?@\\[\\]^`{|}~]/.test(ch) || ch.charCodeAt(0) <= 0x1f) {
+                                    result += '\\' + ch.charCodeAt(0).toString(16) + ' ';
+                                } else result += ch;
+                            }
+                            return result;
+                        };
+                    }
+                    const ql = qText.toLowerCase();
+                    const al = answer.toLowerCase().trim();
+                    const shouldCheck = al === 'yes' || al === 'true' || al === '1' || al === 'y';
+
+                    // Find toggle/switch elements with matching text
+                    const toggles = document.querySelectorAll(
+                        '[role="switch"], [class*="toggle" i], [class*="switch" i], ' +
+                        'label:has(input[type="checkbox"]), label:has(input[type="radio"])'
+                    );
+                    for (const tg of toggles) {
+                        const tText = (tg.innerText || tg.textContent || '').trim().toLowerCase();
+                        if (!tText) continue;
+                        if (ql && (tText.includes(ql) || ql.includes(tText))) {
+                            // Found matching toggle - click it
+                            tg.click();
+                            return true;
+                        }
+                    }
+
+                    // Find any visible unchecked checkbox/radio that's still in form
+                    if (shouldCheck) {
+                        const inputs = document.querySelectorAll(
+                            'input[type="checkbox"]:not([style*="display: none"]):not([style*="visibility: hidden"]), ' +
+                            'input[type="radio"]:not([style*="display: none"]):not([style*="visibility: hidden"])'
+                        );
+                        for (const inp of inputs) {
+                            if (!inp.checked && inp.offsetParent !== null) {
+                                const lbl = inp.closest('label') || (inp.id && document.querySelector('label[for="' + CSS.escape(inp.id) + '"]'));
+                                const ctxText = lbl ? (lbl.innerText || '').trim().toLowerCase() : '';
+                                if (ql && (ctxText.includes(ql) || ql.includes(ctxText))) {
+                                    inp.click();
+                                    inp.checked = true;
+                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
+                                    inp.dispatchEvent(new Event('input', { bubbles: true }));
+                                    return true;
+                                }
+                            }
+                        }
+                        // Last resort: check first visible unchecked checkbox
+                        for (const inp of inputs) {
+                            if (!inp.checked && inp.offsetParent !== null) {
+                                inp.click();
+                                inp.checked = true;
+                                inp.dispatchEvent(new Event('change', { bubbles: true }));
+                                inp.dispatchEvent(new Event('input', { bubbles: true }));
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }""",
+                {"qText": q_text, "answer": answer, "isCheckbox": is_checkbox}
+            )
+            if js_result:
+                return True
+
+        return False
+
+    async def _fill_text_multi_strategy(
+        self, page, question: dict, answer: str,
+        selector: str, stable_selector: str, fingerprint: str
+    ) -> bool:
+        """Multi-strategy text/number/date field fill."""
+        q_text = question.get("question", "")
+
+        # Strategy 1: data-agent-field-id selector
+        if selector:
+            if await self._fill_single_text_input(page, selector, answer):
+                return True
+
+        # Strategy 2: stable CSS selector
+        if stable_selector:
+            if await self._fill_single_text_input(page, stable_selector, answer):
+                return True
+
+        # Strategy 3: fingerprint-based re-find
+        if fingerprint:
+            elem = await page.evaluate_handle(
+                """(fp) => {
+                    try {
+                        const d = JSON.parse(fp);
+                        const sel = d.type && d.type !== 'text'
+                            ? 'input[type="' + d.type + '"], textarea'
+                            : 'input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="file"]), textarea';
+                        const candidates = Array.from(document.querySelectorAll(sel));
+                        for (const c of candidates) {
+                            if (d.name && c.getAttribute('name') === d.name) return c;
+                            if (d.id && c.id === d.id) return c;
+                            if (d.placeholder && d.placeholder.length > 3) {
+                                const ph = (c.getAttribute('placeholder') || '').toLowerCase();
+                                if (ph === d.placeholder) return c;
+                            }
+                        }
+                        return null;
+                    } catch(e) { return null; }
+                }""",
+                fingerprint
+            )
+            if elem:
+                elem = elem.as_element()
+                if elem:
+                    if await self._fill_element_text(page, elem, answer):
+                        return True
+
+        # Strategy 4: Find by label text
+        if q_text:
+            elem = await self._find_input_by_label_text(page, q_text)
+            if elem and await self._fill_element_text(page, elem, answer):
+                return True
+
+        # Strategy 5: Find by placeholder matching
+        if q_text:
+            q_lower = q_text.lower()
+            try:
+                inputs = await page.query_selector_all(
+                    'input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="file"]), textarea'
+                )
+                for inp in inputs:
+                    try:
+                        ph = (await inp.get_attribute("placeholder") or "").lower()
+                        if ph and (q_lower in ph or ph in q_lower):
+                            if await self._fill_element_text(page, inp, answer):
+                                return True
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
+        # Strategy 6: JS direct DOM fill on any visible unfilled input
+        if q_text:
+            js_result = await page.evaluate(
+                """({ answer }) => {
+                    const inputs = document.querySelectorAll(
+                        'input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([style*="display: none"]):not([style*="visibility: hidden"]), ' +
+                        'textarea:not([style*="display: none"]):not([style*="visibility: hidden"])'
+                    );
+                    for (const inp of inputs) {
+                        if (inp.offsetParent === null) continue;
+                        const val = (inp.value || '').trim();
+                        if (val === '' || val === 'Select' || val === '--Select--') {
+                            inp.focus();
+                            // Use native prototype setter which React-compatible frameworks intercept
+                            const nativeSetter = Object.getOwnPropertyDescriptor(
+                                window.HTMLInputElement.prototype, 'value'
+                            ).set;
+                            nativeSetter.call(inp, '');
+                            nativeSetter.call(inp, answer);
+                            inp.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                            inp.dispatchEvent(new Event('change', { bubbles: true }));
+                            inp.blur();
+                            inp.dispatchEvent(new Event('blur', { bubbles: true }));
+                            return true;
+                        }
+                    }
+                    return false;
+                }""",
+                {"answer": answer}
+            )
+            if js_result:
+                return True
+
+        return False
+
+    async def _fill_single_text_input(self, page, selector: str, answer: str) -> bool:
+        """Try to fill a single text input using the given selector."""
+        try:
+            elem = await page.query_selector(selector)
+            if not elem:
+                return False
+            return await self._fill_element_text(page, elem, answer)
+        except Exception:
+            return False
+
+    async def _fill_element_text(self, page, element, answer: str) -> bool:
+        """Fill text into an element with robust visibility/scroll handling.
+        
+        Strategy:
+        1. For visible elements: Playwright fill() (triggers React/Angular change detection)
+        2. For non-visible elements: JS native value setter + all events (focus/input/change/blur)
+        3. Always blur + wait for framework reactivity
+        4. Verify value was accepted by framework (re-read after reactivity delay)
+        """
+        try:
+            is_visible = await element.is_visible()
+        except Exception:
+            is_visible = False
+
+        expected_val = answer.strip()
+
+        def verify_fill(elem):
+            """Verify the framework accepted the value by re-reading it."""
+            async def _inner():
+                try:
+                    actual = await elem.evaluate("el => el.value || ''")
+                    return actual.strip() == expected_val
+                except Exception:
+                    return False
+            return _inner()
+
+        # ---- VISIBLE ELEMENT: use Playwright fill() (handles React change detection) ----
+        if is_visible:
+            try:
+                await element.scroll_into_view_if_needed()
+                await element.focus()
+                await element.fill("")
+                await element.type(answer, delay=20)
+                # Blur and wait for framework validation to propagate
+                await element.evaluate("el => el.blur()")
+                await asyncio.sleep(0.5)
+                if await verify_fill(element):
+                    return True
+                # Fill registered but value was rejected by framework — try JS approach
+                logger.debug("Playwright fill was overwritten by framework, trying JS setter")
+            except Exception as e:
+                logger.debug(f"Playwright fill/type failed, trying JS approach: {e}")
+                # Fall through to JS native setter
+        else:
+            # ---- NON-VISIBLE ELEMENT: try clicking associated label first ----
+            try:
+                parent_label = await element.evaluate_handle("el => el.closest('label')")
+                label_elem = parent_label.as_element()
+                if label_elem:
+                    await label_elem.scroll_into_view_if_needed()
+                    await label_elem.click()
+                    return True
+            except Exception:
+                pass
+            try:
+                elem_id = await element.get_attribute("id")
+                if elem_id:
+                    label_elem = await page.query_selector(f'label[for="{elem_id}"]')
+                    if label_elem:
+                        await label_elem.scroll_into_view_if_needed()
+                        await label_elem.click()
+                        return True
+            except Exception:
+                pass
+
+        # ---- JS FALLBACK: native setter + React-compatible events ----
+        try:
+            await element.evaluate(
+                """(el, val) => {
+                    const tag = el.tagName.toLowerCase();
+                    const isInput = tag === 'input' || tag === 'textarea';
+                    
+                    if (isInput) {
+                        el.focus();
+                        const nativeSetter = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value'
+                        ).set;
+                        nativeSetter.call(el, '');
+                        nativeSetter.call(el, val);
+                        el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        el.blur();
+                        el.dispatchEvent(new Event('blur', { bubbles: true }));
+                    } else if (el.isContentEditable) {
+                        el.innerText = val;
+                        el.dispatchEvent(new Event('input', { bubbles: true }));
+                    } else {
+                        el.value = val;
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+                }""",
+                answer
+            )
+            await asyncio.sleep(0.5)
+            if await verify_fill(element):
+                return True
+            # Absolute last resort: try React-specific _valueTracker
+            try:
+                await element.evaluate(
+                    """(el, val) => {
+                        el.focus();
+                        const nativeSetter = Object.getOwnPropertyDescriptor(
+                            window.HTMLInputElement.prototype, 'value'
+                        ).set;
+                        nativeSetter.call(el, '');
+                        nativeSetter.call(el, val);
+                        // React 16+ _valueTracker hack
+                        if (el._valueTracker) {
+                            el._valueTracker.setValue(val);
+                        }
+                        el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                        el.dispatchEvent(new Event('change', { bubbles: true }));
+                        el.blur();
+                        el.dispatchEvent(new Event('blur', { bubbles: true }));
+                    }""",
+                    answer
+                )
+                await asyncio.sleep(0.3)
+                return await verify_fill(element)
+            except Exception:
+                return False
+        except Exception as e:
+            logger.debug(f"JS fill failed for element: {e}")
+            try:
+                await element.evaluate("(el, val) => { el.value = val; el.dispatchEvent(new Event('change', {bubbles: true})); }", answer)
+                return True
+            except Exception:
+                return False
+
+    async def _find_input_by_label_text(self, page, question_text: str) -> object | None:
+        """Find an input element by matching its associated label text."""
+        q_lower = question_text.lower().strip()
+        try:
+            labels = await page.query_selector_all("label")
+            for label in labels:
+                try:
+                    label_text = (await label.text_content() or "").strip()
+                    if not label_text:
+                        continue
+                    label_lower = label_text.lower()
+                    # Check if label contains question text or vice versa
+                    if q_lower == label_lower or (len(q_lower) > 5 and q_lower in label_lower) or (len(label_lower) > 5 and label_lower in q_lower):
+                        label_for = await label.get_attribute("for")
+                        if label_for:
+                            input_elem = await page.query_selector(f"#{CSS.escape(label_for)}")
+                            if input_elem:
+                                return input_elem
+                        # Check inside label
+                        input_elem = await label.query_selector("input, select, textarea")
+                        if input_elem:
+                            return input_elem
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        return None
 
     async def _select_dropdown_option_by_metadata(
         self, select_elem, options: list[dict], answer: str
@@ -939,7 +1662,7 @@ class JobDetailPage(BasePage):
                             submit_btn = await container_el.query_selector(
                                 'button:has-text("Save"), button:has-text("Submit"), button:has-text("Next"), button:has-text("Continue")'
                             )
-                            if submit_btn and await submit_btn.is_visible(timeout=1000):
+                            if submit_btn and await submit_btn.is_visible():
                                 try:
                                     await submit_btn.click(timeout=1500)
                                 except PlaywrightError:
@@ -966,12 +1689,9 @@ class JobDetailPage(BasePage):
                 if not label_text:
                     continue
 
-                # allow minor differences: exact containment on full string rather than only prefix
-                if (
-                    q.lower() in label_text.lower()
-                    or label_text.lower() in q.lower()
-                    or q.lower()[:20] in label_text.lower()
-                ):
+                q_lower = q.lower()
+                label_lower = label_text.lower()
+                if q_lower == label_lower or (len(q_lower) > 5 and q_lower in label_lower and len(label_lower) <= len(q_lower) + 15) or (len(label_lower) > 5 and label_lower in q_lower and len(q_lower) <= len(label_lower) + 15):
                     label_for = await label.get_attribute("for")
 
                     input_elem = None
@@ -1105,28 +1825,366 @@ class JobDetailPage(BasePage):
         except PlaywrightError as e:
             logger.debug(f"Radio selection failed: {e}")
 
+    async def _trigger_form_validation(self) -> None:
+        """Trigger client-side form validation by blurring all filled fields.
+        
+        Many SPAs (React/Angular) validate fields on blur. This ensures
+        validation state is updated before we attempt to submit.
+        """
+        page = self._engine.page
+        try:
+            await page.evaluate("""
+                () => {
+                    const inputs = document.querySelectorAll(
+                        'input:not([type="hidden"]):not([type="submit"]):not([type="button"]):not([type="file"]), ' +
+                        'select, textarea'
+                    );
+                    inputs.forEach(el => {
+                        el.dispatchEvent(new Event('blur', { bubbles: true }));
+                        // Also trigger any reportValidity on the form
+                        const form = el.closest('form');
+                        if (form && typeof form.reportValidity === 'function') {
+                            form.reportValidity();
+                        }
+                    });
+                }
+            """)
+        except Exception:
+            pass
+
+    async def click_chatbot_save_button(self) -> bool:
+        """Click the Save button specifically within a chatbot/screening panel.
+
+        Naukri's chatbot screening flow shows a prominent 'Save' button at the
+        bottom of the chatbot panel after all questions are answered. This method
+        scopes the search to the chatbot/modal/dialog container to avoid clicking
+        the wrong element on the page.
+
+        Uses a multi-strategy approach with retry:
+        1. JS container-scoped scan (chatbot → modal → dialog → body)
+        2. Playwright locator scoped to chatbot containers
+        3. Fallback: page-wide Playwright locator for Save button
+
+        Returns True if a Save button was found and clicked.
+        """
+        page = self._engine.page
+
+        for retry in range(3):
+            # ── Strategy 1: JS container-scoped scan ──
+            # Finds the chatbot/modal container and clicks the best Save button inside it.
+            js = r"""() => {
+                const savePatterns = ['save', 'save & next', 'save and next', 'save and continue'];
+
+                // Ordered container selectors: most specific first
+                const containerSelectors = [
+                    '[class*="chatbot" i]',
+                    '[class*="bot-body" i]',
+                    '[class*="chat-body" i]',
+                    '[class*="chatbot-container" i]',
+                    '[class*="apply-modal" i]',
+                    '[class*="apply-form" i]',
+                    '[class*="modal" i]',
+                    '[class*="dialog" i]',
+                    '[class*="drawer" i]',
+                    '[class*="popup" i]',
+                    '[class*="screening" i]',
+                ];
+
+                // Find the best container that has a visible Save-like button
+                let container = null;
+                for (const sel of containerSelectors) {
+                    const els = document.querySelectorAll(sel);
+                    for (const el of els) {
+                        const style = window.getComputedStyle(el);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
+                        const rect = el.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) continue;
+                        // Check if this container has a Save-like button
+                        const btns = el.querySelectorAll(
+                            'button, a, [role="button"], input[type="submit"], input[type="button"], ' +
+                            '[class*="btn" i], [class*="button" i]'
+                        );
+                        for (const btn of btns) {
+                            const btnText = (btn.textContent || btn.innerText || btn.value || '').trim().toLowerCase();
+                            if (savePatterns.some(p => btnText === p || btnText.startsWith(p + ' '))) {
+                                container = el;
+                                break;
+                            }
+                        }
+                        if (container) break;
+                    }
+                    if (container) break;
+                }
+
+                // Search within found container, or fall back to full document
+                const searchRoot = container || document;
+                const candidates = Array.from(searchRoot.querySelectorAll(
+                    'button, a, [role="button"], input[type="submit"], input[type="button"], ' +
+                    '[class*="btn" i], [class*="button" i], span, div'
+                ));
+
+                const results = [];
+                for (const el of candidates) {
+                    const text = (el.textContent || el.innerText || el.value || '').trim().toLowerCase();
+                    if (!text) continue;
+                    if (!savePatterns.some(p => text === p || text.startsWith(p + ' ') || text.startsWith(p + '&'))) continue;
+
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width < 15 || rect.height < 15) continue;
+                    if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+
+                    let score = 0;
+                    const tag = el.tagName.toUpperCase();
+
+                    // Prefer proper interactive elements
+                    if (tag === 'BUTTON') score += 30;
+                    else if (tag === 'A' || tag === 'INPUT') score += 20;
+                    else score += 5;
+
+                    // Exact text match gets highest priority
+                    if (text === 'save') score += 50;
+                    else if (text.startsWith('save')) score += 40;
+
+                    // Boost if it looks like a primary/CTA button (background color, classes)
+                    const bg = style.backgroundColor;
+                    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') {
+                        score += 20;
+                    }
+                    const cls = (el.className || '').toString().toLowerCase();
+                    if (cls.includes('primary') || cls.includes('cta') || cls.includes('action') || cls.includes('submit')) {
+                        score += 15;
+                    }
+
+                    // Boost if inside a chatbot/modal container
+                    if (el.closest('[class*="chatbot" i], [class*="bot" i], [class*="chat" i], [class*="modal" i], [class*="dialog" i]')) {
+                        score += 25;
+                    }
+
+                    // Penalize if it has too many children (likely a wrapper, not the actual button)
+                    if (el.querySelectorAll('*').length > 10) score -= 20;
+
+                    results.push({ el, score, text });
+                }
+
+                if (results.length === 0) return null;
+                results.sort((a, b) => b.score - a.score);
+                const best = results[0].el;
+                best.scrollIntoView({ behavior: 'instant', block: 'center' });
+                best.click();
+                // Also dispatch pointer events for React/Angular frameworks
+                best.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                best.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+                best.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                best.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                return results[0].text;
+            }"""
+            try:
+                clicked_text = await page.evaluate(js)
+                if clicked_text:
+                    logger.info(f"Clicked chatbot Save button via JS (attempt {retry + 1}): '{clicked_text}'")
+                    await asyncio.sleep(1)
+                    return True
+            except Exception as e:
+                logger.debug(f"Chatbot Save JS scan attempt {retry + 1} failed: {e}")
+
+            # ── Strategy 2: Playwright locator scoped to chatbot containers ──
+            container_selectors = [
+                '[class*="chatbot"]',
+                '[class*="bot-body"]',
+                '[class*="apply-modal"]',
+                '[class*="modal" i]',
+                '[class*="dialog" i]',
+            ]
+            for container_sel in container_selectors:
+                try:
+                    container = page.locator(container_sel).first
+                    if await container.count() > 0 and await container.is_visible():
+                        for btn_text in ("Save", "Save & Next", "Save and Next", "Save and Continue"):
+                            btn = container.locator(
+                                'button, a, [role="button"]'
+                            ).filter(has_text=btn_text).first
+                            if (
+                                await btn.count() > 0
+                                and await btn.is_visible()
+                                and await btn.is_enabled()
+                            ):
+                                await btn.scroll_into_view_if_needed()
+                                await asyncio.sleep(0.3)
+                                await btn.click()
+                                logger.info(
+                                    f"Clicked chatbot Save button via Playwright in '{container_sel}': '{btn_text}'"
+                                )
+                                await asyncio.sleep(1)
+                                return True
+                except Exception:
+                    pass
+
+            # ── Strategy 3: Fallback — page-wide Playwright locator ──
+            for btn_text in ("Save", "Save & Next"):
+                try:
+                    btn = page.locator('button, [role="button"]').filter(has_text=btn_text).first
+                    if (
+                        await btn.count() > 0
+                        and await btn.is_visible()
+                        and await btn.is_enabled()
+                    ):
+                        await btn.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.3)
+                        await btn.click()
+                        logger.info(f"Clicked Save button via page-wide Playwright fallback: '{btn_text}'")
+                        await asyncio.sleep(1)
+                        return True
+                except Exception:
+                    pass
+
+            await asyncio.sleep(0.8)
+
+        logger.debug("Chatbot Save button not found after 3 attempts")
+        return False
+
+    async def click_intermediate_save_button(self) -> bool:
+        """Click an intermediate Save/Next/Continue button (NOT Submit/Apply).
+
+        In Naukri's screening flow, after filling a question there is often a
+        'Save' button that must be clicked before the answer registers.
+
+        For chatbot flows, delegates to click_chatbot_save_button() first.
+        For standard forms, tries Playwright locators then JS broad scan with retry.
+        Returns True if a Save/Next/Continue button was found and clicked.
+        """
+        # For chatbot flows, use the dedicated chatbot-scoped method first
+        if await self.is_chatbot_flow():
+            result = await self.click_chatbot_save_button()
+            if result:
+                return True
+            # Fall through to generic strategies if chatbot-specific method fails
+
+        page = self._engine.page
+
+        for retry in range(3):
+            # ── Strategy 1: Playwright native locators ──
+            for text in ("Save", "Save & Next", "Save and Continue", "Next", "Continue"):
+                try:
+                    btn = page.locator(
+                        'button, input[type="submit"], input[type="button"], '
+                        '[role="button"]'
+                    ).filter(has_text=text).first
+                    if (
+                        await btn.count() > 0
+                        and await btn.first.is_visible()
+                        and await btn.first.is_enabled()
+                    ):
+                        await btn.first.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.2)
+                        await btn.first.click()
+                        logger.debug(f"Clicked Save button via Playwright: '{text}'")
+                        return True
+                except Exception:
+                    pass
+
+            # ── Strategy 2: JS broad scan (catches non-standard
+            #    elements like <div>, <span>, <a> with matching text) ──
+            js = """() => {
+                const saveTexts = ['save', 'next', 'continue'];
+                const candidates = Array.from(
+                    document.querySelectorAll(
+                        'button, input[type=\"button\"], input[type=\"submit\"], ' +
+                        'a, [role=\"button\"], [onclick], ' +
+                        '[class*=\"btn\" i], [class*=\"button\" i], ' +
+                        '[class*=\"save\" i], [class*=\"submit\" i], ' +
+                        'span, div, label'
+                    )
+                );
+                const results = [];
+                for (const el of candidates) {
+                    const text = (el.textContent || el.innerText || el.value || '').trim().toLowerCase();
+                    if (!text) continue;
+                    const match = saveTexts.some(st =>
+                        text === st || text.startsWith(st + ' ') || text.startsWith(st + '&')
+                    );
+                    if (!match) continue;
+                    const style = window.getComputedStyle(el);
+                    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
+                    const rect = el.getBoundingClientRect();
+                    if (rect.width < 20 || rect.height < 20) continue;
+                    if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+                    let depth = (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'A') ? 0 : 1;
+                    // Prefer buttons inside modal/chatbot containers
+                    if (el.closest('[class*="modal" i], [class*="chatbot" i], [class*="dialog" i], [class*="apply" i]')) {
+                        depth -= 1;
+                    }
+                    results.push({ el, depth, text });
+                }
+                if (results.length === 0) return null;
+                results.sort((a, b) => a.depth - b.depth);
+                const best = results[0].el;
+                best.scrollIntoView({ behavior: 'instant', block: 'center' });
+                best.click();
+                return results[0].text;
+            }"""
+            try:
+                clicked_text = await page.evaluate(js)
+                if clicked_text:
+                    logger.debug(f"Clicked Save button via JS scan: '{clicked_text}'")
+                    return True
+            except Exception:
+                pass
+
+            await asyncio.sleep(0.8)
+
+        return False
+
     async def submit_application(self) -> bool:
         """Click the submit/apply button to finalize the application.
+
+        For chatbot flows, prioritizes the 'Save' button since that IS the
+        final submit action in Naukri's chatbot screening.
 
         Returns:
             True if a button was successfully clicked, False otherwise.
         """
         page = self._engine.page
+        is_chatbot = await self.is_chatbot_flow()
 
-        # Try a robust JavaScript evaluator click first to find the best visible, enabled button
+        # For chatbot flows, try the dedicated chatbot Save button first
+        if is_chatbot:
+            save_clicked = await self.click_chatbot_save_button()
+            if save_clicked:
+                logger.info("submit_application: Used chatbot Save button for submission")
+                return True
+
+        # Try a robust JavaScript evaluator click to find the best visible, enabled button
+        # In chatbot flows, "Save" gets the highest score since it's the submit action
         js_click_script = """
-        () => {
+        (isChatbot) => {
             const getScore = (el) => {
                 const text = el.textContent.trim().toLowerCase() || el.value?.trim().toLowerCase() || "";
                 let score = 0;
-                if (text.includes("submit") || text === "apply" || text === "apply now") score = 100;
-                else if (text.includes("save") || text.includes("next") || text.includes("continue") || text.includes("send")) score = 80;
-                else if (text.includes("confirm") || text.includes("proceed")) score = 70;
+
+                if (isChatbot) {
+                    // In chatbot flows, Save IS the submit action — highest priority
+                    if (text === 'save' || text.startsWith('save ') || text.startsWith('save&')) score = 150;
+                    else if (text.includes('submit') || text === 'apply' || text === 'apply now') score = 100;
+                    else if (text.includes('next') || text.includes('continue') || text.includes('send')) score = 80;
+                    else if (text.includes('confirm') || text.includes('proceed')) score = 70;
+                } else {
+                    if (text.includes('submit') || text === 'apply' || text === 'apply now') score = 100;
+                    else if (text.includes('save') || text.includes('next') || text.includes('continue') || text.includes('send')) score = 80;
+                    else if (text.includes('confirm') || text.includes('proceed')) score = 70;
+                }
                 
                 if (score > 0) {
                     // Boost score if inside a modal, popup, or chatbot container
                     if (el.closest('[class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="chatbot"], [class*="chat" i], [class*="bot" i], [class*="drawer" i]')) {
                         score += 50;
+                    }
+                    // Boost if it's a primary-styled button (has background color)
+                    const style = window.getComputedStyle(el);
+                    const bg = style.backgroundColor;
+                    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') {
+                        score += 10;
                     }
                 }
                 return score;
@@ -1148,14 +2206,18 @@ class JobDetailPage(BasePage):
             if (validCandidates.length > 0) {
                 validCandidates.sort((a, b) => getScore(b) - getScore(a));
                 const best = validCandidates[0];
+                best.scrollIntoView({ behavior: 'instant', block: 'center' });
                 best.click();
+                // Dispatch additional events for framework compatibility
+                best.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                best.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
                 return true;
             }
             return false;
         }
         """
         try:
-            clicked = await page.evaluate(js_click_script)
+            clicked = await page.evaluate(js_click_script, is_chatbot)
             if clicked:
                 logger.debug("Successfully clicked submit/apply button via JS evaluator.")
                 return True
@@ -1225,7 +2287,6 @@ class JobDetailPage(BasePage):
             success_phrases = [
                 "applied successfully",
                 "application submitted",
-                "already applied",
                 "application received",
                 "successfully applied",
                 "thank you for applying",

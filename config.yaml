@@ -1,4 +1,4 @@
-﻿ai:
+ai:
   abort_on_quota: true
   enable_matching: true
   fallback_model: gemini-3.5-flash
@@ -8,8 +8,8 @@
   temperature: 0.3
   use_gemini: true
 application:
-  answer_questions_with_pdf: false
-  daily_cap: 30
+  answer_questions_with_pdf: true
+  daily_cap: 50
   delay_between_actions_max: 3.0
   delay_between_actions_min: 1.0
   delay_between_applies_max: 90
@@ -17,13 +17,13 @@ application:
   dry_run: false
   email_notifications_enabled: false
   enable_project_indexer: true
-  match_score_threshold: 70
+  match_score_threshold: 40
   max_retries: 3
   notify_on_apply: true
   notify_on_failure: true
   notify_on_match: true
   notify_on_scam: true
-  rate_limit_capacity: 10.0
+  rate_limit_capacity: 15.0
   rate_limit_refill_rate: 1.0
   skip_external_apply: true
 exclusions:
@@ -31,37 +31,59 @@ exclusions:
   - Techno Experts
   - TeleInfoTech
   - Codinglimits
-  description_keywords: []
+  - GIST Management Solutions
+  - TheGermanyGuide
+  - Thegermanyguide
+  - Orcapod Consulting Services
+  - Talentzo
+  - Talentzo Delhi
+  - Talent Corner Hr Services
+  - Talent Corner
+  - Datasturdy Consulting
+  - Primus
+  description_keywords:
+  - send your resume
+  - send your cv
+  - email your resume
+  - whatsapp your resume
+  - whatsapp your cv
+  - contact hr
+  - contact our hr
+  - career guidance consultant
+  - recruitment and career guidance
+  - placement consultant
+  - we are a recruitment
+  - we are a staffing
+  - immigration consultant
+  - visa assistance
+  - work in germany
+  - germany jobs
+  - jobs in germany
+  - abroad opportunities
+  - overseas placement
+  - paid training
+  - registration fee
+  - training charges
+  - refundable deposit
   enable_scam_filter: true
   fake_company_blocklist:
+  - GIST Managemen it Solutions
+  - TheGermanyGuide
+  - Thegermanyguide
+  - Orcapod Consulting Services
+  - Orcapod
+  - Talentzo
+  - Primus
+  - Datasturdy Consulting
+  - Talent Corner Hr Services
+  - Talent Corner
+  - TeleInfoTech
+  - Techno Experts
+  - Codinglimits
   - Spam Company 1
   - Spam Company 2
-  max_openings_without_logo: 50
+  max_openings_without_logo: 25
   title_keywords:
-  - support
-  - technical support
-  - tech support
-  - customer support
-  - customer service
-  - customer success
-  - application support
-  - production support
-  - desktop support
-  - helpdesk
-  - service desk
-  - operations
-  - operator
-  - testing
-  - test
-  - tester
-  - qa
-  - quality assurance
-  - quality analyst
-  - automation tester
-  - manual tester
-  - performance tester
-  - security tester
-  - sdet
   - sales
   - marketing
   - business development
@@ -90,35 +112,11 @@ exclusions:
   - auditor
   - tax
   - consultancy
-  - consultant
   - placement
   - staffing
   - recruitment services
   - manpower
   - outsourcing
-  - intern
-  - internship
-  - senior
-  - sr
-  - sr.
-  - lead
-  - team lead
-  - technical lead
-  - principal
-  - staff engineer
-  - architect
-  - solution architect
-  - enterprise architect
-  - manager
-  - project manager
-  - program manager
-  - delivery manager
-  - engineering manager
-  - director
-  - vp
-  - vice president
-  - head
-  - chief
   - data entry
   - typing
   - form filling
@@ -128,13 +126,6 @@ exclusions:
   - earn from home
   - work from home typing
   - part time
-  - urgent hiring
-  - urgent requirement
-  - bulk hiring
-  - limited seats
-  - registration
-  - registration fee
-  - paid training
   - house keeping
   - civil
   - mechanical
@@ -147,15 +138,32 @@ exclusions:
   - nurse
   - teacher
   - faculty
-  - management
   - leading client
+  - germany jobs
+  - overseas jobs
+  - abroad jobs
+  - immigration
+  - visa assistance
+  - career guidance
+  - job guidance
+  - spot offer
+  - test automation
+  - qa
+  - manual tester
+  - software tester
+  - automation tester
+  - tester
+  - data analyst
+  - data engineer
+  - business analyst
+  - support engineer
 logging:
   level: INFO
   log_dir: data/logs
   log_to_file: true
 naukri:
-  email: ""
-  password: ""
+  email: testpushpak@test.com
+  password: Test@123456
 profile:
   current_ctc: 4.5 LPA
   current_location: Pune
@@ -170,18 +178,9 @@ search:
   enable_heuristics: true
   experience_max: 2
   experience_min: 0
-  freshness: 7
+  freshness: 3
   keywords:
   - Full Stack Developer
-  - Java Developer
-  - Associate Software Engineer
-  - Junior Software Engineer
-  - Backend Developer
-  - Software Engineer
-  - Software Developer
-  - Associate Software Developer
-  - Junior Software Developer
-  - Application Developer
   locations:
   - Pune
   - Mumbai
@@ -190,27 +189,3 @@ search:
   max_pages: 10
   salary_min: 5
   sort_by: relevance
-title_whitelist:
-- software engineer
-- software developer
-- java developer
-- backend developer
-- full stack developer
-- associate software engineer
-- associate software developer
-- junior software engineer
-- junior software developer
-- software engineer trainee
-- trainee software engineer
-- graduate software engineer
-- graduate software developer
-- graduate engineer trainee
-- engineer trainee
-- software development engineer
-- sde
-- sde 1
-- application developer
-- associate engineer
-- systems engineer
-- java software engineer
-- java backend developer

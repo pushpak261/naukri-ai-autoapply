@@ -81,5 +81,6 @@ class ResumeProfile:
     certifications: list[str] = field(default_factory=list)
     languages: list[str] = field(default_factory=list)
     key_achievements: list[str] = field(default_factory=list)
+    projects: list[dict[str, Any]] = field(default_factory=list)
     file_hash: str = ""
     raw_text: str = ""

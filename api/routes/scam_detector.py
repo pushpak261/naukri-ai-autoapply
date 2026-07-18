@@ -4,7 +4,7 @@ from sqlalchemy import select
 from api.deps import state
 from src.naukri_agent.models.db_schema import Job as DBJob
 from src.naukri_agent.models.entities import Job as JobEntity
-from src.naukri_agent.models.rules import compute_scam_score
+from src.naukri_agent.fake_job_detection import compute_scam_score
 
 router = APIRouter(tags=["scam-detector"])
 
@@ -56,8 +56,8 @@ async def get_scam_analysis():
 
         risk_distribution = [
             {"name": "Safe (0-29)", "value": safe_count, "color": "#22c55e"},
-            {"name": "Moderate (30-59)", "value": moderate_count, "color": "#eab308"},
-            {"name": "Suspicious (60+)", "value": suspicious_count, "color": "#ef4444"},
+            {"name": "Moderate (30-79)", "value": moderate_count, "color": "#eab308"},
+            {"name": "Suspicious (80+)", "value": suspicious_count, "color": "#ef4444"},
         ]
 
         # Score distribution sorted by score descending

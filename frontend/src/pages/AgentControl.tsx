@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Bot, Play, Square, RotateCcw, RefreshCw, Activity, Clock, Terminal,
   AlertCircle, CheckCircle, XCircle, Search, Download, Trash2, Pause,
-  Wifi, WifiOff, Radio,
+  Wifi, WifiOff, Radio, Globe,
 } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
 import { api, type AgentStatus, type MetricsResponse } from '../lib/api';
@@ -49,6 +49,7 @@ export default function AgentControl() {
   const [logSearch, setLogSearch] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [useSSE, setUseSSE] = useState(true);
+  const [platform, setPlatform] = useState<'naukri' | 'linkedin'>('naukri');
   const outputRef = useRef<HTMLPreElement>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const healthIntervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -87,6 +88,7 @@ export default function AgentControl() {
       const s = await api.agent.status();
       setStatus(s);
       if (s.running && s.uptime_seconds != null) setUptime(s.uptime_seconds);
+      if (s.running && s.platform) setPlatform(s.platform);
       return s;
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -192,7 +194,7 @@ export default function AgentControl() {
     setActionLoading('start');
     setNotification(null);
     try {
-      const result = await api.agent.start();
+      const result = await api.agent.start(platform);
       notify('success', result.message || 'Agent started');
       setOutput('');
       await refreshAll();
@@ -231,7 +233,7 @@ export default function AgentControl() {
         await api.agent.stop();
         await new Promise(r => setTimeout(r, 500));
       }
-      const result = await api.agent.start();
+      const result = await api.agent.start(platform);
       notify('success', result.message || 'Agent restarted');
       setOutput('');
       await refreshAll();
@@ -388,7 +390,32 @@ export default function AgentControl() {
         </div>
 
         <div className="rounded-xl border p-5 lg:col-span-2" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <h2 className="text-sm font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>Actions</h2>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Actions</h2>
+            <div className="flex items-center gap-1 p-0.5 rounded-lg border" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}>
+              <button
+                onClick={() => setPlatform('naukri')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  platform === 'naukri'
+                    ? 'bg-[#38bdf8]/15 text-[#38bdf8]'
+                    : 'text-[#64748b] hover:text-[#94a3b8]'
+                }`}
+              >
+                Naukri
+              </button>
+              <button
+                onClick={() => setPlatform('linkedin')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  platform === 'linkedin'
+                    ? 'bg-[#0077b5]/15 text-[#0077b5]'
+                    : 'text-[#64748b] hover:text-[#94a3b8]'
+                }`}
+              >
+                <Globe className="w-3 h-3" />
+                LinkedIn
+              </button>
+            </div>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <button
               onClick={handleStart}

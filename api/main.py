@@ -25,6 +25,7 @@ from api.routes import (
     data as data_router,
     health as health_router,
     jobs as jobs_router,
+    pipeline as pipeline_router,
     resume as resume_router,
     resume_optimization as resume_optimization_router,
     scam_detector as scam_detector_router,
@@ -44,10 +45,27 @@ from src.naukri_agent.models.db_schema import setup_database_manager
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from sqlalchemy import select
+    from src.naukri_agent.models.db_schema import NaukriAccount
+
     deps.settings = get_settings()
     deps.db_manager = await setup_database_manager(deps.settings.db_path)
     deps.repo = SQLAlchemyRepository(deps.db_manager)
     await deps.repo.initialize()
+
+    # Resolve and set the active account email on startup
+    try:
+        session_factory = await deps.db_manager.get_session_factory()
+        async with session_factory() as session:
+            result = await session.execute(
+                select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
+            )
+            active = result.scalar_one_or_none()
+            if active:
+                deps.active_account_email = active.email
+    except Exception:
+        pass
+
     yield
     _cleanup_agent()
 
@@ -138,6 +156,7 @@ app.include_router(autopilot_router.router)
 app.include_router(market_intel_router.router)
 app.include_router(accounts_router.router)
 app.include_router(webhooks_router.router)
+app.include_router(pipeline_router.router)
 
 
 if __name__ == "__main__":

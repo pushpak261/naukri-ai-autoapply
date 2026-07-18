@@ -5,7 +5,7 @@ import subprocess
 import sys
 import threading
 from datetime import UTC, datetime
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from api.deps import state
 from src.naukri_agent.models.db_schema import NaukriAccount
+import contextlib
 
 router = APIRouter(tags=["agent"])
 
@@ -31,10 +32,8 @@ def _broadcast_line(line: str) -> None:
         if len(state.agent_output_buffer) > 2000:
             state.agent_output_buffer[:1000] = []
         for q in state.agent_sse_clients:
-            try:
+            with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(cleaned)
-            except asyncio.QueueFull:
-                pass
 
 
 def _start_output_reader(process: subprocess.Popen) -> None:
@@ -57,7 +56,7 @@ def _start_output_reader(process: subprocess.Popen) -> None:
 
 
 @router.post("/api/agent/start")
-async def start_agent():
+async def start_agent(platform: str = Query("naukri", max_length=20)):
     if state.agent_process and state.agent_process.poll() is None:
         return {
             "status": "already_running",
@@ -71,7 +70,7 @@ async def start_agent():
             session_factory = await state.db_manager.get_session_factory()
             async with session_factory() as session:
                 result = await session.execute(
-                    select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
+                    select(NaukriAccount).where(NaukriAccount.is_active).limit(1)
                 )
                 active = result.scalar_one_or_none()
                 if active:
@@ -79,7 +78,10 @@ async def start_agent():
         except Exception:
             pass
 
-    cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
+    if platform == "linkedin":
+        cmd = [sys.executable, "-m", "src.linked_agent.main", "run"]
+    else:
+        cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
     env = os.environ.copy()
     if state.active_account_email:
         env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
@@ -94,11 +96,12 @@ async def start_agent():
     except FileNotFoundError:
         raise HTTPException(
             status_code=500, detail=f"Python executable not found: {sys.executable}"
-        )
+        ) from None
     except OSError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to start agent: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to start agent: {e}") from e
 
     state.agent_started_at = datetime.now(UTC)
+    state.agent_platform = platform
     with state.agent_output_lock:
         state.agent_output_buffer.clear()
     _start_output_reader(state.agent_process)
@@ -123,6 +126,7 @@ async def stop_agent():
         state.agent_process.wait()
     state.agent_process = None
     state.agent_started_at = None
+    state.agent_platform = None
     with state.agent_output_lock:
         state.agent_output_buffer.clear()
     return {"status": "stopped", "message": "Agent process terminated"}
@@ -139,12 +143,24 @@ async def agent_status():
     if running and state.agent_started_at:
         uptime_seconds = int((datetime.now(UTC) - state.agent_started_at).total_seconds())
 
+    platform = getattr(state, "agent_platform", None)
+    if running and not platform and state.agent_process:
+        try:
+            args = getattr(state.agent_process, "args", [])
+            platform = "linkedin" if any("linked_agent" in str(arg) for arg in args) else "naukri"
+        except Exception:
+            platform = "naukri"
+
+    if not running:
+        platform = None
+
     return {
         "running": running,
         "pid": state.agent_process.pid if running else None,
         "started_at": state.agent_started_at.isoformat() if state.agent_started_at else None,
         "uptime_seconds": uptime_seconds,
         "last_run": last_run,
+        "platform": platform,
     }
 
 
@@ -184,7 +200,7 @@ async def agent_output_stream(request: Request):
                 try:
                     line = await asyncio.wait_for(queue.get(), timeout=15)
                     yield f"data: {line}\n\n"
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keepalive\n\n"
         finally:
             with state.agent_output_lock:

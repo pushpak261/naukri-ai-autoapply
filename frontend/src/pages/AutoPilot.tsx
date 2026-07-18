@@ -45,18 +45,20 @@ export default function AutoPilot() {
     onError: (err: Error) => setNotification({ type: 'error', message: `Failed to save: ${err.message}` }),
   });
 
-  const blacklistMutation = useMutation({
-    mutationFn: (company: string) => api.autopilot.addToBlacklist(company),
-    onSuccess: () => {
+  const addMutation = useMutation({
+    mutationFn: ({ company, list }: { company: string; list: string }) =>
+      list === 'whitelist' ? api.autopilot.addToWhitelist(company) : api.autopilot.addToBlacklist(company),
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['autopilot', 'config'] });
       setCompanyInput('');
-      setNotification({ type: 'success', message: `Added to ${listType}` });
+      setNotification({ type: 'success', message: `Added to ${variables.list}` });
     },
     onError: (err: Error) => setNotification({ type: 'error', message: err.message }),
   });
 
   const removeMutation = useMutation({
-    mutationFn: (company: string) => api.autopilot.removeFromBlacklist(company),
+    mutationFn: ({ company, list }: { company: string; list: string }) =>
+      list === 'whitelist' ? api.autopilot.removeFromWhitelist(company) : api.autopilot.removeFromBlacklist(company),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['autopilot', 'config'] });
       setNotification({ type: 'info', message: 'Removed from list' });
@@ -340,7 +342,7 @@ export default function AutoPilot() {
               onChange={e => setCompanyInput(e.target.value)}
               onKeyDown={e => {
                 if (e.key === 'Enter' && companyInput.trim()) {
-                  blacklistMutation.mutate(companyInput.trim());
+                  addMutation.mutate({ company: companyInput.trim(), list: listType });
                 }
               }}
               placeholder={`Add company to ${listType}...`}
@@ -349,7 +351,7 @@ export default function AutoPilot() {
               aria-label={`Company name to add to ${listType}`}
             />
             <button
-              onClick={() => companyInput.trim() && blacklistMutation.mutate(companyInput.trim())}
+              onClick={() => companyInput.trim() && addMutation.mutate({ company: companyInput.trim(), list: listType })}
               disabled={!companyInput.trim()}
               className="px-3 py-2 rounded-lg text-sm font-medium bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/30 hover:bg-[#38bdf8]/20 transition-colors disabled:opacity-50"
               aria-label={`Add to ${listType}`}
@@ -362,7 +364,7 @@ export default function AutoPilot() {
               <div key={i} className="flex items-center justify-between p-2 rounded-lg" style={{ backgroundColor: 'var(--color-bg)', border: '1px solid var(--color-border)' }}>
                 <span className="text-sm" style={{ color: 'var(--color-text)' }}>{company}</span>
                 <button
-                  onClick={() => removeMutation.mutate(company)}
+                  onClick={() => removeMutation.mutate({ company, list: listType })}
                   className="p-1 rounded hover:bg-red-500/10 text-[#64748b] hover:text-red-400 transition-colors"
                   aria-label={`Remove ${company}`}
                 >

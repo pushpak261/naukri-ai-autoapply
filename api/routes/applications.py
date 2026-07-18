@@ -18,6 +18,7 @@ async def get_applications(
     per_page: int = Query(20, ge=1, le=100),
     status: str = Query("", max_length=50),
     sort: str = Query("newest", max_length=20),
+    source: str = Query("", max_length=20),
 ):
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Pragma"] = "no-cache"
@@ -40,6 +41,10 @@ async def get_applications(
             query = query.where(DBApplication.status == status)
             count_query = count_query.where(DBApplication.status == status)
 
+        if source:
+            query = query.where(DBApplication.source == source)
+            count_query = count_query.where(DBApplication.source == source)
+
         total = (await session.execute(count_query)).scalar_one()
         offset = (page - 1) * per_page
         result = await session.execute(query.offset(offset).limit(per_page))
@@ -59,6 +64,7 @@ async def get_applications(
                     "url": job.url if job else "",
                     "match_score": app.match_score,
                     "status": app.status,
+                    "source": getattr(app, "source", "naukri"),
                     "match_reasoning": app.match_reasoning,
                     "matching_skills": app.matching_skills,
                     "missing_skills": app.missing_skills,

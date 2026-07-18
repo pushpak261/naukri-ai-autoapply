@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Briefcase, FileCheck, History, Settings, User,
   BarChart3, Radar, ShieldAlert, Bot, Database, FileText, HardDrive, Activity,
   Sun, Moon, Zap, GitBranch, LineChart, Download, LogOut, LogIn,
-  Users, Webhook,
+  Users, Webhook, Globe, Trash2, Layers,
 } from 'lucide-react';
 import { useTheme } from '../lib/ThemeContext';
 import { useAuth } from '../lib/AuthContext';
@@ -15,8 +15,10 @@ const navItems = [
   { to: '/skills-gap', icon: Radar, label: 'Skills Gap' },
   { to: '/autopilot', icon: Zap, label: 'Auto-Pilot' },
   { to: '/pipeline-debugger', icon: GitBranch, label: 'Pipeline' },
+  { to: '/pipeline-jobs', icon: Layers, label: 'Pipeline Jobs' },
   { to: '/scam-detector', icon: ShieldAlert, label: 'Scam Detector' },
   { to: '/agent-control', icon: Bot, label: 'Agent Control' },
+  { to: '/linkedin', icon: Globe, label: 'LinkedIn' },
   { to: '/jobs', icon: Briefcase, label: 'Jobs' },
   { to: '/applications', icon: FileCheck, label: 'Applications' },
   { to: '/run-logs', icon: History, label: 'Run Logs' },
@@ -27,6 +29,7 @@ const navItems = [
   { to: '/resume', icon: User, label: 'Resume' },
   { to: '/accounts', icon: Users, label: 'Accounts' },
   { to: '/webhooks', icon: Webhook, label: 'Webhooks' },
+  { to: '/clear-data', icon: Trash2, label: 'Clear Data' },
 ];
 
 export default function Layout() {

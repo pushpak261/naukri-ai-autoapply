@@ -230,3 +230,165 @@ async def update_config(update: ConfigUpdate):
     api.deps.state.settings = get_settings()
 
     return {"status": "ok", "message": "Configuration updated"}
+
+
+# ---------------------------------------------------------------------------
+# LinkedIn Config Endpoints
+# ---------------------------------------------------------------------------
+LINKEDIN_CONFIG_PATH = None  # resolved at runtime
+
+
+def _get_linkedin_config_path():
+    global LINKEDIN_CONFIG_PATH
+    if LINKEDIN_CONFIG_PATH is None:
+        from pathlib import Path
+        LINKEDIN_CONFIG_PATH = state.settings.project_root / "linkedin_config.yaml"
+    return LINKEDIN_CONFIG_PATH
+
+
+@router.get("/api/config/linkedin")
+async def get_linkedin_config():
+    """Read the LinkedIn agent configuration."""
+    import os
+    from pathlib import Path
+
+    config_path = _get_linkedin_config_path()
+    config_data = {}
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as f:
+            config_data = yaml.safe_load(f) or {}
+
+    # Check .env for credentials
+    env_email = os.environ.get("LINKEDIN_EMAIL", "")
+    env_password = os.environ.get("LINKEDIN_PASSWORD", "")
+
+    linkedin = config_data.get("linkedin", {})
+    ai = config_data.get("ai", {})
+    resume = config_data.get("resume", {})
+    search = config_data.get("search", {})
+    application = config_data.get("application", {})
+
+    return {
+        "configured": bool(linkedin.get("email") or env_email),
+        "email": (linkedin.get("email") or env_email)[:3] + "..." if (linkedin.get("email") or env_email) else "",
+        "has_password": bool(linkedin.get("password") or env_password),
+        "two_factor_code": bool(linkedin.get("two_factor_code")),
+        "ai": {
+            "use_gemini": ai.get("use_gemini", False),
+            "has_api_key": bool(ai.get("gemini_api_key")),
+            "model": ai.get("model", "gemini-2.5-flash"),
+            "enable_matching": ai.get("enable_matching", True),
+        },
+        "resume": {
+            "path": resume.get("path", ""),
+            "exists": bool((state.settings.project_root / resume.get("path", "")).exists()) if resume.get("path") else False,
+        },
+        "search": {
+            "keywords": search.get("keywords", []),
+            "locations": search.get("locations", []),
+            "work_type": search.get("work_type", ""),
+            "freshness": search.get("freshness", "past_week"),
+            "max_pages": search.get("max_pages", 3),
+            "sort_by": search.get("sort_by", "relevance"),
+        },
+        "application": {
+            "daily_cap": application.get("daily_cap", 50),
+            "match_score_threshold": application.get("match_score_threshold", 70),
+            "easy_apply_only": application.get("easy_apply_only", False),
+            "dry_run": application.get("dry_run", False),
+        },
+    }
+
+
+class LinkedInConfigUpdate(BaseModel):
+    linkedin_email: str | None = None
+    linkedin_password: str | None = None
+    linkedin_2fa_code: str | None = None
+    search_keywords: list[str] | None = None
+    search_locations: list[str] | None = None
+    work_type: str | None = None
+    freshness: str | None = None
+    max_pages: int | None = None
+    sort_by: str | None = None
+    daily_cap: int | None = None
+    match_score_threshold: int | None = None
+    easy_apply_only: bool | None = None
+    dry_run: bool | None = None
+    resume_path: str | None = None
+
+
+@router.put("/api/config/linkedin")
+async def update_linkedin_config(update: LinkedInConfigUpdate):
+    """Update the LinkedIn agent configuration (linkedin_config.yaml + .env)."""
+    from pathlib import Path
+
+    config_path = _get_linkedin_config_path()
+    config_data = {}
+    if config_path.exists():
+        with open(config_path, encoding="utf-8") as f:
+            config_data = yaml.safe_load(f) or {}
+
+    # Ensure sections exist
+    config_data.setdefault("linkedin", {})
+    config_data.setdefault("ai", {})
+    config_data.setdefault("resume", {})
+    config_data.setdefault("search", {})
+    config_data.setdefault("application", {})
+
+    # Credentials go to .env (more secure)
+    env_path = state.settings.project_root / ".env"
+    env_lines = []
+    if env_path.exists():
+        env_lines = env_path.read_text(encoding="utf-8").splitlines()
+
+    def _set_env(key: str, value: str) -> None:
+        nonlocal env_lines
+        found = False
+        for i, line in enumerate(env_lines):
+            if line.startswith(f"{key}="):
+                env_lines[i] = f"{key}={value}"
+                found = True
+                break
+        if not found:
+            env_lines.append(f"{key}={value}")
+
+    if update.linkedin_email is not None:
+        _set_env("LINKEDIN_EMAIL", update.linkedin_email)
+        config_data["linkedin"]["email"] = update.linkedin_email
+    if update.linkedin_password is not None:
+        _set_env("LINKEDIN_PASSWORD", update.linkedin_password)
+        config_data["linkedin"]["password"] = update.linkedin_password
+    if update.linkedin_2fa_code is not None:
+        config_data["linkedin"]["two_factor_code"] = update.linkedin_2fa_code
+
+    if update.search_keywords is not None:
+        config_data["search"]["keywords"] = update.search_keywords
+    if update.search_locations is not None:
+        config_data["search"]["locations"] = update.search_locations
+    if update.work_type is not None:
+        config_data["search"]["work_type"] = update.work_type
+    if update.freshness is not None:
+        config_data["search"]["freshness"] = update.freshness
+    if update.max_pages is not None:
+        config_data["search"]["max_pages"] = update.max_pages
+    if update.sort_by is not None:
+        config_data["search"]["sort_by"] = update.sort_by
+    if update.daily_cap is not None:
+        config_data["application"]["daily_cap"] = update.daily_cap
+    if update.match_score_threshold is not None:
+        config_data["application"]["match_score_threshold"] = update.match_score_threshold
+    if update.easy_apply_only is not None:
+        config_data["application"]["easy_apply_only"] = update.easy_apply_only
+    if update.dry_run is not None:
+        config_data["application"]["dry_run"] = update.dry_run
+    if update.resume_path is not None:
+        config_data["resume"]["path"] = update.resume_path
+
+    # Write .env
+    env_path.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+
+    # Write linkedin_config.yaml
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+
+    return {"status": "ok", "message": "LinkedIn configuration updated"}

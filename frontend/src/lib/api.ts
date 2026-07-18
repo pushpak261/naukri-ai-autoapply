@@ -215,6 +215,7 @@ export interface JobItem {
   posted_date: string;
   openings: number;
   has_company_logo: boolean;
+  source: string;
   scraped_at: string;
   application_status: string | null;
   match_score: number | null;
@@ -242,6 +243,7 @@ export interface ApplicationItem {
   url: string;
   match_score: number;
   status: string;
+  source: string;
   match_reasoning: string;
   matching_skills: string;
   missing_skills: string;
@@ -313,6 +315,7 @@ export interface AgentStatus {
   started_at: string | null;
   uptime_seconds: number | null;
   last_run: RunLog | null;
+  platform?: 'naukri' | 'linkedin' | null;
 }
 
 export interface MatchCacheEntry {
@@ -503,11 +506,11 @@ export const api = {
   },
   health: () => fetchJSON<{ status: string }>('/health'),
   stats: (days = 7) => fetchJSON<StatsResponse>(`/stats?days=${days}`),
-  jobs: (page = 1, perPage = 20, search = '', status = '', sort = 'newest', matchScoreMin = 0, matchScoreMax = 100) =>
-    fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}`),
+  jobs: (page = 1, perPage = 20, search = '', status = '', sort = 'newest', matchScoreMin = 0, matchScoreMax = 100, source = '') =>
+    fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}&source=${encodeURIComponent(source)}`),
   job: (id: number) => fetchJSON<JobDetail>(`/jobs/${id}`),
-  applications: (page = 1, perPage = 20, status = '', sort = 'newest') =>
-    fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}&_t=${Date.now()}`),
+  applications: (page = 1, perPage = 20, status = '', sort = 'newest', source = '') =>
+    fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}&source=${encodeURIComponent(source)}&_t=${Date.now()}`),
   runLogs: (limit = 20) => fetchJSON<{ items: RunLog[] }>(`/run-logs?limit=${limit}`),
   runJobs: (runId: number) => fetchJSON<{ items: ApplicationItem[]; run: RunLog }>(`/run-logs/${runId}/jobs`),
   config: () => fetchJSON<ConfigResponse>('/config'),
@@ -535,7 +538,8 @@ export const api = {
   },
 
   agent: {
-    start: () => fetchJSON<{ status: string; message: string; pid?: number; command?: string }>('/agent/start', { method: 'POST' }),
+    start: (platform: 'naukri' | 'linkedin' = 'naukri') =>
+      fetchJSON<{ status: string; message: string; pid?: number; command?: string }>(`/agent/start?platform=${platform}`, { method: 'POST' }),
     stop: () => fetchJSON<{ status: string; message: string }>('/agent/stop', { method: 'POST' }),
     status: () => fetchJSON<AgentStatus>('/agent/status'),
     output: (lines = 50) => fetchText(`/agent/output?lines=${lines}`),
@@ -560,13 +564,11 @@ export const api = {
     clear: () => fetchJSON<{ status: string; message: string }>('/session', { method: 'DELETE' }),
   },
 
-  backups: {
-    list: () => fetchJSON<{ items: BackupItem[] }>('/backups'),
-    create: () => fetchJSON<{ status: string; message: string }>('/backups/create', { method: 'POST' }),
-  },
-
   scamAnalysis: () => fetchJSON<ScamAnalysisResponse>('/scam-detector/analysis'),
   resumeOptimization: () => fetchJSON<ResumeOptimizationResponse>('/resume-optimization/analysis'),
+
+  pipelineJobs: (source = '') =>
+    fetchJSON<PipelineJobsResponse>(`/pipeline/jobs?source=${encodeURIComponent(source)}`),
 
   // ---- New feature endpoints ----
 
@@ -641,6 +643,13 @@ export const api = {
   importFull: (data: Record<string, unknown>) =>
     fetchJSON<{ status: string; message: string; counts: Record<string, number> }>('/import/full', { method: 'POST', body: JSON.stringify(data) }),
 
+  // ---- LinkedIn Config ----
+  linkedinConfig: {
+    get: () => fetchJSON<LinkedInConfig>('/config/linkedin'),
+    update: (data: Record<string, unknown>) =>
+      fetchJSON<{ status: string; message: string }>('/config/linkedin', { method: 'PUT', body: JSON.stringify(data) }),
+  },
+
   // ---- Sessions (Feature 2) ----
   sessions: {
     list: () => fetchJSON<{ items: SessionFileItem[] }>('/sessions/list'),
@@ -655,6 +664,10 @@ export const api = {
     restore: (name: string) =>
       fetchJSON<{ status: string; message: string }>(`/backups/restore?name=${encodeURIComponent(name)}`, { method: 'POST' }),
   },
+
+  // ---- Clear All Data ----
+  clearAll: () =>
+    fetchJSON<{ status: string; message: string; details: string[] }>('/data/clear-all', { method: 'DELETE' }),
 };
 
 // New types for the features above
@@ -693,4 +706,67 @@ export interface SessionFileItem {
   file: string;
   size: number;
   modified: string;
+}
+
+export interface PipelineStage {
+  id: string;
+  label: string;
+  description: string;
+  count: number;
+  jobs: PipelineJobItem[];
+}
+
+export interface PipelineJobItem {
+  id: number;
+  naukri_job_id: string;
+  title: string;
+  company: string;
+  location: string;
+  experience: string;
+  salary: string;
+  skills: string;
+  url: string;
+  posted_date: string;
+  openings: number;
+  has_company_logo: boolean;
+  source: string;
+  scraped_at: string;
+  stage: string;
+  filter_reason: string | null;
+}
+
+export interface PipelineJobsResponse {
+  stages: PipelineStage[];
+  summary: Record<string, number>;
+}
+
+export interface LinkedInConfig {
+  configured: boolean;
+  email: string;
+  has_password: boolean;
+  two_factor_code: boolean;
+  ai: {
+    use_gemini: boolean;
+    has_api_key: boolean;
+    model: string;
+    enable_matching: boolean;
+  };
+  resume: {
+    path: string;
+    exists: boolean;
+  };
+  search: {
+    keywords: string[];
+    locations: string[];
+    work_type: string;
+    freshness: string;
+    max_pages: number;
+    sort_by: string;
+  };
+  application: {
+    daily_cap: number;
+    match_score_threshold: number;
+    easy_apply_only: boolean;
+    dry_run: boolean;
+  };
 }

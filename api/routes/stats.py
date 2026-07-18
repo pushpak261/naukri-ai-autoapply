@@ -11,7 +11,7 @@ router = APIRouter(tags=["stats"])
 
 
 @router.get("/api/stats")
-async def get_stats(days: int = Query(7, ge=1, le=365)):
+async def get_stats(days: int = Query(7, ge=1, le=365), source: str = Query("", max_length=20)):
     s = state.settings
     r = state.repo
     stats = await r.get_application_stats(days=days)
@@ -26,28 +26,28 @@ async def get_stats(days: int = Query(7, ge=1, le=365)):
     # can be stale if runs are interrupted or in-progress.
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
-        total_applied = (
-            await session.execute(
-                select(func.count(DBApplication.id)).where(
-                    DBApplication.status == "applied"
-                )
-            )
-        ).scalar_one() or 0
-        total_skipped = (
-            await session.execute(
-                select(func.count(DBApplication.id)).where(
-                    DBApplication.status.startswith("skipped")
-                )
-            )
-        ).scalar_one() or 0
-        total_failed = (
-            await session.execute(
-                select(func.count(DBApplication.id)).where(
-                    DBApplication.status.notin_(["applied"]),
-                    ~DBApplication.status.startswith("skipped"),
-                )
-            )
-        ).scalar_one() or 0
+        base_filters = []
+        if source:
+            base_filters.append(DBApplication.source == source)
+
+        applied_q = select(func.count(DBApplication.id)).where(
+            DBApplication.status == "applied"
+        )
+        skipped_q = select(func.count(DBApplication.id)).where(
+            DBApplication.status.startswith("skipped")
+        )
+        failed_q = select(func.count(DBApplication.id)).where(
+            DBApplication.status.notin_(["applied"]),
+            ~DBApplication.status.startswith("skipped"),
+        )
+        if source:
+            applied_q = applied_q.where(DBApplication.source == source)
+            skipped_q = skipped_q.where(DBApplication.source == source)
+            failed_q = failed_q.where(DBApplication.source == source)
+
+        total_applied = (await session.execute(applied_q)).scalar_one() or 0
+        total_skipped = (await session.execute(skipped_q)).scalar_one() or 0
+        total_failed = (await session.execute(failed_q)).scalar_one() or 0
 
     return {
         "stats": stats,

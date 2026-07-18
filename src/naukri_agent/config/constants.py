@@ -133,15 +133,15 @@ class JobDetailSelectors:
     COMPANY_NAME = '[class*="jd-header-comp-name"], [class*="company-name"] a'
     JOB_DESCRIPTION = '[class*="job-desc"], [class*="dang-inner-html"]'
     KEY_SKILLS = '[class*="key-skill"] a, [class*="chip-body"]'
-    EXPERIENCE_DETAIL = '[class*="exp"] [class*="details"]'
-    SALARY_DETAIL = '[class*="sal"] [class*="details"]'
-    LOCATION_DETAIL = '[class*="loc"] [class*="details"]'
+    EXPERIENCE_DETAIL = '[class*="exp"],[class*="experience" i] [class*="details"]'
+    SALARY_DETAIL = '[class*="sal"],[class*="salary" i] [class*="details"]'
+    LOCATION_DETAIL = '[class*="loc"],[class*="location" i] [class*="details"]'
     COMPANY_LOGO_IMG = '[class*="jd-header-comp-logo"] img, [class*="company-logo"] img'
 
     # Apply buttons
-    APPLY_BUTTON = '//button[contains(., "Apply") and not(contains(., "Applied"))]'
-    ALREADY_APPLIED = '//*[contains(., "Already Applied") or contains(., "already applied") or normalize-space(.)="Applied" or normalize-space(.)="applied"]'
-    EXTERNAL_APPLY = '//*[contains(., "Apply on company") or contains(., "apply on company")]'
+    APPLY_BUTTON = '//button[contains(translate(., "APPLY", "apply"), "apply") and not(contains(translate(., "APPLIED", "applied"), "applied")) and not(contains(translate(., "APPLICATION", "application"), "application"))]'
+    ALREADY_APPLIED = '//*[contains(translate(., "ALREADY APPLIED", "already applied"), "already applied") or normalize-space(.)="Applied" or normalize-space(.)="applied"]'
+    EXTERNAL_APPLY = '//*[contains(translate(., "COMPANY", "company"), "apply on company")]'
 
     # Chatbot / overlay
     CHATBOT_CLOSE = '//button[contains(@class, "chatbot-close") or @aria-label="Close"]'
@@ -162,12 +162,12 @@ class ApplyFlowSelectors:
     CHECKBOX = 'input[type="checkbox"]'
 
     # Submit / Next buttons in the apply flow
-    SUBMIT_BUTTON = '//button[contains(text(), "Submit") or contains(text(), "Apply") or contains(text(), "Save")]'
+    SUBMIT_BUTTON = '//button[contains(text(), "Submit") or contains(text(), "Apply") or (contains(text(), "Save") and not(contains(text(), "Draft")) and not(contains(text(), "Photo")))]'
     NEXT_BUTTON = '//button[contains(text(), "Next") or contains(text(), "Continue")]'
     SKIP_BUTTON = '//button[contains(text(), "Skip")]'
 
     # Success indicators
-    APPLICATION_SUCCESS = '//*[contains(., "applied successfully") or contains(., "Application Submitted") or contains(., "application submitted") or contains(., "successfully applied")]'
+    APPLICATION_SUCCESS = '//*[contains(translate(., "APPLIED SUCCESSFULLY", "applied successfully"), "applied successfully") or contains(translate(., "SUBMITTED", "submitted"), "submitted") and contains(translate(., "APPLICATION", "application"), "application") or contains(translate(., "SUCCESSFULLY APPLIED", "successfully applied"), "successfully applied")]'
 
     # Resume upload
     RESUME_UPLOAD = 'input[type="file"]'
@@ -178,9 +178,9 @@ class ApplyFlowSelectors:
     SCREENING_FALLBACK = '[class*="screening"]'
     GENERIC_SUBMIT = '//button[contains(., "Submit")]'
     GENERIC_APPLY = '//button[contains(., "Apply")]'
-    GENERIC_SUBMIT_TYPE = 'button[type="submit"]'
+    GENERIC_SUBMIT_TYPE = 'form[class*="apply"] button[type="submit"], form[class*="screening"] button[type="submit"], [class*="apply-modal"] button[type="submit"]'
     SUCCESS_SUBMITTED = '//*[contains(., "submitted")]'
-    SUCCESS_RECEIVED = '//*[contains(., "received your application")]'
+    SUCCESS_RECEIVED = '//*[contains(translate(., "RECEIVED YOUR APPLICATION", "received your application"), "received your application")]'
 
 
 class ProfileSelectors:

@@ -55,6 +55,8 @@ class JobSearcher:
 
         Iterates through each keyword × location combination and collects
         job listings up to the configured max_pages per search.
+        Stops early once enough jobs are collected (2x daily_cap)
+        to avoid excessive search time before applying.
 
         Returns:
             List of job domain entities.
@@ -62,6 +64,8 @@ class JobSearcher:
         all_jobs: dict[str, Job] = {}
 
         search_config = self._settings.search
+        daily_cap = self._settings.application.daily_cap
+        stop_at = max(daily_cap * 2, 50)
 
         import asyncio
 
@@ -73,6 +77,14 @@ class JobSearcher:
 
         while not queue.empty():
             keyword, location = await queue.get()
+
+            if len(all_jobs) >= stop_at:
+                log_info(
+                    f"Collected {len(all_jobs)} jobs (target: {stop_at}). "
+                    f"Skipping remaining searches to start applying sooner."
+                )
+                queue.task_done()
+                continue
 
             if not self._engine.is_alive():
                 log_warning("Browser disconnected! Restarting browser engine...")
@@ -102,19 +114,26 @@ class JobSearcher:
 
             queue.task_done()
 
+            if len(all_jobs) >= stop_at:
+                log_info(
+                    f"Collected {len(all_jobs)} jobs (target: {stop_at}). "
+                    f"Skipping remaining keyword/location combinations."
+                )
+                continue
+
             # Delay between searches if more tasks remain
             if not queue.empty():
                 await random_delay(3, 6)
 
         logger.info(
-            f"Final scraped jobs dictionary:\n"
+            "Final scraped jobs dictionary:\n"
             + "\n".join(
                 f"  - '{job_id}': {j.title} @ {j.company}" for job_id, j in all_jobs.items()
             )
         )
         jobs_list = list(all_jobs.values())
         logger.info(
-            f"Final scraped jobs list:\n"
+            "Final scraped jobs list:\n"
             + "\n".join(f"  - {j.title} @ {j.company} (ID: {j.naukri_job_id})" for j in jobs_list)
         )
         log_success(f"Total unique jobs found: {len(all_jobs)}")

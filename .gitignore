@@ -65,3 +65,17 @@ test_curl.txt
 data/.jwt_secret
 data/dashboard_session.enc
 .opencode/
+
+# Secrets and local configurations
+linkedin_config.yaml
+
+# Local database folders and screenshots
+data/linkedin/
+data/screenshots/
+
+# Temporary / debug scripts and logs
+_check_db.py
+_debug_login.py
+data/_check_db.py
+run_output*.txt
+run_output_final.txt

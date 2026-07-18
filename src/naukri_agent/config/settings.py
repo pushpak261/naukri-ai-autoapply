@@ -31,6 +31,7 @@ class NaukriCredentials(BaseModel):
     gmail_otp_email: str = ""
     gmail_app_password: str = ""
     mobile_number: str = ""
+    name: str = ""
     use_otp_login: bool = False
 
 
@@ -117,13 +118,12 @@ class ProfileSettings(BaseModel):
 class ExclusionSettings(BaseModel):
     """Filters to skip certain jobs."""
 
-    enable_scam_filter: bool = True
+    enable_scam_filter: bool = False
     fake_company_blocklist: list[str] = Field(default_factory=list)
     max_openings_without_logo: int = 50
     companies: list[str] = Field(default_factory=list)
     title_keywords: list[str] = Field(default_factory=list)
     description_keywords: list[str] = Field(default_factory=list)
-    title_whitelist: list[str] = Field(default_factory=list)
 
 
 class LoggingSettings(BaseModel):

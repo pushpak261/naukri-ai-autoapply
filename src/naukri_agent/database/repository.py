@@ -11,7 +11,6 @@ import json
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from src.naukri_agent.database.manager import DatabaseManager
 import functools

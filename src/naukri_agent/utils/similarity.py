@@ -11,6 +11,13 @@ from collections import Counter
 from src.naukri_agent.bot.interfaces import IJobFilter
 
 
+_TECH_NORMALIZE: dict[str, str] = {
+    "c#": "csharp",
+    "c++": "cpp",
+    "f#": "fsharp",
+}
+
+
 class VectorSimilarityFilter(IJobFilter):
     """Pre-filters jobs using vector space mathematics (TF-IDF and Cosine Similarity)."""
 
@@ -39,6 +46,8 @@ class VectorSimilarityFilter(IJobFilter):
         if not text:
             return []
         text = text.lower()
+        for raw, normalized in _TECH_NORMALIZE.items():
+            text = text.replace(raw, normalized)
         # Extract alphanumeric words
         return re.findall(r"\b[a-z0-9]+\b", text)
 

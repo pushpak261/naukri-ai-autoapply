@@ -6,7 +6,6 @@ Supports: application submitted, scam detected, job match found, daily summary.
 from __future__ import annotations
 
 import smtplib
-from datetime import datetime
 from email.message import EmailMessage
 from typing import Any
 

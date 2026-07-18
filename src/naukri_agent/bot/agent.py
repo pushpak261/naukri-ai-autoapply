@@ -42,6 +42,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from src.naukri_agent.utils.similarity import VectorSimilarityFilter
+from src.naukri_agent.fake_job_detection import FakeJobDetectionPipeline
 from src.naukri_agent.browser.apply import JobApplier
 from src.naukri_agent.browser.login import LoginHandler
 from src.naukri_agent.browser.profile import ProfileRefresher
@@ -49,14 +50,6 @@ from src.naukri_agent.browser.search import JobSearcher
 from src.naukri_agent.config.constants import ApplicationStatus
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job, JobApplication, ResumeProfile
-from src.naukri_agent.models.rules import (
-    CompanyExclusionSpecification,
-    ConsultancyScamSpecification,
-    DescriptionExclusionSpecification,
-    JobSpecification,
-    TitleExclusionSpecification,
-    AuthenticityExclusionSpecification,
-)
 from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
 from src.naukri_agent.bot.interfaces import (
     IBrowserEngine,
@@ -211,6 +204,7 @@ class NaukriAgent:
         self._run_log_id: int | None = None
         self._interrupted = False
         self._external_jobs: list[tuple[Job, str | None]] = []
+        self._pipeline: FakeJobDetectionPipeline | None = None
 
         # Counters
         self._jobs_found = 0
@@ -218,9 +212,6 @@ class NaukriAgent:
         self._jobs_skipped = 0
         self._jobs_failed = 0
         self._daily_applied = 0
-
-        # Job Exclusions Specification
-        self._exclusion_spec: JobSpecification | None = None
 
     async def run(self, dry_run: bool = False) -> None:
         """
@@ -283,18 +274,47 @@ class NaukriAgent:
 
             log_success(f"Found {len(jobs)} candidate jobs. Starting evaluation...")
 
-            # Build the composed job exclusion specifications
-            exclusions = self._settings.exclusions
-            self._exclusion_spec = (
-                CompanyExclusionSpecification(exclusions.companies)
-                | TitleExclusionSpecification(exclusions.title_keywords)
-                | DescriptionExclusionSpecification(exclusions.description_keywords)
-                | AuthenticityExclusionSpecification(
-                    exclusions.fake_company_blocklist, exclusions.max_openings_without_logo
+            # Initialize the fake job detection pipeline (Stages 1-5)
+            self._pipeline = FakeJobDetectionPipeline(self._settings.exclusions)
+
+            # Stage 1: Early scam pass — uses only title/company (no description needed)
+            clean_jobs, scam_jobs = self._pipeline.early_scam_filter(jobs)
+            self._jobs_skipped += len(scam_jobs)
+            if scam_jobs:
+                log_warning(
+                    f"Early scam filter removed {len(scam_jobs)}/{len(jobs)} jobs "
+                    f"({len(clean_jobs)} remain for processing)"
                 )
-            )
-            if exclusions.enable_scam_filter:
-                self._exclusion_spec |= ConsultancyScamSpecification()
+                for j in scam_jobs:
+                    log_info(f"  Removed (scam/consultancy): {j.title} @ {j.company}")
+
+                if (
+                    self._settings.application.email_notifications_enabled
+                    and self._settings.application.notify_on_scam
+                ):
+                    from src.naukri_agent.utils.notification import send_notification
+
+                    flagged_list = "\n".join(
+                        f"  - {j.title} @ {j.company}" for j in scam_jobs
+                    )
+                    await send_notification(
+                        self._settings,
+                        "scam.detected",
+                        f"Scam Filter: {len(scam_jobs)} suspicious jobs removed",
+                        f"<p>The following jobs were removed by scam filter:</p><pre>{flagged_list}</pre>",
+                    )
+            else:
+                log_success("Early scam filter passed — no obvious consultancies detected.")
+
+            jobs = clean_jobs
+            log_success(f"{len(jobs)} candidate jobs ready for evaluation.")
+
+            # Stages 2 + 3 + 5: Build composed exclusion specification
+            self._pipeline.build_exclusion_spec()
+            if self._pipeline.is_scam_filter_enabled:
+                log_info("Scam / consultancy filter is ENABLED")
+            else:
+                log_info("Scam / consultancy filter is DISABLED (enable_scam_filter: false)")
 
             # Step 5: Initialize AI components
             matcher = self._job_matcher
@@ -430,21 +450,22 @@ class NaukriAgent:
         resume_profile = self._resume_profile
         job_queue: list[tuple[float, int, Job]] = []
         for idx, job in enumerate(jobs):
-            # Title Whitelist Filter
-            whitelist = self._settings.exclusions.title_whitelist
-            if whitelist and isinstance(whitelist, (list, set, tuple)):
-                title_lower = (job.title or "").lower()
-                if not any(kw.lower() in title_lower for kw in whitelist):
-                    log_info(
-                        f"Skipping job: title '{job.title}' does not match any whitelist keywords"
-                    )
-                    self._jobs_skipped += 1
-                    continue
+            # Compute heuristic score first for dynamic exclusion gating
+            heuristic_score = 0.0
+            if self._settings.search.enable_heuristics:
+                text_to_score = f"{job.title} {job.company} {job.skills}"
+                heuristic_score = vector_filter.get_similarity_score(text_to_score)
+            # Apply exclusion filters at scrape time so only required jobs enter the queue.
+            # Passing heuristic_score makes title keyword exclusion dynamic —
+            # jobs with reasonable similarity to the resume bypass title blocks.
+            if self._pipeline and self._pipeline.is_excluded(job, heuristic_score):
+                log_info(f"Skipping job at scrape time: matches exclusion keywords ({job.title} @ {job.company})")
+                self._jobs_skipped += 1
+                continue
 
             if self._settings.search.enable_heuristics:
                 logger.debug(f"Heuristics ENABLED for job: {job.title} @ {job.company}")
-                text_to_score = f"{job.title} {job.company} {job.skills}"
-                base_score = vector_filter.get_similarity_score(text_to_score)
+                base_score = heuristic_score
                 score = base_score
                 logger.debug(f"  - Base TF-IDF score: {base_score:.3f}")
 
@@ -485,6 +506,16 @@ class NaukriAgent:
                     logger.debug(f"  - Boost (+0.05): Fresh job ({posted})")
 
                 logger.debug(f"  -> Final heuristic score: {score:.3f}")
+
+                # Skip jobs with very low heuristic scores — clearly irrelevant
+                MIN_HEURISTIC_SCORE = 0.08
+                if score < MIN_HEURISTIC_SCORE:
+                    logger.debug(
+                        f"Skipping job: heuristic score {score:.3f} below {MIN_HEURISTIC_SCORE} "
+                        f"({job.title} @ {job.company})"
+                    )
+                    self._jobs_skipped += 1
+                    continue
             else:
                 logger.debug(f"Heuristics DISABLED for job: {job.title}. Defaulting score to 0.0")
                 score = 0.0
@@ -494,7 +525,7 @@ class NaukriAgent:
         # Log the jobs currently in the Priority Queue in sorted order
         sorted_queue = sorted(job_queue)
         logger.info(
-            f"Jobs in Priority Queue (ordered by priority score):\n"
+            "Jobs in Priority Queue (ordered by priority score):\n"
             + "\n".join(
                 f"  - Score: {abs(score):.2f} | {job.title} @ {job.company} (ID: {job.naukri_job_id})"
                 for score, idx, job in sorted_queue
@@ -504,11 +535,12 @@ class NaukriAgent:
         total_jobs = len(job_queue)
         self._daily_applied = await self._repo.get_today_application_count() if self._repo else 0
         processed_count = 0
-        passed_scam_filter_jobs: list[Job] = []
 
         while job_queue:
             if self._interrupted:
                 break
+
+            self._daily_applied = await self._repo.get_today_application_count() if self._repo else self._daily_applied
 
             neg_score, idx, job = heapq.heappop(job_queue)
             initial_score = -neg_score
@@ -544,14 +576,11 @@ class NaukriAgent:
                     self._jobs_skipped += 1
                     continue
 
-            # Exclusion filters
-            if self._is_excluded(job):
+            # Exclusion filters (dynamic: passes heuristic_score for title gating)
+            if self._pipeline and self._pipeline.is_excluded(job, initial_score):
                 log_info(f"Skipping job: matches exclusion keywords ({job.title} @ {job.company})")
                 self._jobs_skipped += 1
                 continue
-
-            # Log that this job successfully passed the initial exclusion/scam filter
-            passed_scam_filter_jobs.append(job)
 
             # Check browser status before interacting
             if not self._engine.is_alive():
@@ -580,27 +609,62 @@ class NaukriAgent:
                     raise RuntimeError("BrowserInteractions not configured.")
                 await self._interactions.action_delay()
 
-            # Re-evaluate exclusions now that we have full details
-            if self._is_excluded(job):
+            # Re-check exclusion specs with now-populated description/openings/logo data.
+            # DescriptionExclusionSpecification and AuthenticityExclusionSpecification
+            # check 3 (no logo + high openings) can only fire after the fetch.
+            if self._pipeline and self._pipeline.is_excluded(job, initial_score):
                 log_info(
-                    f"Skipping job: matches exclusion rules after fetching details ({job.title} @ {job.company})"
+                    f"Skipping job: matches exclusion keywords with full data ({job.title} @ {job.company})"
                 )
                 self._jobs_skipped += 1
                 continue
 
-            # Second similarity filter (using description)
-            full_text = f"{job.title} {job.skills} {job.description}"
-            full_sim_score = vector_filter.get_similarity_score(full_text)
-
-            if full_sim_score < 0.04:
+            # Stage 5: Deep scam re-check with full description data.
+            # Uses ConsultancyScamSpecification with SCAM_THRESHOLD (80) and
+            # all 26+ signals including genuine offsets (G2-G4). This catches
+            # borderline cases that passed the lenient Stage 1 early filter.
+            if self._pipeline and self._pipeline.deep_scam_check(job):
                 log_info(
-                    f"Skipping job: similarity score ({full_sim_score:.3f}) below threshold (0.04)"
+                    f"Skipping job: scam/consultancy detected after fetching details ({job.title} @ {job.company})"
+                )
+                self._jobs_skipped += 1
+                if (
+                    self._settings.exclusions.enable_scam_filter
+                    and self._settings.application.email_notifications_enabled
+                    and self._settings.application.notify_on_scam
+                ):
+                    from src.naukri_agent.utils.notification import send_notification
+
+                    await send_notification(
+                        self._settings,
+                        "scam.detected",
+                        f"Scam/consultancy job caught after description fetch: {job.title} @ {job.company}",
+                        f"<p>Job: {job.title} @ {job.company}<br>URL: {job.url}</p>",
+                    )
+                continue
+
+            # Pre-AI role/domain check: block non-development roles before
+            # consuming an AI API call.
+            if self._is_job_in_excluded_domain(job):
+                log_info(
+                    f"Skipping job: non-matching role/stack/domain ({job.title} @ {job.company})"
+                )
+                self._jobs_skipped += 1
+                continue
+
+            # Stage 4: TF-IDF similarity filter (using full description)
+            full_text = f"{job.title} {job.company} {job.skills} {job.description}"
+            sim_passed, full_sim_score = FakeJobDetectionPipeline.check_similarity(full_text, vector_filter)
+
+            if not sim_passed:
+                log_info(
+                    f"Skipping job: similarity score ({full_sim_score:.3f}) below threshold (0.10)"
                 )
                 self._jobs_skipped += 1
                 continue
             else:
                 log_info(
-                    f"Similarity score ({full_sim_score:.3f}) passed pre-filter threshold (0.04)"
+                    f"Similarity score ({full_sim_score:.3f}) passed pre-filter threshold (0.10)"
                 )
 
             # AI Matching (rate-limited by TokenBucketRateLimiter in GeminiProvider)
@@ -639,6 +703,11 @@ class NaukriAgent:
                             raise RuntimeError("LLMProvider not configured.") from e
                         if hasattr(llm_provider, "set_model"):
                             llm_provider.set_model(fallback_model)
+                        else:
+                            log_warning(f"LLM provider does not support set_model — recreating with fallback model '{fallback_model}'")
+                            from src.naukri_agent.ai.factory import create_llm_provider
+                            self._llm = create_llm_provider(self._settings)
+                            llm_provider = self._llm
 
                         # Update settings
                         self._settings.ai.model = fallback_model
@@ -708,6 +777,16 @@ class NaukriAgent:
 
             match_score = match_result.match_score
             should_apply = match_result.should_apply
+
+            # Secondary domain/stack relevance validation: override AI if job
+            # clearly belongs to a non-matching tech stack or domain.
+            if should_apply and self._is_job_in_excluded_domain(job):
+                log_info(
+                    f"Domain/stack override: skipping {job.title} @ {job.company} "
+                    f"(non-matching tech stack or domain)"
+                )
+                should_apply = False
+                match_score = min(match_score, 40.0)
 
             if not should_apply:
                 if self._repo and db_job:
@@ -807,20 +886,85 @@ class NaukriAgent:
                     # Add failed jobs to the email list so the user can manually check/apply
                     self._external_jobs.append((job, None))
 
-        # Log the jobs that successfully passed the initial exclusion and scam filters
-        logger.info(
-            f"Jobs that passed initial exclusion and scam filters:\n"
-            + "\n".join(
-                f"  - {j.title} @ {j.company} (ID: {j.naukri_job_id})"
-                for j in passed_scam_filter_jobs
-            )
-        )
+    @staticmethod
+    def _is_job_in_excluded_domain(job: Job) -> bool:
+        """
+        Secondary override: check if a job belongs to a fundamentally non-matching
+        tech stack, role type, or domain that the AI matcher may have missed.
 
-    def _is_excluded(self, job: Job) -> bool:
-        """Check if a job matches any exclusion specifications."""
-        if not self._exclusion_spec:
+        Blocks jobs where the title explicitly indicates a non-development role
+        (QA/test, support, data-only, design, etc.) or a completely different
+        tech stack. For non-dev titles, also checks domain keywords.
+        """
+        if not job or not job.title:
             return False
-        return self._exclusion_spec.is_satisfied_by(job)
+
+        title_lower = job.title.lower()
+
+        # Non-development role patterns — checked BEFORE dev_keywords so
+        # "Test Automation Engineer" (which contains "engineer") is still blocked.
+        non_dev_roles = [
+            "qa ", "qa engineer", "qa analyst", "qa tester",
+            "test automation", "test engineer", "automation tester",
+            "manual tester", "software tester", "etl tester",
+            "support engineer", "technical support",
+            "data analyst", "data engineer", "data scientist",
+            "business analyst", "business associate",
+            "ui designer", "ux designer", "graphic designer",
+            "web designer", "wordpress",
+            "appium", "selenium",
+            "intern",
+            "associate lead", "project manager",
+        ]
+        if any(role in title_lower for role in non_dev_roles):
+            return True
+
+        # Determine if this is a clear software engineer/developer role
+        dev_keywords = [
+            "developer", "engineer", "full stack", "fullstack", "backend",
+            "frontend", "front end", "back end", "java", "python", "react",
+            "angular", "node", "spring", "dot net", ".net", "c#", "csharp",
+            "software", "application", "web developer", "programmer",
+            "microservices", "api", "tech lead", "technology",
+        ]
+        is_dev_role = any(kw in title_lower for kw in dev_keywords)
+
+        desc_lower = (job.description or "").lower()
+
+        # Non-matching tech stacks — checked against title only
+        non_matching_title_stacks = [
+            "salesforce", "sfdc", "apex",
+            "sap", "sap abap", "sap hana",
+            "oracle erp", "oracle ebs", "oracle fusion",
+            "servicenow", "workday",
+            "machine learning engineer",
+            "ml engineer", "computer vision", "nlp engineer",
+            "devops engineer", "site reliability engineer", "sre",
+            "ios developer", "android developer", "flutter developer",
+            "react native", "mobile developer",
+            "embedded engineer", "firmware", "vlsi", "fpga",
+            "mainframe", "cobol",
+            "shopify developer", "magento",
+            "blockchain", "solidity", "web3",
+        ]
+        if any(stack in title_lower for stack in non_matching_title_stacks):
+            return True
+
+        # For non-dev roles, also check domain keywords in description
+        if not is_dev_role:
+            import re
+            non_matching_domain_patterns = [
+                r"\bbanking\b", r"\bfinance\b", r"\binsurance\b", r"\bhealthcare\b", r"\bpharma\b",
+                r"\bcivil engineer\b", r"\bmechanical engineer\b", r"\belectrical engineer\b",
+                r"\bautomobile\b", r"\bteacher\b", r"\bfaculty\b", r"\blecturer\b", r"\bprofessor\b",
+                r"\bnurse\b", r"\bdoctor\b", r"\bpharmacist\b", r"\bchemist\b",
+                r"\baccountant\b", r"\bchartered accountant\b",
+            ]
+            combined = f"{title_lower} {desc_lower}"
+            if any(re.search(p, combined) for p in non_matching_domain_patterns):
+                return True
+
+        return False
 
     async def _cleanup(self) -> None:
         """Save state, update run log, print summary, and close browser."""

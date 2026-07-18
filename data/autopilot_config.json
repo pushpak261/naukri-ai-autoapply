@@ -23,7 +23,11 @@
       "enabled": true
     }
   ],
-  "company_blacklist": [],
-  "company_whitelist": [],
+  "company_blacklist": [
+    "Acme Corp"
+  ],
+  "company_whitelist": [
+    "TechCorp"
+  ],
   "tier_map": {}
 }

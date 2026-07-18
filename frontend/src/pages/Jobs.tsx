@@ -10,22 +10,23 @@ export default function Jobs() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [sourceFilter, setSourceFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const perPage = 20;
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await api.jobs(page, perPage, search, statusFilter);
+      const data = await api.jobs(page, perPage, search, statusFilter, 'newest', 0, 100, sourceFilter);
       setJobs(data.items);
       setTotal(data.total);
     } finally {
       setLoading(false);
     }
-  }, [page, search, statusFilter]);
+  }, [page, search, statusFilter, sourceFilter]);
 
   useEffect(() => { fetchJobs(); }, [fetchJobs]);
-  useEffect(() => { setPage(1); }, [search, statusFilter]);
+  useEffect(() => { setPage(1); }, [search, statusFilter, sourceFilter]);
 
   const totalPages = Math.ceil(total / perPage);
 
@@ -57,6 +58,15 @@ export default function Jobs() {
           <option value="skipped_low_score">Low Score</option>
           <option value="failed">Failed</option>
         </select>
+        <select
+          value={sourceFilter}
+          onChange={(e) => setSourceFilter(e.target.value)}
+          className="bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8] transition-colors"
+        >
+          <option value="">All Platforms</option>
+          <option value="naukri">Naukri</option>
+          <option value="linkedin">LinkedIn</option>
+        </select>
       </div>
 
       <div className="bg-[#1e293b] rounded-xl border border-[#334155] overflow-hidden">
@@ -81,6 +91,15 @@ export default function Jobs() {
                     </h3>
                     {job.application_status && (
                       <StatusBadge status={job.application_status} />
+                    )}
+                    {job.source && (
+                      <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${
+                        job.source === 'linkedin'
+                          ? 'bg-[#0077b5]/10 text-[#0077b5] border border-[#0077b5]/20'
+                          : 'bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/20'
+                      }`}>
+                        {job.source === 'linkedin' ? 'LinkedIn' : 'Naukri'}
+                      </span>
                     )}
                   </div>
                   <div className="flex items-center gap-3 mt-1.5 text-xs text-[#94a3b8]">

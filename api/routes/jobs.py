@@ -18,6 +18,7 @@ async def get_jobs(
     sort: str = Query("newest", max_length=20),
     match_score_min: float = Query(0, ge=0, le=100),
     match_score_max: float = Query(100, ge=0, le=100),
+    source: str = Query("", max_length=20),
 ):
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
@@ -38,6 +39,8 @@ async def get_jobs(
             query = query.order_by(order_col)
 
         filters = []
+        if source:
+            filters.append(DBJob.source == source)
         if search:
             search_filter = or_(
                 DBJob.title.ilike(f"%{search}%"),
@@ -94,6 +97,7 @@ async def get_jobs(
                     "posted_date": job.posted_date,
                     "openings": job.openings,
                     "has_company_logo": job.has_company_logo,
+                    "source": getattr(job, "source", "naukri"),
                     "scraped_at": job.scraped_at.isoformat() if job.scraped_at else "",
                     "application_status": app.status if app else None,
                     "match_score": app.match_score if app else None,
@@ -131,6 +135,7 @@ async def get_job(job_id: int):
             "posted_date": job.posted_date,
             "openings": job.openings,
             "has_company_logo": job.has_company_logo,
+            "source": getattr(job, "source", "naukri"),
             "scraped_at": job.scraped_at.isoformat() if job.scraped_at else "",
             "application": (
                 {

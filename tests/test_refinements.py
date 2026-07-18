@@ -1,50 +1,12 @@
 """
-Tests for title whitelisting, composite deduplication, and recalibrated heuristics.
+Tests for composite deduplication and recalibrated heuristics.
 """
 
 from __future__ import annotations
 
-import heapq
-from unittest.mock import AsyncMock, MagicMock
-
-import pytest
-
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job, ResumeProfile
-from src.naukri_agent.bot.agent import NaukriAgent
 from src.naukri_agent.utils.similarity import VectorSimilarityFilter
-
-
-def test_title_whitelist_filtering() -> None:
-    """Validate that jobs not matching title whitelist are ignored."""
-    settings = Settings()
-    settings.exclusions.title_whitelist = ["developer", "engineer"]
-
-    jobs = [
-        Job(naukri_job_id="J1", title="Python Developer", company="A", url=""),
-        Job(naukri_job_id="J2", title="Housekeeper Associate", company="B", url=""),
-        Job(naukri_job_id="J3", title="Frontend Engineer", company="C", url=""),
-        Job(naukri_job_id="J4", title="Photographer", company="D", url=""),
-    ]
-
-    vector_filter = VectorSimilarityFilter(["Python"])
-
-    # Simulate the heap building loop
-    job_queue = []
-    for idx, job in enumerate(jobs):
-        if settings.exclusions.title_whitelist:
-            title_lower = (job.title or "").lower()
-            if not any(kw.lower() in title_lower for kw in settings.exclusions.title_whitelist):
-                continue
-        score = vector_filter.get_similarity_score(job.title)
-        heapq.heappush(job_queue, (-score, idx, job))
-
-    queued_jobs = [item[2] for item in job_queue]
-    assert len(queued_jobs) == 2
-    assert any(j.title == "Python Developer" for j in queued_jobs)
-    assert any(j.title == "Frontend Engineer" for j in queued_jobs)
-    assert not any(j.title == "Housekeeper Associate" for j in queued_jobs)
-    assert not any(j.title == "Photographer" for j in queued_jobs)
 
 
 def test_recalibrated_heuristics_boost() -> None:

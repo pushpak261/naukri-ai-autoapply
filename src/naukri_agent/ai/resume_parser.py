@@ -180,6 +180,7 @@ def _map_to_domain_profile(data: dict, file_hash: str, raw_text: str = "") -> Re
         certifications=data.get("certifications", []),
         languages=data.get("languages", []),
         key_achievements=data.get("key_achievements", []),
+        projects=data.get("projects", []),
         file_hash=file_hash,
         raw_text=raw_text or data.get("raw_text", ""),
     )

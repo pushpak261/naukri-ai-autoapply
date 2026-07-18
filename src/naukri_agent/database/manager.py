@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, AsyncEngine
-from sqlalchemy.exc import SQLAlchemyError
 
 from src.naukri_agent.utils.logger import log_error
 
