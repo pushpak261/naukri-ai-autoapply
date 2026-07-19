@@ -22,6 +22,7 @@ import MarketIntelligence from './pages/MarketIntelligence';
 import AutoPilot from './pages/AutoPilot';
 import PipelineDebugger from './pages/PipelineDebugger';
 import PipelineJobs from './pages/PipelineJobs';
+import PipelineDebug from './pages/PipelineDebug';
 import Accounts from './pages/Accounts';
 import WebhookManager from './pages/WebhookManager';
 import LinkedIn from './pages/LinkedIn';
@@ -42,6 +43,7 @@ export default function App() {
             <Route path="/autopilot" element={<AutoPilot />} />
             <Route path="/pipeline-debugger" element={<PipelineDebugger />} />
             <Route path="/pipeline-jobs" element={<PipelineJobs />} />
+            <Route path="/pipeline-debug" element={<PipelineDebug />} />
             <Route path="/scam-detector" element={<ScamDetector />} />
             <Route path="/agent-control" element={<AgentControl />} />
             <Route path="/linkedin" element={<LinkedIn />} />

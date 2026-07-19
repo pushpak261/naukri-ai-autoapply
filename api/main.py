@@ -26,6 +26,7 @@ from api.routes import (
     health as health_router,
     jobs as jobs_router,
     pipeline as pipeline_router,
+    pipeline_debug as pipeline_debug_router,
     resume as resume_router,
     resume_optimization as resume_optimization_router,
     scam_detector as scam_detector_router,
@@ -157,6 +158,7 @@ app.include_router(market_intel_router.router)
 app.include_router(accounts_router.router)
 app.include_router(webhooks_router.router)
 app.include_router(pipeline_router.router)
+app.include_router(pipeline_debug_router.router)
 
 
 if __name__ == "__main__":

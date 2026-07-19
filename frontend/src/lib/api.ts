@@ -569,6 +569,8 @@ export const api = {
 
   pipelineJobs: (source = '') =>
     fetchJSON<PipelineJobsResponse>(`/pipeline/jobs?source=${encodeURIComponent(source)}`),
+  pipelineDebug: (source = '') =>
+    fetchJSON<PipelineDebugResponse>(`/pipeline/debug?source=${encodeURIComponent(source)}`),
 
   // ---- New feature endpoints ----
 
@@ -738,6 +740,39 @@ export interface PipelineJobItem {
 export interface PipelineJobsResponse {
   stages: PipelineStage[];
   summary: Record<string, number>;
+}
+
+// ---- Pipeline Debug types ----
+
+export interface PipelineDebugItem {
+  id: number;
+  title: string;
+  company: string;
+  location: string;
+  experience: string;
+  salary: string;
+  skills: string;
+  url: string;
+  posted_date: string;
+  openings: number;
+  source: string;
+  scraped_at: string;
+  filter_reason: string | null;
+  filter_category: string | null;
+  scam_details: string[] | null;
+}
+
+export interface PipelineDebugResponse {
+  summary: {
+    total_scraped: number;
+    passed_all_filters: number;
+    filtered_out: number;
+  };
+  filter_breakdown: Record<string, number>;
+  filter_labels: Record<string, string>;
+  pre_filter: PipelineDebugItem[];
+  post_filter: PipelineDebugItem[];
+  filtered_out: PipelineDebugItem[];
 }
 
 export interface LinkedInConfig {
