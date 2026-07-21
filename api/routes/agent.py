@@ -180,17 +180,18 @@ async def agent_output(lines: int = 50):
 
 
 @router.get("/api/agent/output/stream")
-async def agent_output_stream(request: Request):
+async def agent_output_stream(request: Request, history: int = 50):
     """SSE endpoint that streams agent output in real-time."""
     queue: asyncio.Queue = asyncio.Queue(maxsize=500)
 
     with state.agent_output_lock:
         state.agent_sse_clients.append(queue)
-        for line in state.agent_output_buffer[-50:]:
-            try:
-                queue.put_nowait(line)
-            except asyncio.QueueFull:
-                break
+        if history > 0:
+            for line in state.agent_output_buffer[-history:]:
+                try:
+                    queue.put_nowait(line)
+                except asyncio.QueueFull:
+                    break
 
     async def event_generator() -> AsyncGenerator[str, None]:
         try:

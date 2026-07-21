@@ -543,7 +543,7 @@ export const api = {
     stop: () => fetchJSON<{ status: string; message: string }>('/agent/stop', { method: 'POST' }),
     status: () => fetchJSON<AgentStatus>('/agent/status'),
     output: (lines = 50) => fetchText(`/agent/output?lines=${lines}`),
-    outputStreamUrl: () => `${SSE_BASE}/agent/output/stream`,
+    outputStreamUrl: (history = 50) => `${SSE_BASE}/agent/output/stream?history=${history}`,
   },
 
   cache: {

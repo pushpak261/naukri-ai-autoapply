@@ -23,6 +23,7 @@ from src.naukri_agent.utils.logger import get_logger, log_info
 
 
 class ScreeningAnswer(BaseModel):
+    id: str | None = None
     question: str
     answer: str
     confidence: str
@@ -33,7 +34,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Question answering prompt
 # ---------------------------------------------------------------------------
-QUESTION_ANSWER_PROMPT = """You are an ultra-precise job application assistant. Your task is to extract exact answers for screening questions based on the candidate's profile. You MUST follow the strict formatting and reasoning rules below.
+QUESTION_ANSWER_PROMPT = """You are an ultra-precise job application assistant. Your task is to analyze the semantic meaning of each screening question and answer it strictly based on the candidate's profile, resume, skills, education, and work experience.
 
 CANDIDATE DETAILS (from resume profile):
 - Full Name: {candidate_name}
@@ -62,30 +63,33 @@ QUESTIONS TO ANSWER:
 {questions_json}
 
 CRITICAL RULES:
-1. MULTIPLE CHOICE ENFORCEMENT: If the question provides options (e.g. checkbox/radio/dropdown), your answer MUST match one of the options EXACTLY. Select the best match from the options list.
-   - For relocation: If asked about relocation or working in Pune/Mumbai/Bangalore, choose "Yes" or equivalent positive option.
-   - For notice period: Choose "Immediate", "0 days", "15 days", or the shortest option available if "Immediate" is not listed.
-   - For CTC: Choose the option closest to the candidate's CTC.
-2. REASONING & INTENT:
-   - Understand the intent of the question. For example, if asked "How many years of experience do you have in Spring Boot?", and the candidate has worked with Spring Boot in 2 jobs (Mastek and VestalCode), they have about 1 year of total experience. Answer "1" or "1 year" (or the option representing 1-2 years).
-   - If asked about a skill the candidate has, answer "Yes" or the appropriate positive option.
-   - If asked about a skill not explicitly listed in the skills list, scan the FULL RESUME TEXT. If it's mentioned or related to their projects, answer "Yes" or matching years of experience.
-   - If asked "Are you comfortable working in Pune?", answer "Yes" (as candidate lives in Pune).
-3. FORMAT COMPLIANCE:
-   - For text fields, write a concise, professional answer (no conversational filler).
-   - For number fields, return only the numeric digits (e.g. "1" instead of "1 year", "440000" instead of "4.4 Lakhs") unless the options dictate otherwise.
-   - For date fields, write in standard YYYY-MM-DD or DD/MM/YYYY format if applicable.
-4. DEFAULTING:
-   - Never leave an answer blank. If you are unsure, choose/write the most reasonable positive option (e.g., "Yes" for consent, relocation, or shift availability; "1" for years of experience; "Immediate" for notice period; expected CTC for CTC questions).
+1. EXACT INTENT & COMPREHENSION:
+   - Carefully analyze each question's specific topic (e.g. experience in HTML/CSS/React/Python/Java, total experience, notice period, CTC, graduation year, relocation, etc.).
+   - Answer the EXACT question being asked. NEVER give random answers, candidate name, or the same answer for different questions!
+   - For skill/technology experience questions (e.g., HTML, CSS, JavaScript, React.js, Python, Java, SQL, AWS):
+     * Check if the candidate has worked with or knows this technology from their skills, work history, or resume text.
+     * Calculate the candidate's actual years of experience with that specific skill based on their career duration or matching work roles (e.g. "1" or "1 year" if candidate has worked 1 year in frontend development using HTML/CSS/React).
+     * If options are provided in the question object, pick the matching option string EXACTLY (e.g., "1 Year", "1-2 Years").
+     * If candidate has no experience in that skill and it is absent from profile/resume, return "0" (or matching option like "0 Years" / "Freshers").
+2. MULTIPLE CHOICE ENFORCEMENT:
+   - If `options` are provided for a question, your answer MUST match one of the option text strings EXACTLY.
+3. GROUNDING & DATA ACCURACY:
+   - Base all answers strictly on the candidate's provided profile, work experience, education, and full resume text.
+   - Do not guess or invent arbitrary false details. If required information is missing, mark confidence as "low".
+4. FORMAT COMPLIANCE:
+   - For text fields: concise, direct answer without conversational prefix.
+   - For number fields: numeric digits only (e.g. "1", "2023", "440000") unless options dictate text.
+5. PRESERVE QUESTION ID:
+   - Include the exact "id" provided in each input question object in your output object.
 
 EXPECTED JSON OUTPUT (Strictly return a JSON array of objects with the exact structure below, no markdown wrappers, no explanation):
 [
     {{
+        "id": "original question id",
         "question": "Original question text",
         "answer": "Exact answer string matching one of the options (if choice field) or a precise string/number (if text/number field)",
         "confidence": "high"
-    }},
-    ...
+    }}
 ]"""
 
 
@@ -103,15 +107,22 @@ DIRECT_ANSWER_PATTERNS = {
     "noticeperiod": "notice_period",
     "serving notice": "notice_period",
     "total experience": "total_experience",
-    "years of experience": "total_experience",
-    "total exp": "total_experience",
-    "work experience": "total_experience",
+    "overall experience": "total_experience",
+    "total work experience": "total_experience",
     "current location": "current_location",
     "current city": "current_location",
     "residence": "current_location",
     "live in": "current_location",
     "relocate": "reloc_consent",
     "willing to relocate": "reloc_consent",
+    "graduation year": "graduation_year",
+    "year of graduation": "graduation_year",
+    "passing year": "graduation_year",
+    "year of passing": "graduation_year",
+    "passing out year": "graduation_year",
+    "degree year": "graduation_year",
+    "education year": "graduation_year",
+    "gender": "gender",
 }
 
 
@@ -156,10 +167,30 @@ class QACache:
             logger.debug(f"Failed to save QA cache: {e}")
 
     def get(self, question_key: str) -> str | None:
+        normalized = _normalize_question_text(question_key)
+        if normalized in self._qa_cache:
+            return self._qa_cache[normalized]
         return self._qa_cache.get(question_key)
 
     def set(self, question_key: str, answer: str) -> None:
-        self._qa_cache[question_key] = answer
+        normalized = _normalize_question_text(question_key)
+        k_lower = (normalized or "").lower().strip()
+        if not k_lower or len(k_lower) < 6:
+            return
+        invalid_patterns = [
+            "userinput", "inputbox", "agent ", "select ", "option ",
+            "question 1", "question 2", "question 3"
+        ]
+        # Also check patterns against the original key (before normalization)
+        orig_lower = (question_key or "").lower().strip()
+        orig_invalid = ["userinput", "inputbox", "agent_", "select_", "option_"]
+        if any(pat in orig_lower for pat in orig_invalid):
+            return
+        if any(pat in k_lower for pat in invalid_patterns):
+            return
+        if not answer or not str(answer).strip():
+            return
+        self._qa_cache[normalized] = answer
 
     def save(self) -> None:
         self._save_cache()
@@ -202,6 +233,9 @@ class QuestionAnswerer(IQuestionAnswerer):
             or resume_profile.current_title
             or "Pune",
             "reloc_consent": "Yes",
+            "graduation_year": "2023",
+            "qualification": "Bachelor of Mechanical Engineering / PG-DAC",
+            "gender": "Male",
         }
 
         # Load local QA cache to save API tokens
@@ -223,6 +257,14 @@ class QuestionAnswerer(IQuestionAnswerer):
         Returns None if no match.
         """
         question_lower = question_text.lower().strip()
+
+        # Safeguard: If question asks about experience/knowledge in a specific skill or technology,
+        # bypass direct answer patterns (which only apply to overall profile attributes like total CTC, notice period).
+        skill_patterns = r"\b(html|css|javascript|js|react|angular|vue|python|java|c#|\.net|cpp|c\+\+|sql|mysql|postgres|mongodb|aws|azure|gcp|docker|kubernetes|git|node|express|django|flask|spring|rest|api|microservices|testing|qa|agile|devops|flutter|dart|android|ios|swift|kotlin|pandas|numpy|ml|ai)\b"
+        has_skill_word = re.search(skill_patterns, question_lower) is not None or re.search(r"\b(in|with|for)\b", question_lower) is not None
+        if has_skill_word and not any(k in question_lower for k in ["total experience", "overall experience", "total work experience", "current ctc", "expected ctc", "notice period"]):
+            return None
+
         config_key = None
         best_pattern = None
 
@@ -384,9 +426,11 @@ class QuestionAnswerer(IQuestionAnswerer):
                 logger.info("Gemini AI is disabled. Skipping complex AI questions.")
                 ai_answers = [
                     {
+                        "id": q.get("id"),
                         "question": q.get("question", ""),
                         "answer": "",
                         "confidence": "low",
+                        "index": q.get("index", 0),
                     }
                     for q in ai_questions
                 ]
@@ -396,18 +440,46 @@ class QuestionAnswerer(IQuestionAnswerer):
                 )
                 ai_answers = [
                     {
+                        "id": q.get("id"),
                         "question": q.get("question", ""),
                         "answer": "",
                         "confidence": "low",
+                        "index": q.get("index", 0),
                     }
                     for q in ai_questions
                 ]
             else:
                 ai_answers = await self._ask_ai(ai_questions, job)
-            # Map original index back to AI answers
-            for ans, orig_q in zip(ai_answers, ai_questions, strict=False):
-                ans["index"] = orig_q.get("index", 0)
-                ans["id"] = orig_q.get("id")
+
+                # Handle missing or low-confidence answers with interactive prompt if stdin is interactive
+                import sys
+                for ans in ai_answers:
+                    orig_q = next(
+                        (
+                            q for q in ai_questions
+                            if (q.get("id") and q.get("id") == ans.get("id"))
+                            or (q.get("question") == ans.get("question"))
+                        ),
+                        None,
+                    )
+                    if ans.get("confidence") == "low" or not (ans.get("answer") or "").strip():
+                        q_text = ans.get("question", "")
+                        q_key = _normalize_question_text(q_text)
+                        if sys.stdin and hasattr(sys.stdin, "isatty") and sys.stdin.isatty():
+                            try:
+                                print(f"\n❓ [User Clarification Required] Missing info for question: '{q_text}'")
+                                if orig_q and orig_q.get("options"):
+                                    opts = ", ".join([o.get("text", "") for o in orig_q["options"]])
+                                    print(f"   Available Options: [{opts}]")
+                                user_ans = input("   Enter answer: ").strip()
+                                if user_ans:
+                                    ans["answer"] = user_ans
+                                    ans["confidence"] = "high"
+                                    self._cache.set(q_key, user_ans)
+                                    self._cache.save()
+                            except Exception as user_e:
+                                logger.debug(f"Interactive user prompt skipped: {user_e}")
+
             answers.extend(ai_answers)
 
         # Sort by original index
@@ -462,21 +534,18 @@ class QuestionAnswerer(IQuestionAnswerer):
         questions_json = json.dumps(
             [
                 {
+                    "id": q.get("id", f"q_{idx}"),
                     "question": q.get("question", ""),
                     "type": q.get("type", "text"),
                     "options": q.get("options", []),
                 }
-                for q in questions
+                for idx, q in enumerate(questions)
             ],
             indent=2,
         )
 
         raw_text_section = ""
-        if (
-            getattr(self._settings.application, "answer_questions_with_pdf", False)
-            and hasattr(self._profile, "raw_text")
-            and self._profile.raw_text
-        ):
+        if hasattr(self._profile, "raw_text") and self._profile.raw_text:
             raw_text_section = (
                 "FULL RESUME TEXT:\n"
                 "The following is the candidate's complete raw resume text. Use this to find precise, highly specific details "
@@ -521,16 +590,104 @@ class QuestionAnswerer(IQuestionAnswerer):
                 response_schema=list[ScreeningAnswer],
             )
 
-            ai_answers = json.loads(response_text)
+            # Strip code fences if present
+            cleaned = response_text.strip()
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```")[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:].lstrip()
 
-            # Save new high-confidence answers to cache
+            try:
+                ai_answers_raw = json.loads(cleaned)
+            except json.JSONDecodeError:
+                logger.warning("JSON parse failed, retrying with correction prompt")
+                correction_prompt = (
+                    f"The previous response was not valid JSON. Return a valid JSON array for these questions:\n\n"
+                    f"{questions_json}\n\n"
+                    f"Return ONLY valid JSON, no markdown wrappers."
+                )
+                response_text = await self._llm.generate_content(
+                    prompt=correction_prompt,
+                    temperature=0.1,
+                    max_output_tokens=2048,
+                    response_mime_type="application/json",
+                    response_schema=list[ScreeningAnswer],
+                )
+                cleaned = response_text.strip()
+                if cleaned.startswith("```"):
+                    cleaned = cleaned.split("```")[1]
+                    if cleaned.startswith("json"):
+                        cleaned = cleaned[4:].lstrip()
+                ai_answers_raw = json.loads(cleaned)
+
+            if not isinstance(ai_answers_raw, list):
+                ai_answers_raw = [ai_answers_raw]
+
+            ans_by_id = {}
+            ans_by_q = {}
+            for item in ai_answers_raw:
+                if isinstance(item, dict):
+                    if item.get("id"):
+                        ans_by_id[item["id"]] = item
+                    if item.get("question"):
+                        ans_by_q[_normalize_question_text(item["question"])] = item
+
+            ai_answers = []
             cache_updated = False
-            for ans in ai_answers:
-                q_text = ans.get("question", "")
-                a_text = ans.get("answer", "")
-                if q_text and a_text and ans.get("confidence") != "low":
-                    self._cache.set(q_text, a_text)
+            for idx, orig_q in enumerate(questions):
+                orig_id = orig_q.get("id")
+                orig_q_text = orig_q.get("question", "")
+                orig_q_key = _normalize_question_text(orig_q_text)
+
+                matched_ans = None
+                if orig_id and orig_id in ans_by_id:
+                    matched_ans = ans_by_id[orig_id]
+                elif orig_q_key and orig_q_key in ans_by_q:
+                    matched_ans = ans_by_q[orig_q_key]
+                elif idx < len(ai_answers_raw) and isinstance(ai_answers_raw[idx], dict):
+                    matched_ans = ai_answers_raw[idx]
+
+                if matched_ans:
+                    a_val = str(matched_ans.get("answer", "")).strip()
+                    conf = matched_ans.get("confidence", "high")
+                else:
+                    a_val = ""
+                    conf = "low"
+
+                # Constrain answer to provided options if this is a choice field
+                orig_options = orig_q.get("options", [])
+                if orig_options and a_val:
+                    opt_texts = [o.get("text", "") for o in orig_options]
+                    if a_val not in opt_texts:
+                        from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
+                        best_opt = None
+                        best_score = 0.0
+                        a_lower = a_val.lower().strip()
+                        for opt in opt_texts:
+                            o_lower = opt.lower().strip()
+                            score = fuzzy_similarity_ratio(a_lower, o_lower)
+                            if score > best_score:
+                                best_score = score
+                                best_opt = opt
+                        if best_opt and best_score >= 0.70:
+                            a_val = best_opt
+                            conf = "high"
+                        else:
+                            conf = "low"
+
+                if orig_q_text and a_val and conf != "low":
+                    self._cache.set(orig_q_text, a_val)
                     cache_updated = True
+
+                ai_answers.append(
+                    {
+                        "id": orig_id,
+                        "question": orig_q_text,
+                        "answer": a_val,
+                        "confidence": conf,
+                        "index": orig_q.get("index", 0),
+                    }
+                )
 
             if cache_updated:
                 self._cache.save()
@@ -545,9 +702,11 @@ class QuestionAnswerer(IQuestionAnswerer):
                 logger.error(f"⚠️  Gemini rate limit hit while answering questions: {e}")
             return [
                 {
+                    "id": q.get("id"),
                     "question": q.get("question", ""),
                     "answer": "",
                     "confidence": "low",
+                    "index": q.get("index", 0),
                 }
                 for q in questions
             ]
@@ -555,9 +714,11 @@ class QuestionAnswerer(IQuestionAnswerer):
             logger.error(str(e))
             return [
                 {
+                    "id": q.get("id"),
                     "question": q.get("question", ""),
                     "answer": "",
                     "confidence": "low",
+                    "index": q.get("index", 0),
                 }
                 for q in questions
             ]
@@ -565,9 +726,12 @@ class QuestionAnswerer(IQuestionAnswerer):
             logger.error(f"AI question answering failed: {e}")
             return [
                 {
+                    "id": q.get("id"),
                     "question": q.get("question", ""),
                     "answer": "",
                     "confidence": "low",
+                    "index": q.get("index", 0),
                 }
                 for q in questions
             ]
+

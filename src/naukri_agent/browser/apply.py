@@ -552,7 +552,16 @@ class JobApplier:
                         (
                             uq
                             for uq in unfilled_questions
-                            if uq.get("question") == q_text or uq.get("id") == q_id
+                            if (q_id and uq.get("id") == q_id)
+                            or (q_text and uq.get("question") == q_text)
+                            or (
+                                q_text
+                                and uq.get("question")
+                                and (
+                                    q_text.lower() in uq.get("question", "").lower()
+                                    or uq.get("question", "").lower() in q_text.lower()
+                                )
+                            )
                         ),
                         None,
                     )

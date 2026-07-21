@@ -252,9 +252,43 @@ class JobDetailPage(BasePage):
 
     async def is_chatbot_flow(self) -> bool:
         """Check if the current apply form is a chatbot interface."""
-        return await self._interactions.element_exists(
-            '[class*="chatbot-container"], [class*="bot-msg"], [class*="chatbot-msg"]'
-        )
+        if await self._interactions.element_exists(
+            '[class*="chatbot-container"], [class*="bot-msg"], [class*="chatbot-msg"], '
+            '[class*="nI-chatbot"], [class*="chatbot_"], [class*="bot-body"], '
+            '[class*="chat-body"], [class*="screening-bot"], [class*="screening_bot"], '
+            '[class*="apply-chat"], [class*="chat-panel"]'
+        ):
+            return True
+        # Fallback: check for chatbot pattern (bot messages + text input + Save button)
+        try:
+            page = self._engine.page
+            return await page.evaluate(
+                r"""() => {
+                    // Look for a panel that has both bot messages and a text input + Save button
+                    const panels = document.querySelectorAll(
+                        '[class*="chat" i], [class*="bot" i], [class*="screening" i], ' +
+                        '[class*="apply" i], [class*="modal" i], [class*="dialog" i]'
+                    );
+                    for (const panel of panels) {
+                        const style = window.getComputedStyle(panel);
+                        if (style.display === 'none' || style.visibility === 'hidden') continue;
+                        const text = panel.innerText || '';
+                        const hasInput = panel.querySelector('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea');
+                        const hasSaveBtn = Array.from(panel.querySelectorAll('button, [role="button"], a')).some(
+                            b => (b.textContent || '').trim().toLowerCase().includes('save')
+                        );
+                        // Bot questions typically contain ? and are conversational
+                        const lines = text.split('\\n').filter(l => l.trim().length > 0);
+                        const questionLines = lines.filter(l => l.includes('?')).length;
+                        if (hasInput && hasSaveBtn && (questionLines >= 1 || text.toLowerCase().includes('question'))) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }"""
+            )
+        except Exception:
+            return False
 
     async def _find_active_form_container(self):
         """Find the active apply/screening form or modal container."""
@@ -414,8 +448,14 @@ class JobDetailPage(BasePage):
                     cleaned = cleaned.replace(/\((required|mandatory|optional|must answer|choose)\)/gi, "");
                     cleaned = cleaned.trim();
 
-                    // === EXCLUDE system/error/success messages posing as questions ===
                     if (!cleaned) return "";
+
+                    // === EXCLUDE raw DOM element IDs or internal attribute strings ===
+                    if (/^(userinput|inputbox|agent_|qsb|select_|option_)/i.test(cleaned) || /__\w+/.test(cleaned)) {
+                        return "";
+                    }
+
+                    // === EXCLUDE system/error/success messages posing as questions ===
                     const lower = cleaned.toLowerCase();
                     const skipPatterns = [
                         'oops', 'not accepted', 'incomplete information',
@@ -433,7 +473,7 @@ class JobDetailPage(BasePage):
                         if (lower.includes(pat)) return "";
                     }
                     // Skip very long text that is likely a description, not a question
-                    if (cleaned.length > 150) return "";
+                    if (cleaned.length > 250) return "";
 
                     return cleaned;
                 }
@@ -507,20 +547,58 @@ class JobDetailPage(BasePage):
                     if (elements.length === 0) return "";
                     const first = elements[0];
 
+                    const isFiller = (t) => {
+                        if (!t) return true;
+                        const l = t.toLowerCase().trim();
+                        if (/^(userinput|inputbox|agent_|qsb|select_|option_)/i.test(l) || /__\w+/.test(l)) return true;
+                        return /type message|type answer|enter answer|type here|enter text|write message|write answer|input message/i.test(l);
+                    };
+
+                    // 0. Chatbot message bubble lookup if inside chatbot/modal/drawer container
+                    const chatbotBox = first.closest ? first.closest('[class*="bot" i], [class*="chat" i], [class*="drawer" i], [class*="dialog" i], [class*="modal" i]') : null;
+                    if (chatbotBox) {
+                        const botBubbles = Array.from(chatbotBox.querySelectorAll(
+                            '[class*="bot-msg" i], [class*="botMsg" i], [class*="recruiter" i], ' +
+                            '[class*="chat-msg" i], [class*="msg" i], [class*="bubble" i], p, span, div'
+                        )).filter(el => {
+                            if (el.contains(first) || !isVisible(el)) return false;
+                            if (el.closest('[class*="user" i], [class*="reply" i], [class*="sent" i], [class*="input" i]')) return false;
+                            const t = (el.innerText || el.textContent || '').trim();
+                            if (!t || isFiller(t) || t.length < 4 || t.length > 250) return false;
+                            if (/save|submit|next|cancel|close|thank you/i.test(t)) return false;
+                            return true;
+                        });
+
+                        const questionBubbles = botBubbles.filter(el => {
+                            const t = (el.innerText || el.textContent || '').trim();
+                            return t.includes('?') || /how many|years|experience|notice|ctc|salary|skill|location|qualification|degree|rate|level|proficiency/i.test(t);
+                        });
+
+                        if (questionBubbles.length > 0) {
+                            const activeQ = questionBubbles[questionBubbles.length - 1];
+                            const txt = (activeQ.innerText || activeQ.textContent || '').trim();
+                            if (txt) return txt;
+                        } else if (botBubbles.length > 0) {
+                            const activeB = botBubbles[botBubbles.length - 1];
+                            const txt = (activeB.innerText || activeB.textContent || '').trim();
+                            if (txt) return txt;
+                        }
+                    }
+
                     // 1. Explicit label[for]
                     if (first.id) {
                         const label = document.querySelector('label[for="' + CSS.escape(first.id) + '"]');
                         if (label && isVisible(label)) {
                             const text = label.innerText.trim();
-                            if (text.length > 2) return text;
+                            if (text.length > 2 && !isFiller(text)) return text;
                         }
                     }
 
                     // 2. Inside label tag
-                    const parentLabel = first.closest('label');
+                    const parentLabel = first.closest ? first.closest('label') : null;
                     if (parentLabel && isVisible(parentLabel)) {
                         const text = parentLabel.innerText.trim();
-                        if (text.length > 2) return text;
+                        if (text.length > 2 && !isFiller(text)) return text;
                     }
 
                     // 3. Shared ancestor
@@ -529,11 +607,11 @@ class JobDetailPage(BasePage):
                         const optionLabelsAndInputs = [];
                         elements.forEach(el => {
                             optionLabelsAndInputs.push(el);
-                            const parentLbl = el.closest('label');
+                            const parentLbl = el.closest ? el.closest('label') : null;
                             if (parentLbl) optionLabelsAndInputs.push(parentLbl);
                         });
                         const ancestorText = getCleanedTextExcluding(ancestor, optionLabelsAndInputs).trim();
-                        if (ancestorText.length > 3) return ancestorText;
+                        if (ancestorText.length > 3 && !isFiller(ancestorText)) return ancestorText;
                     }
 
                     // 4. Preceding sibling text
@@ -541,7 +619,7 @@ class JobDetailPage(BasePage):
                     while (prev) {
                         if (isVisible(prev)) {
                             const text = prev.innerText || prev.textContent || "";
-                            if (text.trim().length > 3) return text.trim();
+                            if (text.trim().length > 3 && !isFiller(text.trim())) return text.trim();
                         }
                         prev = prev.previousElementSibling;
                     }
@@ -553,19 +631,19 @@ class JobDetailPage(BasePage):
                             const heading = walker.querySelector('h1, h2, h3, h4, h5, h6, strong, b, label:not(:has(input)), span:not(:has(input))');
                             if (heading && isVisible(heading)) {
                                 const ht = heading.innerText.trim();
-                                if (ht.length > 3 && ht.length < 200) return ht;
+                                if (ht.length > 3 && ht.length < 200 && !isFiller(ht)) return ht;
                             }
                             walker = walker.parentElement;
                         }
                     }
 
-                    // 6. Attributes
-                    const placeholder = first.getAttribute('placeholder');
-                    if (placeholder && placeholder.length > 2) return placeholder;
-                    const name = first.getAttribute('name');
-                    if (name && name.length > 2) return name;
-                    const ariaLabel = first.getAttribute('aria-label');
-                    if (ariaLabel && ariaLabel.length > 2) return ariaLabel;
+                    // 6. Attributes (skipping filler placeholders)
+                    const placeholder = first.getAttribute ? first.getAttribute('placeholder') : '';
+                    if (placeholder && placeholder.length > 2 && !isFiller(placeholder)) return placeholder;
+                    const name = first.getAttribute ? first.getAttribute('name') : '';
+                    if (name && name.length > 2 && !isFiller(name)) return name;
+                    const ariaLabel = first.getAttribute ? first.getAttribute('aria-label') : '';
+                    if (ariaLabel && ariaLabel.length > 2 && !isFiller(ariaLabel)) return ariaLabel;
 
                     return "";
                 }
@@ -862,12 +940,17 @@ class JobDetailPage(BasePage):
                         group.type = refinedType;
                     }
 
-                    if (!cleanedQuestion && !required) return;
+                    let finalQuestionText = cleanedQuestion;
+                    if (!finalQuestionText) {
+                        const el0 = group.elements[0];
+                        const ph = el0.getAttribute ? (el0.getAttribute('placeholder') || el0.getAttribute('aria-label') || el0.getAttribute('name') || el0.id || '') : '';
+                        finalQuestionText = cleanQuestionText(ph) || ('Question ' + (index + 1));
+                    }
 
                     questions.push({
                         id: fieldId,
-                        question: cleanedQuestion || ('Question ' + (index + 1)),
-                        original_question: rawQuestion,
+                        question: finalQuestionText,
+                        original_question: rawQuestion || finalQuestionText,
                         type: group.type,
                         options: options,
                         required: required,
@@ -1215,21 +1298,26 @@ class JobDetailPage(BasePage):
         self, page, question: dict, answer: str,
         selector: str, stable_selector: str, fingerprint: str
     ) -> bool:
-        """Multi-strategy text/number/date field fill."""
+        """Multi-strategy text/number/date field fill.
+        
+        After successfully filling in a chatbot flow, automatically triggers
+        the Save button so the answer registers and the next question appears.
+        """
         q_text = question.get("question", "")
+        filled = False
 
         # Strategy 1: data-agent-field-id selector
-        if selector:
+        if not filled and selector:
             if await self._fill_single_text_input(page, selector, answer):
-                return True
+                filled = True
 
         # Strategy 2: stable CSS selector
-        if stable_selector:
+        if not filled and stable_selector:
             if await self._fill_single_text_input(page, stable_selector, answer):
-                return True
+                filled = True
 
         # Strategy 3: fingerprint-based re-find
-        if fingerprint:
+        if not filled and fingerprint:
             elem = await page.evaluate_handle(
                 """(fp) => {
                     try {
@@ -1255,16 +1343,16 @@ class JobDetailPage(BasePage):
                 elem = elem.as_element()
                 if elem:
                     if await self._fill_element_text(page, elem, answer):
-                        return True
+                        filled = True
 
         # Strategy 4: Find by label text
-        if q_text:
+        if not filled and q_text:
             elem = await self._find_input_by_label_text(page, q_text)
             if elem and await self._fill_element_text(page, elem, answer):
-                return True
+                filled = True
 
         # Strategy 5: Find by placeholder matching
-        if q_text:
+        if not filled and q_text:
             q_lower = q_text.lower()
             try:
                 inputs = await page.query_selector_all(
@@ -1275,14 +1363,15 @@ class JobDetailPage(BasePage):
                         ph = (await inp.get_attribute("placeholder") or "").lower()
                         if ph and (q_lower in ph or ph in q_lower):
                             if await self._fill_element_text(page, inp, answer):
-                                return True
+                                filled = True
+                                break
                     except Exception:
                         pass
             except Exception:
                 pass
 
         # Strategy 6: JS direct DOM fill on any visible unfilled input
-        if q_text:
+        if not filled and q_text:
             js_result = await page.evaluate(
                 """({ answer }) => {
                     const inputs = document.querySelectorAll(
@@ -1294,7 +1383,6 @@ class JobDetailPage(BasePage):
                         const val = (inp.value || '').trim();
                         if (val === '' || val === 'Select' || val === '--Select--') {
                             inp.focus();
-                            // Use native prototype setter which React-compatible frameworks intercept
                             const nativeSetter = Object.getOwnPropertyDescriptor(
                                 window.HTMLInputElement.prototype, 'value'
                             ).set;
@@ -1312,9 +1400,18 @@ class JobDetailPage(BasePage):
                 {"answer": answer}
             )
             if js_result:
-                return True
+                filled = True
 
-        return False
+        # After successful fill in chatbot flow, trigger Save button so the
+        # answer registers and the next question appears.
+        if filled and await self.is_chatbot_flow():
+            await asyncio.sleep(0.3)
+            try:
+                await self.click_chatbot_save_button()
+            except Exception:
+                pass
+
+        return filled
 
     async def _fill_single_text_input(self, page, selector: str, answer: str) -> bool:
         """Try to fill a single text input using the given selector."""
@@ -1407,6 +1504,10 @@ class JobDetailPage(BasePage):
                         nativeSetter.call(el, val);
                         el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
                         el.dispatchEvent(new Event('change', { bubbles: true }));
+                        try {
+                            el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+                            el.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+                        } catch(e) {}
                         el.blur();
                         el.dispatchEvent(new Event('blur', { bubbles: true }));
                     } else if (el.isContentEditable) {
@@ -1851,7 +1952,6 @@ class JobDetailPage(BasePage):
             """)
         except Exception:
             pass
-
     async def click_chatbot_save_button(self) -> bool:
         """Click the Save button specifically within a chatbot/screening panel.
 
@@ -1864,6 +1964,7 @@ class JobDetailPage(BasePage):
         1. JS container-scoped scan (chatbot → modal → dialog → body)
         2. Playwright locator scoped to chatbot containers
         3. Fallback: page-wide Playwright locator for Save button
+        4. JS fallback page-wide scan
 
         Returns True if a Save button was found and clicked.
         """
@@ -1873,7 +1974,7 @@ class JobDetailPage(BasePage):
             # ── Strategy 1: JS container-scoped scan ──
             # Finds the chatbot/modal container and clicks the best Save button inside it.
             js = r"""() => {
-                const savePatterns = ['save', 'save & next', 'save and next', 'save and continue'];
+                const savePatterns = ['save', 'save & next', 'save and next', 'save and continue', 'save & continue', 'save details', 'save answer', 'save answers', 'submit', 'next', 'continue', 'apply', 'apply now', 'submit application', 'send'];
 
                 // Ordered container selectors: most specific first
                 const containerSelectors = [
@@ -1881,13 +1982,21 @@ class JobDetailPage(BasePage):
                     '[class*="bot-body" i]',
                     '[class*="chat-body" i]',
                     '[class*="chatbot-container" i]',
+                    '[class*="nI-chatbot" i]',
                     '[class*="apply-modal" i]',
                     '[class*="apply-form" i]',
+                    '[class*="apply-dialog" i]',
+                    '[class*="screening_bot" i]',
+                    '[class*="screening-bot" i]',
+                    '[class*="screening" i]',
+                    '[class*="chat-panel" i]',
+                    '[class*="chatbot_" i]',
                     '[class*="modal" i]',
                     '[class*="dialog" i]',
                     '[class*="drawer" i]',
                     '[class*="popup" i]',
-                    '[class*="screening" i]',
+                    '[class*="slider" i]',
+                    '[class*="overlay" i]',
                 ];
 
                 // Find the best container that has a visible Save-like button
@@ -1899,10 +2008,10 @@ class JobDetailPage(BasePage):
                         if (style.display === 'none' || style.visibility === 'hidden') continue;
                         const rect = el.getBoundingClientRect();
                         if (rect.width === 0 || rect.height === 0) continue;
-                        // Check if this container has a Save-like button
+                        // Check if this container has a Save-like button (scan div, span too)
                         const btns = el.querySelectorAll(
                             'button, a, [role="button"], input[type="submit"], input[type="button"], ' +
-                            '[class*="btn" i], [class*="button" i]'
+                            '[class*="btn" i], [class*="button" i], span, div'
                         );
                         for (const btn of btns) {
                             const btnText = (btn.textContent || btn.innerText || btn.value || '').trim().toLowerCase();
@@ -1933,15 +2042,21 @@ class JobDetailPage(BasePage):
                     if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
                     const rect = el.getBoundingClientRect();
                     if (rect.width < 15 || rect.height < 15) continue;
-                    if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
 
                     let score = 0;
+                    if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
+                        score -= 10;
+                    }
                     const tag = el.tagName.toUpperCase();
 
                     // Prefer proper interactive elements
                     if (tag === 'BUTTON') score += 30;
                     else if (tag === 'A' || tag === 'INPUT') score += 20;
                     else score += 5;
+
+                    // Prefer leaf elements (fewer descendants) to get the exact clickable label/button
+                    const descendantCount = el.querySelectorAll('*').length;
+                    score -= descendantCount * 2;
 
                     // Exact text match gets highest priority
                     if (text === 'save') score += 50;
@@ -1958,12 +2073,9 @@ class JobDetailPage(BasePage):
                     }
 
                     // Boost if inside a chatbot/modal container
-                    if (el.closest('[class*="chatbot" i], [class*="bot" i], [class*="chat" i], [class*="modal" i], [class*="dialog" i]')) {
-                        score += 25;
+                    if (el.closest('[class*="chatbot" i], [class*="bot" i], [class*="chat" i], [class*="modal" i], [class*="dialog" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
+                        score += 100;
                     }
-
-                    // Penalize if it has too many children (likely a wrapper, not the actual button)
-                    if (el.querySelectorAll('*').length > 10) score -= 20;
 
                     results.push({ el, score, text });
                 }
@@ -1972,18 +2084,51 @@ class JobDetailPage(BasePage):
                 results.sort((a, b) => b.score - a.score);
                 const best = results[0].el;
                 best.scrollIntoView({ behavior: 'instant', block: 'center' });
-                best.click();
-                // Also dispatch pointer events for React/Angular frameworks
-                best.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-                best.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
-                best.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                best.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                if (best.disabled) best.disabled = false;
+                best.removeAttribute('disabled');
+                best.removeAttribute('aria-disabled');
+                
+                // Assign temporary target attribute for Playwright native click
+                best.setAttribute('data-agent-click-target', 'true');
                 return results[0].text;
             }"""
             try:
                 clicked_text = await page.evaluate(js)
                 if clicked_text:
-                    logger.info(f"Clicked chatbot Save button via JS (attempt {retry + 1}): '{clicked_text}'")
+                    # Click using Playwright's trusted pointer events click
+                    target = page.locator('[data-agent-click-target="true"]').first
+                    clicked_via_playwright = False
+                    if await target.count() > 0:
+                        try:
+                            await target.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.1)
+                            await target.click(timeout=3000)
+                            clicked_via_playwright = True
+                            logger.info(f"Clicked chatbot Save button via Playwright (attempt {retry + 1}): '{clicked_text}'")
+                        except Exception as pe:
+                            logger.debug(f"Playwright native click failed, using JS click fallback: {pe}")
+                    
+                    if not clicked_via_playwright:
+                        await page.evaluate(
+                            r"""() => {
+                                const el = document.querySelector('[data-agent-click-target="true"]');
+                                if (el) {
+                                    el.click();
+                                    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                                    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+                                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                                }
+                            }"""
+                        )
+                        logger.info(f"Clicked chatbot Save button via JS fallback (attempt {retry + 1}): '{clicked_text}'")
+                    
+                    # Clean up the target attribute
+                    try:
+                        await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
+                    except Exception:
+                        pass
+                    
                     await asyncio.sleep(1)
                     return True
             except Exception as e:
@@ -2001,9 +2146,9 @@ class JobDetailPage(BasePage):
                 try:
                     container = page.locator(container_sel).first
                     if await container.count() > 0 and await container.is_visible():
-                        for btn_text in ("Save", "Save & Next", "Save and Next", "Save and Continue"):
+                        for btn_text in ("Save", "Save & Next", "Save and Next", "Save and Continue", "Save & Continue", "Save Details", "Save Answer", "Submit", "Next"):
                             btn = container.locator(
-                                'button, a, [role="button"]'
+                                'button, a, [role="button"], div, span'
                             ).filter(has_text=btn_text).first
                             if (
                                 await btn.count() > 0
@@ -2022,9 +2167,9 @@ class JobDetailPage(BasePage):
                     pass
 
             # ── Strategy 3: Fallback — page-wide Playwright locator ──
-            for btn_text in ("Save", "Save & Next"):
+            for btn_text in ("Save", "Save & Next", "Save and Next", "Save & Continue", "Save Details", "Save Answer"):
                 try:
-                    btn = page.locator('button, [role="button"]').filter(has_text=btn_text).first
+                    btn = page.locator('button, [role="button"], div, span').filter(has_text=btn_text).first
                     if (
                         await btn.count() > 0
                         and await btn.is_visible()
@@ -2038,6 +2183,99 @@ class JobDetailPage(BasePage):
                         return True
                 except Exception:
                     pass
+
+            # ── Strategy 4: JS fallback — any visible button on the page with "Save" text ──
+            # This catches buttons in non-standard containers that earlier strategies missed.
+            try:
+                any_save_clicked = await page.evaluate(
+                    r"""() => {
+                        const saveTexts = ['save', 'submit', 'next', 'continue', 'apply', 'apply now', 'send'];
+                        const candidates = Array.from(document.querySelectorAll(
+                            'button, [role="button"], a, input[type="submit"], input[type="button"], ' +
+                            '[class*="btn" i], [class*="button" i], [class*="save" i], span, div'
+                        ));
+                        const results = [];
+                        for (const el of candidates) {
+                            const text = (el.textContent || el.innerText || el.value || '').trim().toLowerCase();
+                            if (!text || !saveTexts.some(st => text === st || text.startsWith(st + ' ') || text.startsWith(st + '&'))) continue;
+                            const style = window.getComputedStyle(el);
+                            if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width < 20 || rect.height < 20) continue;
+                            if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
+                            
+                            let score = 0;
+                            if (el.tagName === 'BUTTON') score += 20;
+                            if (text === 'save') score += 30;
+                            else if (text.startsWith('save')) score += 20;
+                            
+                            // Prefer leaf elements (fewer descendants)
+                            const descendantCount = el.querySelectorAll('*').length;
+                            score -= descendantCount * 2;
+                            
+                            // Boost for primary/CTA styling (colored background)
+                            const bg = style.backgroundColor;
+                            if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') score += 15;
+                            if (el.className.toLowerCase().includes('primary') || el.className.toLowerCase().includes('cta')) score += 10;
+                            
+                            // Boost if inside a chatbot/modal/drawer container
+                            if (el.closest('[class*="chatbot" i], [class*="bot" i], [class*="chat" i], [class*="modal" i], [class*="dialog" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
+                                score += 100;
+                            }
+                            
+                            results.push({ el, score, text });
+                        }
+                        if (results.length === 0) return null;
+                        results.sort((a, b) => b.score - a.score);
+                        const best = results[0].el;
+                        best.scrollIntoView({ behavior: 'instant', block: 'center' });
+                        if (best.disabled) best.disabled = false;
+                        best.removeAttribute('disabled');
+                        best.removeAttribute('aria-disabled');
+                        
+                        best.setAttribute('data-agent-click-target', 'true');
+                        return results[0].text;
+                    }"""
+                )
+                if any_save_clicked:
+                    # Click using Playwright
+                    target = page.locator('[data-agent-click-target="true"]').first
+                    clicked_via_playwright = False
+                    if await target.count() > 0:
+                        try:
+                            await target.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.1)
+                            await target.click(timeout=3000)
+                            clicked_via_playwright = True
+                            logger.info(f"Clicked Save button via page-wide Playwright: '{any_save_clicked}'")
+                        except Exception as pe:
+                            logger.debug(f"Page-wide Playwright native click failed: {pe}")
+                            
+                    if not clicked_via_playwright:
+                        await page.evaluate(
+                            r"""() => {
+                                const el = document.querySelector('[data-agent-click-target="true"]');
+                                if (el) {
+                                    el.click();
+                                    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                                    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+                                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                                }
+                            }"""
+                        )
+                        logger.info(f"Clicked Save button via page-wide JS fallback: '{any_save_clicked}'")
+                        
+                    # Clean up the target attribute
+                    try:
+                        await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
+                    except Exception:
+                        pass
+                        
+                    await asyncio.sleep(1)
+                    return True
+            except Exception as e:
+                logger.debug(f"Page-wide JS Save fallback failed: {e}")
 
             await asyncio.sleep(0.8)
 
@@ -2111,9 +2349,14 @@ class JobDetailPage(BasePage):
                     if (rect.width < 20 || rect.height < 20) continue;
                     if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
                     let depth = (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'A') ? 0 : 1;
-                    // Prefer buttons inside modal/chatbot containers
-                    if (el.closest('[class*="modal" i], [class*="chatbot" i], [class*="dialog" i], [class*="apply" i]')) {
-                        depth -= 1;
+                    
+                    // Prefer leaf elements (fewer descendants)
+                    const descendantCount = el.querySelectorAll('*').length;
+                    depth += descendantCount * 0.1;
+                    
+                    // Prefer buttons inside modal/chatbot/drawer/slider containers
+                    if (el.closest('[class*="modal" i], [class*="chatbot" i], [class*="dialog" i], [class*="apply" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
+                        depth -= 5;
                     }
                     results.push({ el, depth, text });
                 }
@@ -2121,16 +2364,53 @@ class JobDetailPage(BasePage):
                 results.sort((a, b) => a.depth - b.depth);
                 const best = results[0].el;
                 best.scrollIntoView({ behavior: 'instant', block: 'center' });
-                best.click();
+                if (best.disabled) best.disabled = false;
+                best.removeAttribute('disabled');
+                best.removeAttribute('aria-disabled');
+                
+                best.setAttribute('data-agent-click-target', 'true');
                 return results[0].text;
             }"""
             try:
                 clicked_text = await page.evaluate(js)
                 if clicked_text:
-                    logger.debug(f"Clicked Save button via JS scan: '{clicked_text}'")
+                    # Click using Playwright's trusted pointer events click
+                    target = page.locator('[data-agent-click-target="true"]').first
+                    clicked_via_playwright = False
+                    if await target.count() > 0:
+                        try:
+                            await target.scroll_into_view_if_needed()
+                            await asyncio.sleep(0.1)
+                            await target.click(timeout=3000)
+                            clicked_via_playwright = True
+                            logger.debug(f"Clicked Save button via Playwright: '{clicked_text}'")
+                        except Exception as pe:
+                            logger.debug(f"Playwright native click failed on intermediate Save: {pe}")
+                            
+                    if not clicked_via_playwright:
+                        await page.evaluate(
+                            r"""() => {
+                                const el = document.querySelector('[data-agent-click-target="true"]');
+                                if (el) {
+                                    el.click();
+                                    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                                    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+                                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                                }
+                            }"""
+                        )
+                        logger.debug(f"Clicked Save button via JS fallback: '{clicked_text}'")
+                        
+                    # Clean up the target attribute
+                    try:
+                        await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
+                    except Exception:
+                        pass
+                        
                     return True
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"JS intermediate save click failed: {e}")
 
             await asyncio.sleep(0.8)
 
@@ -2177,7 +2457,7 @@ class JobDetailPage(BasePage):
                 
                 if (score > 0) {
                     // Boost score if inside a modal, popup, or chatbot container
-                    if (el.closest('[class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="chatbot"], [class*="chat" i], [class*="bot" i], [class*="drawer" i]')) {
+                    if (el.closest('[class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="chatbot"], [class*="chat" i], [class*="bot" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
                         score += 50;
                     }
                     // Boost if it's a primary-styled button (has background color)
@@ -2186,11 +2466,14 @@ class JobDetailPage(BasePage):
                     if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') {
                         score += 10;
                     }
+                    // Prefer leaf elements
+                    const descendantCount = el.querySelectorAll('*').length;
+                    score -= descendantCount * 2;
                 }
                 return score;
             };
 
-            const candidates = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a.btn, a.button, [class*="btn" i], [class*="button" i]'));
+            const candidates = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a.btn, a.button, [class*="btn" i], [class*="button" i], span, div'));
             
             const validCandidates = candidates.filter(el => {
                 const style = window.getComputedStyle(el);
@@ -2207,10 +2490,7 @@ class JobDetailPage(BasePage):
                 validCandidates.sort((a, b) => getScore(b) - getScore(a));
                 const best = validCandidates[0];
                 best.scrollIntoView({ behavior: 'instant', block: 'center' });
-                best.click();
-                // Dispatch additional events for framework compatibility
-                best.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-                best.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+                best.setAttribute('data-agent-click-target', 'true');
                 return true;
             }
             return false;
@@ -2219,7 +2499,39 @@ class JobDetailPage(BasePage):
         try:
             clicked = await page.evaluate(js_click_script, is_chatbot)
             if clicked:
-                logger.debug("Successfully clicked submit/apply button via JS evaluator.")
+                target = page.locator('[data-agent-click-target="true"]').first
+                clicked_via_playwright = False
+                if await target.count() > 0:
+                    try:
+                        await target.scroll_into_view_if_needed()
+                        await asyncio.sleep(0.1)
+                        await target.click(timeout=3000)
+                        clicked_via_playwright = True
+                        logger.debug("Successfully clicked submit/apply button via Playwright.")
+                    except Exception as pe:
+                        logger.debug(f"Playwright native submit click failed, falling back: {pe}")
+                        
+                if not clicked_via_playwright:
+                    await page.evaluate(
+                        r"""() => {
+                            const el = document.querySelector('[data-agent-click-target="true"]');
+                            if (el) {
+                                el.click();
+                                el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+                                el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+                                el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+                                el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+                            }
+                        }"""
+                    )
+                    logger.debug("Successfully clicked submit/apply button via JS fallback.")
+                    
+                # Clean up target attribute
+                try:
+                    await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
+                except Exception:
+                    pass
+                    
                 return True
         except Exception as e:
             logger.debug(f"JS submit click failed: {e}")

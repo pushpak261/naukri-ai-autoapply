@@ -116,3 +116,125 @@ class TestQuestionAnswerer:
         assert answers[2]["question"] == "Current location?"
         assert answers[2]["answer"] == "Bangalore"
         assert answers[2]["index"] == 2
+
+    @pytest.mark.asyncio
+    async def test_raw_resume_text_passed_to_prompt(self, mock_settings, sample_resume):
+        """Should include raw resume text in LLM prompt when available."""
+        sample_resume.raw_text = "Expert in Flutter and Dart development for 4 years."
+        mock_llm = AsyncMock()
+        mock_llm.generate_content.return_value = json.dumps([
+            {"question": "How many years of experience in Flutter?", "answer": "4 years", "confidence": "high"}
+        ])
+
+        answerer = QuestionAnswerer(mock_llm, mock_settings, sample_resume)
+        questions = [
+            {"id": "q_flutter", "question": "Describe your hands-on experience in Flutter technology", "type": "text", "index": 0}
+        ]
+        job = Job(
+            naukri_job_id="test_job_3",
+            title="Flutter Dev",
+            company="App Corp",
+            url="https://example.com/3",
+        )
+        answers = await answerer.answer_questions(questions, job)
+
+        assert len(answers) == 1
+        assert answers[0]["id"] == "q_flutter"
+        assert answers[0]["answer"] == "4 years"
+
+        # Verify LLM call contained raw resume text
+        call_kwargs = mock_llm.generate_content.call_args.kwargs
+        assert "FULL RESUME TEXT:" in call_kwargs["prompt"]
+        assert "Expert in Flutter and Dart" in call_kwargs["prompt"]
+
+    @pytest.mark.asyncio
+    async def test_ai_answer_preserves_question_id_and_text(self, mock_settings, sample_resume):
+        """Should preserve exact question text and ID even if Gemini slightly rephrases question text in output."""
+        mock_llm = AsyncMock()
+        # Mock LLM returning a slightly rephrased question string
+        ai_response = [
+            {
+                "question": "Why join us?",  # Rephrased by LLM
+                "answer": "Great career opportunity.",
+                "confidence": "high",
+            }
+        ]
+        mock_llm.generate_content.return_value = json.dumps(ai_response)
+
+        answerer = QuestionAnswerer(mock_llm, mock_settings, sample_resume)
+        questions = [
+            {
+                "id": "agent_q_99",
+                "question": "Why do you want to join our organization?",
+                "type": "text",
+                "index": 0,
+            }
+        ]
+        job = Job(
+            naukri_job_id="test_job_4",
+            title="Software Engineer",
+            company="Tech Corp",
+            url="https://example.com/4",
+        )
+        answers = await answerer.answer_questions(questions, job)
+
+        assert len(answers) == 1
+        assert answers[0]["id"] == "agent_q_99"
+        # Original question string must be preserved
+        assert answers[0]["question"] == "Why do you want to join our organization?"
+        assert answers[0]["answer"] == "Great career opportunity."
+
+    @pytest.mark.asyncio
+    async def test_skill_experience_question_not_hijacked_by_direct_answer(self, mock_settings, sample_resume):
+        """Skill-specific questions like HTML/CSS experience should go to Gemini, not hijacked by direct total experience patterns."""
+        mock_llm = AsyncMock()
+        mock_llm.generate_content.return_value = json.dumps([
+            {
+                "id": "q_html",
+                "question": "How many years of experience do you have in HTML?",
+                "answer": "1",
+                "confidence": "high",
+            }
+        ])
+
+        answerer = QuestionAnswerer(mock_llm, mock_settings, sample_resume)
+        questions = [
+            {
+                "id": "q_html",
+                "question": "How many years of experience do you have in HTML?",
+                "type": "text",
+                "index": 0,
+            }
+        ]
+        job = Job(
+            naukri_job_id="test_job_5",
+            title="Frontend Engineer",
+            company="BMW TechWorks",
+            url="https://example.com/5",
+        )
+        answers = await answerer.answer_questions(questions, job)
+
+        assert len(answers) == 1
+        assert answers[0]["answer"] == "1"
+        # Verify LLM WAS called (not intercepted by direct answer pattern)
+        mock_llm.generate_content.assert_called_once()
+
+    def test_cache_validation_rejects_dom_element_ids(self, mock_settings):
+        """QACache.set should reject element IDs, DOM selectors, and generic placeholders."""
+        from src.naukri_agent.ai.question_answerer import QACache
+        cache = QACache(mock_settings.project_root / "data" / "qa_cache.json")
+
+        # Invalid keys should be ignored
+        cache.set("userInput__rzxx3j402InputBox", "Pushpak Pandharpatte")
+        cache.set("agent_chat_q", "Some Answer")
+        cache.set("short", "Val")
+
+        assert cache.get("userInput__rzxx3j402InputBox") is None
+        assert cache.get("agent_chat_q") is None
+        assert cache.get("short") is None
+
+        # Valid question key should be accepted
+        cache.set("How many years of experience do you have in React?", "2 years")
+        assert cache.get("How many years of experience do you have in React?") == "2 years"
+
+

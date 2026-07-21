@@ -37,6 +37,41 @@ function lineColor(line: string): string {
   return '#e2e8f0';
 }
 
+function mergeLogs(oldLog: string, newLog: string): string {
+  if (!oldLog) return newLog;
+  if (!newLog) return oldLog;
+
+  const oldLines = oldLog.split('\n').filter(Boolean);
+  const newLines = newLog.split('\n').filter(Boolean);
+
+  if (oldLines.length === 0) return newLog;
+  if (newLines.length === 0) return oldLog;
+
+  const maxSearch = Math.min(oldLines.length, newLines.length, 200);
+  let mergedLines = newLines;
+
+  for (let i = maxSearch; i > 0; i--) {
+    let match = true;
+    for (let j = 0; j < i; j++) {
+      if (oldLines[oldLines.length - i + j] !== newLines[j]) {
+        match = false;
+        break;
+      }
+    }
+    if (match) {
+      mergedLines = [...oldLines, ...newLines.slice(i)];
+      break;
+    }
+  }
+
+  // Cap the merged lines to a reasonable number to prevent memory issues, e.g. 5000 lines
+  if (mergedLines.length > 5000) {
+    mergedLines = mergedLines.slice(-3000);
+  }
+
+  return mergedLines.join('\n') + '\n';
+}
+
 export default function AgentControl() {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
@@ -99,8 +134,10 @@ export default function AgentControl() {
 
   const fetchOutput = useCallback(async () => {
     try {
-      const text = await api.agent.output(200);
-      if (text && text !== 'Waiting for logs...\n') setOutput(text);
+      const text = await api.agent.output(2000);
+      if (text && text !== 'Waiting for logs...\n') {
+        setOutput(prev => mergeLogs(prev, text));
+      }
     } catch {
       // 404 is expected when agent isn't running
     }
@@ -108,18 +145,21 @@ export default function AgentControl() {
 
   const connectSSE = useCallback(() => {
     if (sseRef.current) sseRef.current.close();
-    const url = api.agent.outputStreamUrl();
+    const url = api.agent.outputStreamUrl(0);
     const es = new EventSource(url);
     sseRef.current = es;
 
-    let buffer = '';
+    fetchOutput();
+
     es.onmessage = (event) => {
       if (event.data) {
-        buffer += event.data + '\n';
-        if (buffer.length > 50000) {
-          buffer = buffer.slice(-25000);
-        }
-        setOutput(buffer);
+        setOutput(prev => {
+          const next = prev ? prev + event.data + '\n' : event.data + '\n';
+          if (next.length > 1000000) {
+            return next.slice(-500000);
+          }
+          return next;
+        });
       }
     };
 
@@ -130,7 +170,7 @@ export default function AgentControl() {
         setTimeout(connectSSE, 3000);
       }
     };
-  }, [useSSE]);
+  }, [useSSE, fetchOutput]);
 
   const refreshAll = useCallback(async () => {
     const s = await fetchStatus();
