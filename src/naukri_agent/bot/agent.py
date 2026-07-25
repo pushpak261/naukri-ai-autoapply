@@ -890,81 +890,11 @@ class NaukriAgent:
     def _is_job_in_excluded_domain(job: Job) -> bool:
         """
         Secondary override: check if a job belongs to a fundamentally non-matching
-        tech stack, role type, or domain that the AI matcher may have missed.
-
-        Blocks jobs where the title explicitly indicates a non-development role
-        (QA/test, support, data-only, design, etc.) or a completely different
-        tech stack. For non-dev titles, also checks domain keywords.
+        tech stack, role type, or domain.
         """
-        if not job or not job.title:
-            return False
-
-        title_lower = job.title.lower()
-
-        # Non-development role patterns — checked BEFORE dev_keywords so
-        # "Test Automation Engineer" (which contains "engineer") is still blocked.
-        non_dev_roles = [
-            "qa ", "qa engineer", "qa analyst", "qa tester",
-            "test automation", "test engineer", "automation tester",
-            "manual tester", "software tester", "etl tester",
-            "support engineer", "technical support",
-            "data analyst", "data engineer", "data scientist",
-            "business analyst", "business associate",
-            "ui designer", "ux designer", "graphic designer",
-            "web designer", "wordpress",
-            "appium", "selenium",
-            "intern",
-            "associate lead", "project manager",
-        ]
-        if any(role in title_lower for role in non_dev_roles):
-            return True
-
-        # Determine if this is a clear software engineer/developer role
-        dev_keywords = [
-            "developer", "engineer", "full stack", "fullstack", "backend",
-            "frontend", "front end", "back end", "java", "python", "react",
-            "angular", "node", "spring", "dot net", ".net", "c#", "csharp",
-            "software", "application", "web developer", "programmer",
-            "microservices", "api", "tech lead", "technology",
-        ]
-        is_dev_role = any(kw in title_lower for kw in dev_keywords)
-
-        desc_lower = (job.description or "").lower()
-
-        # Non-matching tech stacks — checked against title only
-        non_matching_title_stacks = [
-            "salesforce", "sfdc", "apex",
-            "sap", "sap abap", "sap hana",
-            "oracle erp", "oracle ebs", "oracle fusion",
-            "servicenow", "workday",
-            "machine learning engineer",
-            "ml engineer", "computer vision", "nlp engineer",
-            "devops engineer", "site reliability engineer", "sre",
-            "ios developer", "android developer", "flutter developer",
-            "react native", "mobile developer",
-            "embedded engineer", "firmware", "vlsi", "fpga",
-            "mainframe", "cobol",
-            "shopify developer", "magento",
-            "blockchain", "solidity", "web3",
-        ]
-        if any(stack in title_lower for stack in non_matching_title_stacks):
-            return True
-
-        # For non-dev roles, also check domain keywords in description
-        if not is_dev_role:
-            import re
-            non_matching_domain_patterns = [
-                r"\bbanking\b", r"\bfinance\b", r"\binsurance\b", r"\bhealthcare\b", r"\bpharma\b",
-                r"\bcivil engineer\b", r"\bmechanical engineer\b", r"\belectrical engineer\b",
-                r"\bautomobile\b", r"\bteacher\b", r"\bfaculty\b", r"\blecturer\b", r"\bprofessor\b",
-                r"\bnurse\b", r"\bdoctor\b", r"\bpharmacist\b", r"\bchemist\b",
-                r"\baccountant\b", r"\bchartered accountant\b",
-            ]
-            combined = f"{title_lower} {desc_lower}"
-            if any(re.search(p, combined) for p in non_matching_domain_patterns):
-                return True
-
-        return False
+        from src.naukri_agent.fake_job_detection.rules import is_job_in_excluded_domain
+        is_excl, _ = is_job_in_excluded_domain(job)
+        return is_excl
 
     async def _cleanup(self) -> None:
         """Save state, update run log, print summary, and close browser."""

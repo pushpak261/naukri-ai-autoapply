@@ -245,6 +245,55 @@ class FakeJobDetectionPipeline:
         return score >= threshold, score
 
     # ------------------------------------------------------------------
+    # Stage 6: Job Deduplication Helper
+    # ------------------------------------------------------------------
+    @staticmethod
+    def deduplicate_jobs(
+        jobs: list[Job],
+        applied_job_ids: set[str] | None = None,
+        applied_composites: set[tuple[str, str]] | None = None,
+    ) -> tuple[list[Job], list[Job]]:
+        """
+        Deduplicates a list of jobs by naukri_job_id and title+company composite.
+
+        Args:
+            jobs: Scraped jobs.
+            applied_job_ids: Set of job IDs already in database.
+            applied_composites: Set of (title_lower, company_lower) pairs already in database.
+
+        Returns:
+            Tuple of (unique_jobs, duplicate_jobs)
+        """
+        if not jobs:
+            return [], []
+
+        applied_ids = applied_job_ids or set()
+        applied_comps = applied_composites or set()
+
+        seen_ids = set(applied_ids)
+        seen_comps = set(applied_comps)
+
+        unique_jobs: list[Job] = []
+        duplicate_jobs: list[Job] = []
+
+        for job in jobs:
+            j_id = str(job.naukri_job_id or "").strip()
+            comp_key = ((job.title or "").strip().lower(), (job.company or "").strip().lower())
+
+            if j_id and j_id in seen_ids:
+                duplicate_jobs.append(job)
+            elif comp_key[0] and comp_key[1] and comp_key in seen_comps:
+                duplicate_jobs.append(job)
+            else:
+                if j_id:
+                    seen_ids.add(j_id)
+                if comp_key[0] and comp_key[1]:
+                    seen_comps.add(comp_key)
+                unique_jobs.append(job)
+
+        return unique_jobs, duplicate_jobs
+
+    # ------------------------------------------------------------------
     # Properties
     # ------------------------------------------------------------------
     @property

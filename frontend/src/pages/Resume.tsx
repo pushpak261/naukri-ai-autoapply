@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   User, Mail, Phone, Briefcase, GraduationCap, Award, Globe, Star,
-  Upload, Save, Edit3, X, Plus, Loader2, Check, AlertCircle, GitCompare, History, Download
+  Upload, Save, Edit3, X, Plus, Loader2, Check, AlertCircle, GitCompare, History
 } from 'lucide-react';
 import { api } from '../lib/api';
 

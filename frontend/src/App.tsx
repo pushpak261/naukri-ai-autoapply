@@ -20,13 +20,11 @@ import LogViewer from './pages/LogViewer';
 import Backups from './pages/Backups';
 import MarketIntelligence from './pages/MarketIntelligence';
 import AutoPilot from './pages/AutoPilot';
-import PipelineDebugger from './pages/PipelineDebugger';
-import PipelineJobs from './pages/PipelineJobs';
-import PipelineDebug from './pages/PipelineDebug';
 import Accounts from './pages/Accounts';
 import WebhookManager from './pages/WebhookManager';
 import LinkedIn from './pages/LinkedIn';
 import ClearData from './pages/ClearData';
+import JobInspector from './pages/JobInspector';
 
 export default function App() {
   return (
@@ -41,11 +39,10 @@ export default function App() {
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/skills-gap" element={<SkillsGap />} />
             <Route path="/autopilot" element={<AutoPilot />} />
-            <Route path="/pipeline-debugger" element={<PipelineDebugger />} />
-            <Route path="/pipeline-jobs" element={<PipelineJobs />} />
-            <Route path="/pipeline-debug" element={<PipelineDebug />} />
             <Route path="/scam-detector" element={<ScamDetector />} />
+            <Route path="/job-inspector" element={<JobInspector />} />
             <Route path="/agent-control" element={<AgentControl />} />
+
             <Route path="/linkedin" element={<LinkedIn />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/jobs/:id" element={<JobDetail />} />

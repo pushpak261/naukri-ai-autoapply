@@ -86,7 +86,12 @@ class JobFilter:
         range_match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)", exp_text)
         if range_match:
             min_req = int(range_match.group(1))
-            return min_req <= self.max_experience
+            max_req = int(range_match.group(2))
+            if min_req > self.max_experience:
+                return False
+            if max_req > self.max_experience + 1 and max_req >= 4:
+                return False
+            return True
         # Single number format: "5 Yrs"
         single_match = re.search(r"(\d+)", exp_text)
         if single_match:

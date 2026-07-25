@@ -485,6 +485,71 @@ export interface MeResponse {
 
 export const SSE_BASE = BASE_URL;
 
+// Job Inspector Interfaces
+export interface FilterEvaluationDetail {
+  name: string;
+  enabled: boolean;
+  passed: boolean;
+  reason: string;
+  score?: number | null;
+  threshold?: number | null;
+  level?: string;
+  matched_keywords?: string[];
+  matched_company?: string;
+  details?: Record<string, any>;
+  reasons_list?: string[];
+}
+
+export interface InspectorJobItem {
+  id: number;
+  naukri_job_id: string;
+  title: string;
+  company: string;
+  location: string;
+  experience: string;
+  salary: string;
+  description: string;
+  skills: string;
+  url: string;
+  posted_date: string;
+  openings: number;
+  has_company_logo: boolean;
+  source: string;
+  scraped_at: string;
+  passed: boolean;
+  rejection_reasons: string[];
+  filter_evaluations: Record<string, FilterEvaluationDetail>;
+  application: {
+    status: string;
+    match_score: number | null;
+    applied_at: string;
+  } | null;
+}
+
+export interface InspectorResponse {
+  summary: {
+    total_scraped_raw: number;
+    total_passed: number;
+    total_rejected: number;
+    total_applied: number;
+    rejections_by_filter: Record<string, number>;
+  };
+  active_toggles: Record<string, boolean>;
+  config_limits: {
+    max_experience: number;
+    max_freshness_days: number;
+    match_score_threshold: number;
+    enable_scam_filter: boolean;
+    title_keywords_count: number;
+    company_blacklist_count: number;
+    description_keywords_count: number;
+  };
+  items: InspectorJobItem[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
 export const api = {
   auth: {
     login: (email: string, password: string) =>
@@ -497,6 +562,7 @@ export const api = {
         method: 'POST',
         body: JSON.stringify({ email, password }),
       }, true),
+
     checkRegistered: () =>
       fetchJSON<{ registered: boolean; email: string }>('/auth/register/check', {}, true),
     logout: () =>
@@ -508,6 +574,32 @@ export const api = {
   stats: (days = 7) => fetchJSON<StatsResponse>(`/stats?days=${days}`),
   jobs: (page = 1, perPage = 20, search = '', status = '', sort = 'newest', matchScoreMin = 0, matchScoreMax = 100, source = '') =>
     fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}&source=${encodeURIComponent(source)}`),
+  jobsInspector: (
+    page = 1,
+    perPage = 50,
+    search = '',
+    statusView = 'all',
+    filterToggles?: Record<string, boolean>
+  ): Promise<InspectorResponse> => {
+    const params = new URLSearchParams({
+      page: String(page),
+      per_page: String(perPage),
+      search,
+      status_view: statusView,
+    });
+    if (filterToggles) {
+      Object.entries(filterToggles).forEach(([k, v]) => {
+        params.append(k, String(v));
+      });
+    }
+    return fetchJSON<InspectorResponse>(`/jobs/inspector?${params.toString()}`);
+  },
+  applyJobsBatch: (jobIds: number[]): Promise<{ status: string; applied_count: number; message: string }> => {
+    return fetchJSON<{ status: string; applied_count: number; message: string }>('/jobs/apply-batch', {
+      method: 'POST',
+      body: JSON.stringify({ job_ids: jobIds }),
+    });
+  },
   job: (id: number) => fetchJSON<JobDetail>(`/jobs/${id}`),
   applications: (page = 1, perPage = 20, status = '', sort = 'newest', source = '') =>
     fetchJSON<PaginatedResponse<ApplicationItem>>(`/applications?page=${page}&per_page=${perPage}&status=${encodeURIComponent(status)}&sort=${sort}&source=${encodeURIComponent(source)}&_t=${Date.now()}`),
@@ -566,11 +658,6 @@ export const api = {
 
   scamAnalysis: () => fetchJSON<ScamAnalysisResponse>('/scam-detector/analysis'),
   resumeOptimization: () => fetchJSON<ResumeOptimizationResponse>('/resume-optimization/analysis'),
-
-  pipelineJobs: (source = '') =>
-    fetchJSON<PipelineJobsResponse>(`/pipeline/jobs?source=${encodeURIComponent(source)}`),
-  pipelineDebug: (source = '') =>
-    fetchJSON<PipelineDebugResponse>(`/pipeline/debug?source=${encodeURIComponent(source)}`),
 
   // ---- New feature endpoints ----
 
@@ -710,70 +797,7 @@ export interface SessionFileItem {
   modified: string;
 }
 
-export interface PipelineStage {
-  id: string;
-  label: string;
-  description: string;
-  count: number;
-  jobs: PipelineJobItem[];
-}
 
-export interface PipelineJobItem {
-  id: number;
-  naukri_job_id: string;
-  title: string;
-  company: string;
-  location: string;
-  experience: string;
-  salary: string;
-  skills: string;
-  url: string;
-  posted_date: string;
-  openings: number;
-  has_company_logo: boolean;
-  source: string;
-  scraped_at: string;
-  stage: string;
-  filter_reason: string | null;
-}
-
-export interface PipelineJobsResponse {
-  stages: PipelineStage[];
-  summary: Record<string, number>;
-}
-
-// ---- Pipeline Debug types ----
-
-export interface PipelineDebugItem {
-  id: number;
-  title: string;
-  company: string;
-  location: string;
-  experience: string;
-  salary: string;
-  skills: string;
-  url: string;
-  posted_date: string;
-  openings: number;
-  source: string;
-  scraped_at: string;
-  filter_reason: string | null;
-  filter_category: string | null;
-  scam_details: string[] | null;
-}
-
-export interface PipelineDebugResponse {
-  summary: {
-    total_scraped: number;
-    passed_all_filters: number;
-    filtered_out: number;
-  };
-  filter_breakdown: Record<string, number>;
-  filter_labels: Record<string, string>;
-  pre_filter: PipelineDebugItem[];
-  post_filter: PipelineDebugItem[];
-  filtered_out: PipelineDebugItem[];
-}
 
 export interface LinkedInConfig {
   configured: boolean;

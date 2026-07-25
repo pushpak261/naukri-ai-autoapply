@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   Bot, Play, Square, RotateCcw, RefreshCw, Activity, Clock, Terminal,
   AlertCircle, CheckCircle, XCircle, Search, Download, Trash2, Pause,
@@ -86,16 +86,50 @@ export default function AgentControl() {
   const [useSSE, setUseSSE] = useState(true);
   const [platform, setPlatform] = useState<'naukri' | 'linkedin'>('naukri');
   const outputRef = useRef<HTMLPreElement>(null);
+  const isAutoScrollRef = useRef(true);
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const healthIntervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
   const [uptime, setUptime] = useState<number | null>(null);
   const sseRef = useRef<EventSource | null>(null);
 
-  const outputLines = output.split('\n').filter(Boolean);
+  const outputLines = useMemo(() => {
+    return output ? output.split('\n').filter(Boolean) : [];
+  }, [output]);
 
-  const filteredLines = logSearch
-    ? outputLines.filter(l => l.toLowerCase().includes(logSearch.toLowerCase()))
-    : outputLines;
+  const filteredLines = useMemo(() => {
+    if (!logSearch) return outputLines;
+    const lower = logSearch.toLowerCase();
+    return outputLines.filter(l => l.toLowerCase().includes(lower));
+  }, [outputLines, logSearch]);
+
+  const handleScroll = useCallback(() => {
+    if (!outputRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = outputRef.current;
+    // Check if user is scrolled near the bottom (within 35px threshold)
+    const isAtBottom = scrollHeight - scrollTop - clientHeight < 35;
+
+    isAutoScrollRef.current = isAtBottom;
+    setAutoScroll(prev => (prev !== isAtBottom ? isAtBottom : prev));
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    isAutoScrollRef.current = true;
+    setAutoScroll(true);
+    if (outputRef.current) {
+      outputRef.current.scrollTop = outputRef.current.scrollHeight;
+    }
+  }, []);
+
+  const toggleAutoScroll = useCallback(() => {
+    setAutoScroll(prev => {
+      const next = !prev;
+      isAutoScrollRef.current = next;
+      if (next && outputRef.current) {
+        outputRef.current.scrollTop = outputRef.current.scrollHeight;
+      }
+      return next;
+    });
+  }, []);
 
   const notify = (type: Notification['type'], message: string) => {
     setNotification({ type, message });
@@ -216,9 +250,9 @@ export default function AgentControl() {
     };
   }, [fetchStatus, fetchOutput, checkHealth, fetchMetrics, useSSE, connectSSE]);
 
-  // Auto-scroll
+  // Auto-scroll to bottom when new output arrives and autoScroll is active
   useEffect(() => {
-    if (autoScroll && outputRef.current) {
+    if (autoScroll && isAutoScrollRef.current && outputRef.current) {
       outputRef.current.scrollTop = outputRef.current.scrollHeight;
     }
   }, [output, autoScroll]);
@@ -521,11 +555,11 @@ export default function AgentControl() {
             </div>
 
             <button
-              onClick={() => setAutoScroll(p => !p)}
+              onClick={toggleAutoScroll}
               className={`p-1.5 rounded-lg border transition-colors ${
                 autoScroll ? 'bg-[#38bdf8]/10 border-[#38bdf8]/30 text-[#38bdf8]' : 'bg-[#0f172a] border-[#334155] text-[#64748b]'
               }`}
-              title={autoScroll ? 'Auto-scroll on' : 'Auto-scroll off'}
+              title={autoScroll ? 'Auto-scroll enabled (Click to pause)' : 'Auto-scroll paused (Click to resume)'}
             >
               {autoScroll ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
             </button>
@@ -562,9 +596,10 @@ export default function AgentControl() {
 
         <pre
           ref={outputRef}
-          className="bg-[#0f172a] border border-[#334155] rounded-lg p-4 text-xs font-mono overflow-auto max-h-[500px] whitespace-pre-wrap leading-relaxed"
+          className="bg-[#0f172a] border border-[#334155] rounded-lg p-4 text-xs font-mono overflow-auto max-h-[500px] whitespace-pre-wrap leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#38bdf8]/30"
           style={{ color: output ? '#e2e8f0' : '#64748b' }}
-          onWheel={() => { if (autoScroll) setAutoScroll(false); }}
+          onScroll={handleScroll}
+          tabIndex={0}
           role="log"
           aria-label="Agent output log"
           aria-live="polite"
@@ -580,10 +615,10 @@ export default function AgentControl() {
 
         {!autoScroll && outputLines.length > 0 && (
           <button
-            onClick={() => { setAutoScroll(true); outputRef.current?.scrollTo(0, outputRef.current.scrollHeight); }}
-            className="mt-2 text-xs text-[#38bdf8] hover:underline"
+            onClick={scrollToBottom}
+            className="mt-2 text-xs text-[#38bdf8] hover:text-white hover:underline flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#38bdf8]/10 border border-[#38bdf8]/30 font-medium transition-colors"
           >
-            Auto-scroll paused — click to resume
+            <span>↓ Auto-scroll paused — click to jump to bottom & resume</span>
           </button>
         )}
       </div>

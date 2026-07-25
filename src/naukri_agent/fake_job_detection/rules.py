@@ -189,14 +189,17 @@ _FINANCIAL_SCAM_RE = re.compile(
 # S12: Agency / placement / staffing keywords in title or company
 _AGENCY_RE = re.compile(
     r"(?i)\b("
-    r"consultanc(y|ies)|consultncy|consulting|placement|staffing|manpower|"
-    r"recruitment|hr\b|hr solutions|hr services|hr consultancy|"
-    r"outsourcing|talent acquisition|talent solution|"
-    r"manpower services|placement agency|"
+    r"consultanc(y|ies)|consultant|consultants|consultncy|consulting|"
+    r"placement|staffing|manpower|recruitment|recruiter|recruiters|"
+    r"headhunter|headhunters|advisors|advisory|hr\b|hr solutions|hr services|"
+    r"hr consultancy|hr consultant|hr recruiters|outsourcing|talent acquisition|"
+    r"talent solution|talent solutions|talent partner|manpower services|"
+    r"placement agency|placement consultant|recruitment consultant|"
     r"career services|career solution|career guidance|career consultant|"
-    r"talent services|hiring solution|job placement|placement service|"
-    r"staffing solution|hiring agency|recruiter services|staffing agency|"
-    r"job consultanc(y|ies)|talent partner|workforce solution"
+    r"talent services|hiring solution|hiring partner|hiring agency|"
+    r"job placement|placement service|staffing solution|staffing agency|"
+    r"recruiter services|job consultanc(y|ies)|job consultant|"
+    r"workforce solution|workforce solutions|partner consultant"
     r")\b"
 )
 
@@ -400,6 +403,92 @@ def _count_tech_categories(description: str) -> int:
 
 
 # ======================================================================
+# Domain / Role Matching Helper
+# ======================================================================
+
+def is_job_in_excluded_domain(job: Job) -> tuple[bool, str]:
+    """
+    Check if a job title or company matches fundamentally non-matching domains
+    or non-development roles (e.g. QA, support, data entry, medical, design, etc.).
+
+    Returns:
+        Tuple of (is_excluded, reason)
+    """
+    if not job or not job.title:
+        return False, ""
+
+    t_lower = job.title.lower()
+
+    non_dev_keywords = [
+        ("qa analyst", "QA/Tester role"),
+        ("qa engineer", "QA/Tester role"),
+        ("qa tester", "QA/Tester role"),
+        ("qa ", "QA/Tester role"),
+        ("test automation", "Test automation role"),
+        ("test engineer", "Test engineering role"),
+        ("automation tester", "Automation tester role"),
+        ("manual tester", "Manual tester role"),
+        ("software tester", "Software tester role"),
+        ("etl tester", "ETL tester role"),
+        ("tester", "Testing role"),
+        ("support engineer", "Support engineering role"),
+        ("technical support", "Technical support role"),
+        ("customer support", "Customer support role"),
+        ("customer care", "Customer care role"),
+        ("bpo", "BPO/Call Center role"),
+        ("telecaller", "Telecaller role"),
+        ("telecalling", "Telecalling role"),
+        ("voice process", "Voice process role"),
+        ("data entry", "Data entry role"),
+        ("data analyst", "Data analyst role"),
+        ("business analyst", "Business analyst role"),
+        ("business associate", "Business associate role"),
+        ("ui designer", "Design role"),
+        ("ux designer", "Design role"),
+        ("graphic designer", "Design role"),
+        ("web designer", "Design role"),
+        ("product designer", "Design role"),
+        ("animator", "Animation/VFX role"),
+        ("vfx", "Animation/VFX role"),
+        ("physiotherapist", "Medical/Healthcare role"),
+        ("therapist", "Medical/Healthcare role"),
+        ("safety database specialist", "Clinical/Medical research role"),
+        ("clinical research", "Clinical research role"),
+        ("payroll", "HR/Payroll operations role"),
+        ("care engineer", "Support/Care role"),
+        ("diploma trainee", "Diploma trainee role"),
+        ("trs trainee", "Trainee role"),
+        ("mechanical", "Non-software engineering role"),
+        ("civil engineer", "Civil engineering role"),
+        ("electrical engineer", "Electrical engineering role"),
+        ("electronics engineer", "Electronics engineering role"),
+        ("sales", "Sales role"),
+        ("marketing", "Marketing role"),
+        ("business development", "Business development role"),
+        ("accountant", "Accounting/Finance role"),
+        ("accounts", "Accounting/Finance role"),
+        ("finance", "Finance role"),
+        ("banking", "Banking role"),
+        ("auditor", "Auditor role"),
+        ("tax", "Taxation role"),
+        ("nurse", "Medical/Nursing role"),
+        ("doctor", "Medical role"),
+        ("pharmacist", "Pharma role"),
+        ("chemist", "Pharma role"),
+        ("teacher", "Teaching/Faculty role"),
+        ("faculty", "Teaching/Faculty role"),
+        ("lecturer", "Teaching/Faculty role"),
+        ("professor", "Teaching/Faculty role"),
+    ]
+
+    for kw, label in non_dev_keywords:
+        if re.search(rf"\b{re.escape(kw)}\b", t_lower):
+            return True, f"Title indicates non-matching domain/role: {label}"
+
+    return False, ""
+
+
+# ======================================================================
 # PHASE 5: Scoring Engine
 # ======================================================================
 
@@ -413,14 +502,9 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
     Returns:
         ScamScoreResult with raw_score, display score, reasons list, and level.
     """
-    # ------------------------------------------------------------------
-    # Phase 0: Input Validation & Text Preparation
-    # ------------------------------------------------------------------
-    raw_score = 0
     reasons: list[str] = []
     combined_text = f"{job.title} {job.company}" if job.title or job.company else ""
     desc_text = job.description or ""
-    # Normalize description for tech name matching (c# → csharp, c++ → cpp, f# → fsharp)
     normalized_desc = desc_text.lower()
     for raw, normalized in _TECH_NORMALIZE.items():
         normalized_desc = normalized_desc.replace(raw, normalized)
@@ -430,53 +514,52 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
     # ------------------------------------------------------------------
     # Phase 1: Genuine Signals (negative points — reduce scam score)
     # ------------------------------------------------------------------
-
-    # G1: Known reputed company (-500) — overrides all other signals
+    genuine_deductions = 0
+    is_whitelisted = False
     if job.company and _WHITELIST_RE.search(job.company):
-        raw_score -= 500
+        is_whitelisted = True
+        genuine_deductions -= 500
         reasons.append("Known reputed company (-500)")
 
-    # G2: Verified company logo (-30) — indicates established business
     if job.has_company_logo:
-        raw_score -= 30
+        genuine_deductions -= 30
         reasons.append("Verified company logo (-30)")
 
-    # G3: Detailed technical description with real tech stack
     if desc_text:
         tech_match = _TECH_SKILLS_RE.search(normalized_desc)
         tech_categories = _count_tech_categories(normalized_desc)
 
         if tech_match and tech_categories >= 2 and len(desc_text) > 400:
-            raw_score -= 50
+            genuine_deductions -= 50
             reasons.append(
                 f"Detailed technical description with {tech_categories} tech categories (-50)"
             )
         elif tech_match:
-            raw_score -= 20
+            genuine_deductions -= 20
             reasons.append("Technical skills in description (-20)")
 
-    # G4: Salary mentioned in description (-15) — legitimate listing practice
     if desc_text and _SALARY_RE.search(desc_text):
-        raw_score -= 15
+        genuine_deductions -= 15
         reasons.append("Salary mentioned in description (-15)")
 
     # ------------------------------------------------------------------
-    # Phase 2: Critical Scam Signals (highest weight)
+    # Phases 2-4: Scam Signals
     # ------------------------------------------------------------------
+    scam_signals_score = 0
 
     # S1: Financial scam terms in description (+200)
     if desc_text and _FINANCIAL_SCAM_RE.search(desc_text):
-        raw_score += 200
+        scam_signals_score += 200
         reasons.append("Financial scam terms in description (+200)")
 
-    # S12a: Agency/consultancy keywords in COMPANY (+200)
+    # S12a: Agency/consultancy keywords in COMPANY (+200) or TITLE (+100)
     in_company = job.company and _AGENCY_RE.search(job.company)
     in_title = job.title and _AGENCY_RE.search(job.title)
     if in_company:
-        raw_score += 200
+        scam_signals_score += 200
         reasons.append("Agency/consultancy keywords in company (+200)")
     elif in_title:
-        raw_score += 100
+        scam_signals_score += 100
         reasons.append("Agency/consultancy keywords in title (+100)")
 
     # S22a: Overseas/abroad recruiter in company or title (+200)
@@ -484,143 +567,127 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
     overseas_in_title = job.title and _OVERSEAS_RECRUITER_RE.search(job.title)
     overseas_in_desc = desc_text and _OVERSEAS_RECRUITER_RE.search(desc_text)
     if overseas_in_company or overseas_in_title:
-        raw_score += 200
+        scam_signals_score += 200
         reasons.append("Overseas/abroad job recruiter in company/title (+200)")
     elif overseas_in_desc:
-        raw_score += 80
+        scam_signals_score += 80
         reasons.append("Overseas/abroad job placement in description (+80)")
-
-    # ------------------------------------------------------------------
-    # Phase 3: High-Risk Scam Signals
-    # ------------------------------------------------------------------
 
     # S2: WhatsApp number in description (+120)
     if desc_text and _WHATSAPP_RE.search(desc_text):
-        raw_score += 120
+        scam_signals_score += 120
         reasons.append("WhatsApp number in description (+120)")
 
     # S10: Phone number stuffed in title or company (+100)
     if _PHONE_RE.search(combined_text):
-        raw_score += 100
+        scam_signals_score += 100
         reasons.append("Phone number in title/company (+100)")
 
     # S11: Personal email domain in title or company (+100)
     if _EMAIL_RE.search(combined_text):
-        raw_score += 100
+        scam_signals_score += 100
         reasons.append("Personal email in title/company (+100)")
 
     # S13: Education/training company name (+120)
     if job.company and _EDUCATION_TRAINING_RE.search(job.company):
-        raw_score += 120
+        scam_signals_score += 120
         reasons.append("Education/training company name (+120)")
 
     # S14: Generic services company name (+120)
     if job.company and _GENERIC_SERVICES_RE.search(job.company):
-        raw_score += 120
+        scam_signals_score += 120
         reasons.append("Generic services company name (+120)")
 
     # S15: BPO / call-centre / data-entry keywords (+100)
     if _BPO_RE.search(combined_text):
-        raw_score += 100
+        scam_signals_score += 100
         reasons.append("BPO/staffing keywords (+100)")
 
     # S17: Hidden / generic company name (+100)
     if job.company and _HIDDEN_COMPANY_RE.match(job.company.strip()):
-        raw_score += 100
+        scam_signals_score += 100
         reasons.append("Hidden/generic company name (+100)")
 
-    # S21a: Multiple phone numbers in description (3+) (+120)
+    # S21a: Multiple phone numbers in description (+120 / +40)
     if desc_text:
         phone_matches = _MULTIPLE_PHONES_RE.findall(desc_text)
         if len(phone_matches) >= 3:
-            raw_score += 120
+            scam_signals_score += 120
             reasons.append(f"Multiple phone numbers in description ({len(phone_matches)} found) (+120)")
         elif len(phone_matches) >= 1:
-            raw_score += 40
+            scam_signals_score += 40
             reasons.append(f"Phone number(s) in description ({len(phone_matches)} found) (+40)")
 
     # S25: Social media handle in description (+80)
     if desc_text and _SOCIAL_MEDIA_RE.search(desc_text):
-        raw_score += 80
+        scam_signals_score += 80
         reasons.append("Social media handle in description (+80)")
 
-    # ------------------------------------------------------------------
-    # Phase 4: Medium-Risk Scam Signals (stack together)
-    # ------------------------------------------------------------------
-
-    # S3: Resume request in description (+80)
+    # Medium risk signals
     if desc_text and _RESUME_REQUEST_RE.search(desc_text):
-        raw_score += 80
+        scam_signals_score += 80
         reasons.append("Resume request in description (+80)")
 
-    # S4: Contact HR / recruiter in description (+60)
     if desc_text and _CONTACT_HR_RE.search(desc_text):
-        raw_score += 60
+        scam_signals_score += 60
         reasons.append("Contact HR/recruiter in description (+60)")
 
-    # S5: Freshers advertisement patterns (+70)
     if desc_text and _FRESHERS_AD_RE.search(desc_text):
-        raw_score += 70
+        scam_signals_score += 70
         reasons.append("Freshers advertisement wording (+70)")
 
-    # S6: Generic description with no real tech requirements (+50)
     if desc_text and _GENERIC_DESC_RE.search(desc_text):
-        raw_score += 50
+        scam_signals_score += 50
         reasons.append("Generic description (soft skills only) (+50)")
 
-    # S7: Multiple city hiring indicates agency posting (+60)
     if desc_text and _MULTI_CITY_RE.search(desc_text):
-        raw_score += 60
+        scam_signals_score += 60
         reasons.append("Multiple city hiring in description (+60)")
 
-    # S8: Immediate joining / urgent requirement (+50)
     if desc_text and _IMMEDIATE_JOIN_RE.search(desc_text):
-        raw_score += 50
+        scam_signals_score += 50
         reasons.append("Immediate joining/urgent hiring language (+50)")
 
-    # S9: Very short description with no technical depth (+60)
     if desc_text and len(desc_text) < 150 and not _TECH_SKILLS_RE.search(normalized_desc):
-        raw_score += 60
+        scam_signals_score += 60
         reasons.append("Very short description without technical details (+60)")
 
-    # S16: Walk-in / suspicious hiring keywords in title (+80)
     if job.title and _WALKIN_RE.search(job.title):
-        raw_score += 80
+        scam_signals_score += 80
         reasons.append("Walk-in/suspicious hiring keywords (+80)")
 
-    # S18: Suspicious company name suffix (+40)
     if job.company and _COMPANY_SUFFIX_RE.search(job.company):
-        raw_score += 40
+        scam_signals_score += 40
         reasons.append("Suspicious company suffix (+40)")
 
-    # S19: Year number in company name (+50)
     if job.company and _DATE_IN_COMPANY_RE.search(job.company):
-        raw_score += 50
+        scam_signals_score += 50
         reasons.append("Year number in company name (+50)")
 
-    # S20: No logo + high openings indicates consultancies posting bulk (+60)
     if not job.has_company_logo and job.openings >= 30:
-        raw_score += 60
+        scam_signals_score += 60
         reasons.append("No logo with high openings (+60)")
 
-    # S23: Company name matches typical agency naming pattern (+80)
     if job.company and _SOLUTIONS_COMPANY_RE.match(job.company.strip()):
-        raw_score += 80
+        scam_signals_score += 80
         reasons.append("Company name matches agency solutions pattern (+80)")
 
-    # S24: Work-from-home with unrealistic earning claims (+60)
     if desc_text and _WFH_SCAM_RE.search(desc_text):
-        raw_score += 60
+        scam_signals_score += 60
         reasons.append("Work-from-home with unrealistic earning claims (+60)")
 
-    # S26: URL shortener in description (+40)
     if desc_text and _URL_SHORTENER_RE.search(desc_text):
-        raw_score += 40
+        scam_signals_score += 40
         reasons.append("URL shortener in description (+40)")
 
-    # ------------------------------------------------------------------
-    # Phase 5: Scoring & Classification
-    # ------------------------------------------------------------------
+    raw_score = scam_signals_score + genuine_deductions
+
+    # CRITICAL FIX: If positive scam signals meet or exceed SCAM_THRESHOLD (80),
+    # genuine deductions (logo, tech skills) must NOT reduce raw_score below SCAM_THRESHOLD
+    # unless it is a whitelisted company (-500).
+    if not is_whitelisted and scam_signals_score >= SCAM_THRESHOLD:
+        raw_score = max(SCAM_THRESHOLD, raw_score)
+
     display_score = max(0, min(100, raw_score))
 
     if raw_score >= SCAM_THRESHOLD:
@@ -716,9 +783,8 @@ class CompanyExclusionSpecification(JobSpecification):
 
 class TitleExclusionSpecification(JobSpecification):
     """
-    Stage 2: Exclude if job title contains configured exclusion keywords.
-    Uses word boundaries to avoid substring false positives
-    (e.g. 'sales' won't match 'Salesforce Developer').
+    Stage 2: Exclude if job title contains configured exclusion keywords
+    or matches non-matching domain/role patterns.
     """
 
     def __init__(self, keywords: list[str]) -> None:
@@ -728,12 +794,19 @@ class TitleExclusionSpecification(JobSpecification):
             self._regex = re.compile(pattern, re.IGNORECASE)
 
     def is_satisfied_by(self, job: Job) -> bool:
-        if not self._regex:
-            return False
         title = job.title
-        if title and self._regex.search(title):
+        if not title:
+            return False
+
+        if self._regex and self._regex.search(title):
             logger.info(f"Excluded title match: {title}")
             return True
+
+        is_excl, reason = is_job_in_excluded_domain(job)
+        if is_excl:
+            logger.info(f"Excluded domain title match: {title} ({reason})")
+            return True
+
         return False
 
 
@@ -760,25 +833,6 @@ class DescriptionExclusionSpecification(JobSpecification):
 
 
 class ConsultancyScamSpecification(JobSpecification):
-    """
-    Stage 5: Advanced multi-layered heuristic (v6) to identify and exclude
-    non-genuine companies, consultancies, placement agencies, staffing firms,
-    education/training institutes, and scam/spam jobs.
-
-    Uses the 5-phase compute_scam_score() algorithm and excludes jobs with
-    raw_score >= SCAM_THRESHOLD (80).
-
-    Key behaviors:
-      - Product-based and service-based IT companies (TCS, Infosys, etc.)
-        always pass via the -500 whitelist.
-      - Placement/staffing/recruitment agencies are always excluded
-        (agency +200 cannot be overcome except by the whitelist).
-      - Education/training institutes, overseas recruiters, and financial
-        scams are caught by high-weight signals.
-      - Legitimate startups with logo + tech description still pass.
-      - Multiple weak signals must stack to reach the threshold.
-    """
-
     SCAM_THRESHOLD = SCAM_THRESHOLD
 
     def is_satisfied_by(self, job: Job) -> bool:
@@ -796,11 +850,6 @@ class ConsultancyScamSpecification(JobSpecification):
 class AuthenticityExclusionSpecification(JobSpecification):
     """
     Stage 3: Evaluate job authenticity based on company identity.
-
-    Excludes jobs if:
-      1. Company name matches the configured fake/spam blocklist.
-      2. Company name is hidden/generic (e.g., "MNC", "Confidential").
-      3. No verified company logo AND unusually high number of openings.
     """
 
     def __init__(self, blocklist: list[str], max_openings_without_logo: int) -> None:
@@ -810,7 +859,6 @@ class AuthenticityExclusionSpecification(JobSpecification):
             pattern = "|".join(map(re.escape, blocklist))
             self._regex = re.compile(pattern, re.IGNORECASE)
 
-        # Reuse the same hidden company pattern as the scoring engine
         self._hidden_company_regex = _HIDDEN_COMPANY_RE
 
     def is_satisfied_by(self, job: Job) -> bool:
@@ -837,3 +885,304 @@ class AuthenticityExclusionSpecification(JobSpecification):
             return True
 
         return False
+
+
+def evaluate_job_all_filters(
+    job: Job,
+    settings: Any,
+    filter_toggles: dict[str, bool] | None = None,
+    match_score: float | None = None,
+    heuristic_score: float | None = None,
+    is_duplicate: bool = False,
+) -> dict[str, Any]:
+    """
+    Evaluates a single job entity against all pipeline filter criteria.
+    Supports runtime filter toggles (enable/disable) for real-time debugging.
+
+    Returns a structured dictionary containing overall pass/fail status,
+    rejection reasons, and individual filter diagnostics.
+    """
+    if filter_toggles is None:
+        filter_toggles = {}
+
+    # Read toggle overrides or default to settings
+    enable_exp = filter_toggles.get("enable_experience_filter", True)
+    enable_fresh = filter_toggles.get("enable_freshness_filter", True)
+    enable_scam = filter_toggles.get(
+        "enable_scam_filter",
+        getattr(getattr(settings, "exclusions", None), "enable_scam_filter", True),
+    )
+    enable_title = filter_toggles.get("enable_title_blacklist", True)
+    enable_company = filter_toggles.get("enable_company_blacklist", True)
+    enable_desc = filter_toggles.get("enable_description_blacklist", True)
+    enable_heuristics = filter_toggles.get(
+        "enable_heuristics",
+        getattr(getattr(settings, "search", None), "enable_heuristics", True),
+    )
+    enable_match_score = filter_toggles.get("enable_match_score_filter", True)
+
+    # Master switch check
+    master_enabled = filter_toggles.get("master_enable", True)
+    if not master_enabled:
+        enable_exp = False
+        enable_fresh = False
+        enable_scam = False
+        enable_title = False
+        enable_company = False
+        enable_desc = False
+        enable_heuristics = False
+        enable_match_score = False
+
+    search_cfg = getattr(settings, "search", None)
+    exclusions_cfg = getattr(settings, "exclusions", None)
+    app_cfg = getattr(settings, "application", None)
+
+    max_exp = getattr(search_cfg, "experience_max", 3) if search_cfg else 3
+    max_fresh = getattr(search_cfg, "freshness", 30) if search_cfg else 30
+    min_match_thresh = (
+        getattr(app_cfg, "match_score_threshold", 40.0) if app_cfg else 40.0
+    )
+
+    title_keywords = getattr(exclusions_cfg, "title_keywords", []) if exclusions_cfg else []
+    companies_bl = getattr(exclusions_cfg, "companies", []) if exclusions_cfg else []
+    fake_companies = (
+        getattr(exclusions_cfg, "fake_company_blocklist", []) if exclusions_cfg else []
+    )
+    all_company_bl = list(set(companies_bl + fake_companies))
+    desc_keywords = (
+        getattr(exclusions_cfg, "description_keywords", []) if exclusions_cfg else []
+    )
+
+    evaluations: dict[str, Any] = {}
+    rejection_reasons: list[str] = []
+
+    # 1. Experience Filter (check min & max required exp)
+    exp_text = str(job.experience or "").lower()
+    exp_passed = True
+    exp_reason = "Passed"
+    if exp_text:
+        months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+        if not any(m in exp_text for m in months):
+            range_match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)", exp_text)
+            single_match = re.search(r"(\d+)", exp_text)
+            min_req = 0
+            max_req = 0
+            if range_match:
+                min_req = int(range_match.group(1))
+                max_req = int(range_match.group(2))
+            elif single_match:
+                min_req = int(single_match.group(1))
+                max_req = min_req
+
+            if min_req > max_exp:
+                exp_passed = False
+                exp_reason = f"Experience required ({min_req} Yrs) exceeds limit ({max_exp} Yrs)"
+            elif max_req > max_exp + 1 and max_req >= 4:
+                exp_passed = False
+                exp_reason = f"Maximum experience in range ({max_req} Yrs) exceeds target limit ({max_exp} Yrs)"
+
+    evaluations["experience"] = {
+        "name": "Experience Limit",
+        "enabled": enable_exp,
+        "passed": exp_passed,
+        "reason": exp_reason,
+        "details": {"required": job.experience, "max_allowed": max_exp},
+    }
+    if enable_exp and not exp_passed:
+        rejection_reasons.append(exp_reason)
+
+    # 2. Freshness Filter
+    fresh_passed = True
+    fresh_reason = "Passed"
+    if job.posted_date and max_fresh > 0:
+        posted_lower = str(job.posted_date).lower()
+        days_old = 0
+        if "yesterday" in posted_lower:
+            days_old = 1
+        elif "week" in posted_lower:
+            m = re.search(r"(\d+)", posted_lower)
+            days_old = int(m.group(1)) * 7 if m else 7
+        elif "month" in posted_lower:
+            m = re.search(r"(\d+)", posted_lower)
+            days_old = int(m.group(1)) * 30 if m else 30
+        elif "day" in posted_lower:
+            m = re.search(r"(\d+)", posted_lower)
+            days_old = int(m.group(1)) if m else 1
+        elif "30+" in posted_lower:
+            days_old = 31
+
+        if days_old > max_fresh:
+            fresh_passed = False
+            fresh_reason = f"Job age (~{days_old} days) exceeds limit ({max_fresh} days)"
+
+    evaluations["freshness"] = {
+        "name": "Freshness Limit",
+        "enabled": enable_fresh,
+        "passed": fresh_passed,
+        "reason": fresh_reason,
+        "details": {"posted_date": job.posted_date, "max_days": max_fresh},
+    }
+    if enable_fresh and not fresh_passed:
+        rejection_reasons.append(fresh_reason)
+
+    # 3. Scam / Consultancy Detection
+    scam_res = compute_scam_score(job)
+    scam_passed = scam_res.raw_score < SCAM_THRESHOLD
+    scam_reason = (
+        f"Scam score {scam_res.raw_score} >= {SCAM_THRESHOLD}"
+        if not scam_passed
+        else "Passed scam check"
+    )
+
+    evaluations["scam_detection"] = {
+        "name": "Scam & Consultancy Detection",
+        "enabled": enable_scam,
+        "passed": scam_passed,
+        "score": scam_res.raw_score,
+        "threshold": SCAM_THRESHOLD,
+        "level": scam_res.level,
+        "reasons_list": scam_res.reasons,
+        "reason": scam_reason if not scam_passed else f"Scam score: {scam_res.raw_score}",
+    }
+    if enable_scam and not scam_passed:
+        rejection_reasons.append(
+            f"Flagged as scam/consultancy (Score: {scam_res.raw_score}): {', '.join(scam_res.reasons[:2])}"
+        )
+
+    # 4. Title Blacklist & Non-matching Domain Role Check
+    title_passed = True
+    matched_title_kws = []
+    title_reason = "Passed title check"
+
+    if job.title:
+        t_lower = job.title.lower()
+        if title_keywords:
+            for kw in title_keywords:
+                if kw and re.search(r"\b" + re.escape(kw.lower()) + r"\b", t_lower):
+                    matched_title_kws.append(kw)
+
+        is_excl_domain, domain_reason = is_job_in_excluded_domain(job)
+        if matched_title_kws:
+            title_passed = False
+            title_reason = f"Title matches blacklisted keyword(s): {', '.join(matched_title_kws)}"
+        elif is_excl_domain:
+            title_passed = False
+            title_reason = domain_reason
+
+    evaluations["title_blacklist"] = {
+        "name": "Title Blacklist",
+        "enabled": enable_title,
+        "passed": title_passed,
+        "matched_keywords": matched_title_kws,
+        "reason": title_reason,
+    }
+    if enable_title and not title_passed:
+        rejection_reasons.append(title_reason)
+
+    # 5. Company Blacklist & Authenticity Check
+    company_passed = True
+    matched_company = ""
+    company_reason = "Passed company check"
+
+    if job.company:
+        c_lower = job.company.lower()
+        if all_company_bl:
+            for bl_co in all_company_bl:
+                if bl_co and bl_co.lower() in c_lower:
+                    company_passed = False
+                    matched_company = bl_co
+                    company_reason = f"Company matches blacklisted term '{matched_company}'"
+                    break
+
+        if company_passed and _HIDDEN_COMPANY_RE.match(job.company.strip()):
+            company_passed = False
+            company_reason = f"Company uses generic/hidden name '{job.company}'"
+
+        max_openings_nologo = getattr(exclusions_cfg, "max_openings_without_logo", 25) if exclusions_cfg else 25
+        if company_passed and not job.has_company_logo and (job.openings or 0) >= max_openings_nologo:
+            company_passed = False
+            company_reason = f"Unverified company without logo posted {job.openings} openings"
+
+    evaluations["company_blacklist"] = {
+        "name": "Company Blacklist",
+        "enabled": enable_company,
+        "passed": company_passed,
+        "matched_company": matched_company,
+        "reason": company_reason,
+    }
+    if enable_company and not company_passed:
+        rejection_reasons.append(company_reason)
+
+    # 6. Description Blacklist
+    desc_passed = True
+    matched_desc_kws = []
+    if job.description and desc_keywords:
+        d_lower = job.description.lower()
+        for d_kw in desc_keywords:
+            if d_kw and d_kw.lower() in d_lower:
+                matched_desc_kws.append(d_kw)
+        if matched_desc_kws:
+            desc_passed = False
+            desc_reason = (
+                f"Description contains blacklisted phrase(s): {', '.join(matched_desc_kws[:3])}"
+            )
+        else:
+            desc_reason = "Passed description check"
+    else:
+        desc_reason = "Passed description check"
+
+    evaluations["description_blacklist"] = {
+        "name": "Description Blacklist",
+        "enabled": enable_desc,
+        "passed": desc_passed,
+        "matched_keywords": matched_desc_kws,
+        "reason": desc_reason,
+    }
+    if enable_desc and not desc_passed:
+        rejection_reasons.append(desc_reason)
+
+    # 7. Heuristics Filter
+    heur_passed = True
+    heur_reason = "Passed"
+    MIN_HEURISTIC_SCORE = 0.08
+    if heuristic_score is not None and heuristic_score < MIN_HEURISTIC_SCORE:
+        heur_passed = False
+        heur_reason = f"Heuristic score ({heuristic_score:.3f}) below min threshold ({MIN_HEURISTIC_SCORE})"
+
+    evaluations["heuristics"] = {
+        "name": "Min Heuristic Score",
+        "enabled": enable_heuristics,
+        "passed": heur_passed,
+        "score": round(heuristic_score, 3) if heuristic_score is not None else None,
+        "threshold": MIN_HEURISTIC_SCORE,
+        "reason": heur_reason,
+    }
+    if enable_heuristics and not heur_passed:
+        rejection_reasons.append(heur_reason)
+
+    # 8. AI Match Score Threshold
+    match_passed = True
+    match_reason = "Passed"
+    if match_score is not None and match_score < min_match_thresh:
+        match_passed = False
+        match_reason = f"AI Match Score ({match_score:.1f}) below threshold ({min_match_thresh:.1f})"
+
+    evaluations["match_score"] = {
+        "name": "AI Match Score",
+        "enabled": enable_match_score,
+        "passed": match_passed,
+        "score": round(match_score, 1) if match_score is not None else None,
+        "threshold": min_match_thresh,
+        "reason": match_reason,
+    }
+    if enable_match_score and not match_passed:
+        rejection_reasons.append(match_reason)
+
+    overall_passed = len(rejection_reasons) == 0
+
+    return {
+        "passed": overall_passed,
+        "rejection_reasons": rejection_reasons,
+        "filter_evaluations": evaluations,
+    }
+

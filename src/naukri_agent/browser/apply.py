@@ -385,48 +385,49 @@ class JobApplier:
                         return opt
             return options[0] if options else default
 
+        is_exp_q = any(kw in q_text for kw in ["experience", "years", "month", "exp", "how many"])
         if q_type in ("radio", "dropdown", "checkbox"):
-            if "reloc" in q_text or "travel" in q_text or "shift" in q_text or "agree" in q_text:
+            if is_exp_q:
+                return pick_option(["1 year", "1-2", "0-1", "1"], options[0] if options else "1 year")
+            if "reloc" in q_text or "travel" in q_text or "shift" in q_text or "agree" in q_text or "consent" in q_text or "resid" in q_text:
                 return pick_option(["yes", "agree", "true", "y"], "Yes")
             if "notice" in q_text:
                 return pick_option(["immediate", "0 days", "15 days", "serving"], "Immediate")
             if "gender" in q_text:
                 return pick_option(["male"], "Male")
-            if "experience" in q_text or "years" in q_text:
-                return pick_option(["1", "1 year", "0-1", "1-2"], options[0] if options else "1")
             if "ctc" in q_text or "salary" in q_text:
                 return pick_option(["4", "5", "6"], options[0] if options else "6 LPA")
             if "location" in q_text or "city" in q_text:
                 return pick_option(["pune"], "Pune")
-            return options[0] if options else "Yes"
+            return pick_option(["yes", "agree", "true", "y"], options[0] if options else "Yes")
         else:
             # Text / number / date fields
-            if "experience" in q_text or "years" in q_text or "month" in q_text:
-                return "1"
+            if is_exp_q:
+                return "1" if (q_type == "number" or "digit" in q_text) else "1 year"
             if "ctc" in q_text or "salary" in q_text:
                 if "expected" in q_text:
                     return (
                         "600000"
                         if "rupee" in q_text or "rs" in q_text or "annual" in q_text
-                        else "6"
+                        else "6 LPA"
                     )
                 return (
-                    "440000" if "rupee" in q_text or "rs" in q_text or "annual" in q_text else "4.4"
+                    "450000" if "rupee" in q_text or "rs" in q_text or "annual" in q_text else "4.5 LPA"
                 )
             if "notice" in q_text:
                 return "Immediate"
             if "location" in q_text or "city" in q_text:
                 return "Pune"
             if "phone" in q_text or "mobile" in q_text:
-                return self._settings.naukri.mobile_number or "Not specified"
+                return self._settings.naukri.mobile_number or "9999999999"
             if "email" in q_text:
-                return self._settings.naukri.email or "Not specified"
+                return self._settings.naukri.email or "candidate@example.com"
             if "name" in q_text:
                 return getattr(self._settings.naukri, "name", "") or "Candidate"
             if "why" in q_text or "join" in q_text or "fit" in q_text:
-                return "I am a skilled Full-Stack Developer with hands-on experience in Java, Spring Boot, and React. I am passionate about building scalable, high-performance web applications and would love to contribute to your team."
+                return "I have 1 year of hands-on experience in Java, Spring Boot, and React. I build scalable microservices and deliver high-quality code efficiently."
             if "project" in q_text or "describe" in q_text:
-                return "I built a production-grade autonomous RPA agent using Python, Playwright, and Gemini API, and a real-time ride sharing platform using Spring Boot and React."
+                return "I developed full-stack web applications and microservices using Spring Boot, React, and MySQL, with automated CI/CD deployment."
             return "Yes"
 
     async def _fill_screening_questions(self, job: Job) -> bool:
@@ -720,7 +721,7 @@ class JobApplier:
             if q_type in ("radio", "checkbox"):
                 # JS-based checkbox/radio fill
                 result = await page.evaluate(
-                    """({ answer, qText, options }) => {
+                    r"""({ answer, qText, options }) => {
                         if (!CSS.escape) {
                             CSS.escape = function(value) {
                                 if (typeof value !== 'string') return '';
@@ -821,7 +822,7 @@ class JobApplier:
             else:
                 # Text/number/date/dropdown JS force fill
                 result = await page.evaluate(
-                    """({ answer, qText }) => {
+                    r"""({ answer, qText }) => {
                         if (!CSS.escape) {
                             CSS.escape = function(value) {
                                 if (typeof value !== 'string') return '';
@@ -981,7 +982,7 @@ class JobApplier:
             default_location = self._settings.profile.current_location or "Pune"
 
             result = await page.evaluate(
-                """({ defaultCtc, defaultExp, defaultNotice, defaultLocation }) => {
+                r"""({ defaultCtc, defaultExp, defaultNotice, defaultLocation }) => {
                     if (!CSS.escape) {
                         CSS.escape = function(value) {
                             if (typeof value !== 'string') return '';

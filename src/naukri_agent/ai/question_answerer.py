@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Question answering prompt
 # ---------------------------------------------------------------------------
-QUESTION_ANSWER_PROMPT = """You are an ultra-precise job application assistant. Your task is to analyze the semantic meaning of each screening question and answer it strictly based on the candidate's profile, resume, skills, education, and work experience.
+QUESTION_ANSWER_PROMPT = """You are an ultra-precise job application assistant. Your task is to analyze each screening question and answer it strictly based on the candidate's profile, skills, education, and work experience.
 
 CANDIDATE DETAILS (from resume profile):
 - Full Name: {candidate_name}
@@ -43,7 +43,7 @@ CANDIDATE DETAILS (from resume profile):
 - Current Title: {current_title}
 - Current Location: {current_location}
 - Preferred Locations: {preferred_locations} (Willing to relocate: Yes)
-- Total Experience: {total_experience}
+- Total Experience: 1 year ({total_experience})
 - Current CTC: {current_ctc}
 - Expected CTC: {expected_ctc} (negotiable)
 - Notice Period: {notice_period}
@@ -63,22 +63,19 @@ QUESTIONS TO ANSWER:
 {questions_json}
 
 CRITICAL RULES:
-1. EXACT INTENT & COMPREHENSION:
-   - Carefully analyze each question's specific topic (e.g. experience in HTML/CSS/React/Python/Java, total experience, notice period, CTC, graduation year, relocation, etc.).
-   - Answer the EXACT question being asked. NEVER give random answers, candidate name, or the same answer for different questions!
-   - For skill/technology experience questions (e.g., HTML, CSS, JavaScript, React.js, Python, Java, SQL, AWS):
-     * Check if the candidate has worked with or knows this technology from their skills, work history, or resume text.
-     * Calculate the candidate's actual years of experience with that specific skill based on their career duration or matching work roles (e.g. "1" or "1 year" if candidate has worked 1 year in frontend development using HTML/CSS/React).
-     * If options are provided in the question object, pick the matching option string EXACTLY (e.g., "1 Year", "1-2 Years").
-     * If candidate has no experience in that skill and it is absent from profile/resume, return "0" (or matching option like "0 Years" / "Freshers").
-2. MULTIPLE CHOICE ENFORCEMENT:
+1. EXPERIENCE QUESTIONS (TOTAL OR SKILL-SPECIFIC):
+   - The candidate has 1 year of total professional experience.
+   - For ANY question asking about experience (whether total experience or experience in specific technologies/skills like Java, Spring Boot, HTML, CSS, JavaScript, React, Python, SQL, AWS, microservices, etc.):
+     * ALWAYS answer "1 year" (or "1" if numeric field, or matching choice option like "1 Year" / "1-2 Years" / "0-1 Years").
+     * NEVER write long 3rd person paragraphs, candidate bios, or conversational descriptions (e.g. NEVER output "Pushpak Pandharpatte has 1 year of professional experience...").
+2. POSITIVE ANSWERS MANDATORY:
+   - Answer ALL questions positively to maximize the candidate's chances of receiving interview calls.
+   - NEVER leave any question blank, empty, or unanswered.
+3. MULTIPLE CHOICE ENFORCEMENT:
    - If `options` are provided for a question, your answer MUST match one of the option text strings EXACTLY.
-3. GROUNDING & DATA ACCURACY:
-   - Base all answers strictly on the candidate's provided profile, work experience, education, and full resume text.
-   - Do not guess or invent arbitrary false details. If required information is missing, mark confidence as "low".
 4. FORMAT COMPLIANCE:
-   - For text fields: concise, direct answer without conversational prefix.
-   - For number fields: numeric digits only (e.g. "1", "2023", "440000") unless options dictate text.
+   - For text fields: ultra-concise, direct answer (e.g., "1 year", "Yes", "Immediate", "6 LPA"). No conversational prefixes.
+   - For number fields: numeric digits only (e.g. "1", "2023", "450000").
 5. PRESERVE QUESTION ID:
    - Include the exact "id" provided in each input question object in your output object.
 
@@ -109,6 +106,8 @@ DIRECT_ANSWER_PATTERNS = {
     "total experience": "total_experience",
     "overall experience": "total_experience",
     "total work experience": "total_experience",
+    "years of experience": "total_experience",
+    "experience in": "total_experience",
     "current location": "current_location",
     "current city": "current_location",
     "residence": "current_location",
@@ -259,10 +258,12 @@ class QuestionAnswerer(IQuestionAnswerer):
         question_lower = question_text.lower().strip()
 
         # Safeguard: If question asks about experience/knowledge in a specific skill or technology,
-        # bypass direct answer patterns (which only apply to overall profile attributes like total CTC, notice period).
+        # or is descriptive, pass to LLM (which is prompted to answer 1 year from total experience).
         skill_patterns = r"\b(html|css|javascript|js|react|angular|vue|python|java|c#|\.net|cpp|c\+\+|sql|mysql|postgres|mongodb|aws|azure|gcp|docker|kubernetes|git|node|express|django|flask|spring|rest|api|microservices|testing|qa|agile|devops|flutter|dart|android|ios|swift|kotlin|pandas|numpy|ml|ai)\b"
-        has_skill_word = re.search(skill_patterns, question_lower) is not None or re.search(r"\b(in|with|for)\b", question_lower) is not None
-        if has_skill_word and not any(k in question_lower for k in ["total experience", "overall experience", "total work experience", "current ctc", "expected ctc", "notice period"]):
+        has_skill_word = re.search(skill_patterns, question_lower) is not None
+        is_descriptive = any(kw in question_lower for kw in ["describe", "explain", "tell", "why", "project"])
+
+        if (has_skill_word or is_descriptive) and not any(k in question_lower for k in ["total experience", "overall experience", "total work experience"]):
             return None
 
         config_key = None

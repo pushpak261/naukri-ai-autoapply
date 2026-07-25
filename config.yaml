@@ -112,6 +112,8 @@ exclusions:
   - auditor
   - tax
   - consultancy
+  - consultant
+  - consultants
   - placement
   - staffing
   - recruitment services
@@ -147,6 +149,19 @@ exclusions:
   - career guidance
   - job guidance
   - spot offer
+  - walk-in
+  - walkin
+  - trainee
+  - diploma trainee
+  - training
+  - animator
+  - physiotherapist
+  - therapist
+  - safety database specialist
+  - clinical research
+  - care engineer
+  - payroll
+  - design engineer
   - test automation
   - qa
   - manual tester
@@ -180,18 +195,8 @@ search:
   experience_min: 0
   freshness: 3
   keywords:
-  - Software Engineer
-  - Software Developer
-  - Java Developer
-  - Backend Developer
-  - Backend Engineer
-  - Associate Software Engineer
-  - Java Backend Developer
   - Full Stack Developer
-  - Application Developer
-  - Software Engineer Java
-  - Java Full Stack Developer
-  - Trainee Software Engineer
+  - Software Engineer
   locations:
   - Pune
   - Mumbai

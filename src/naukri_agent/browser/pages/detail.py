@@ -562,25 +562,26 @@ class JobDetailPage(BasePage):
                             '[class*="chat-msg" i], [class*="msg" i], [class*="bubble" i], p, span, div'
                         )).filter(el => {
                             if (el.contains(first) || !isVisible(el)) return false;
-                            if (el.closest('[class*="user" i], [class*="reply" i], [class*="sent" i], [class*="input" i]')) return false;
+                            const userClass = '[class*="user" i], [class*="candidate" i], [class*="reply" i], [class*="sent" i], [class*="input" i], [class*="right" i], [class*="answer" i], [class*="response" i], [class*="user_msg" i], [class*="user-msg" i], [class*="userMsg" i]';
+                            if (el.closest(userClass)) return false;
                             const t = (el.innerText || el.textContent || '').trim();
-                            if (!t || isFiller(t) || t.length < 4 || t.length > 250) return false;
-                            if (/save|submit|next|cancel|close|thank you/i.test(t)) return false;
+                            if (!t || isFiller(t) || t.length < 4 || t.length > 300) return false;
+                            if (/^(save|submit|next|cancel|close|thank you|1 year|1 years|1|yes|no|immediate|pune|4\.4|4\.5|6 lpa)$/i.test(t)) return false;
+                            try {
+                                const st = window.getComputedStyle(el);
+                                if (st.textAlign === 'right' || st.justifyContent === 'flex-end' || st.alignSelf === 'flex-end' || st.float === 'right') return false;
+                            } catch(e) {}
                             return true;
                         });
 
                         const questionBubbles = botBubbles.filter(el => {
                             const t = (el.innerText || el.textContent || '').trim();
-                            return t.includes('?') || /how many|years|experience|notice|ctc|salary|skill|location|qualification|degree|rate|level|proficiency/i.test(t);
+                            return t.includes('?') || /how many|years|experience|exp|notice|ctc|salary|skill|location|resid|relocat|qualification|degree|rate|level|proficiency/i.test(t);
                         });
 
                         if (questionBubbles.length > 0) {
                             const activeQ = questionBubbles[questionBubbles.length - 1];
                             const txt = (activeQ.innerText || activeQ.textContent || '').trim();
-                            if (txt) return txt;
-                        } else if (botBubbles.length > 0) {
-                            const activeB = botBubbles[botBubbles.length - 1];
-                            const txt = (activeB.innerText || activeB.textContent || '').trim();
                             if (txt) return txt;
                         }
                     }
@@ -1757,18 +1758,21 @@ class JobDetailPage(BasePage):
                         )
                         for text_input in text_inputs:
                             await text_input.fill("")
-                            await text_input.type(a, delay=50)
+                            await text_input.type(a, delay=30)
+                            await text_input.evaluate("""el => {
+                                el.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+                                el.dispatchEvent(new Event('change', { bubbles: true }));
+                                try {
+                                    el.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
+                                    el.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+                                } catch(e) {}
+                                el.dispatchEvent(new Event('blur', { bubbles: true }));
+                            }""")
+                            await asyncio.sleep(0.3)
 
-                            # Trigger next step
-                            submit_btn = await container_el.query_selector(
-                                'button:has-text("Save"), button:has-text("Submit"), button:has-text("Next"), button:has-text("Continue")'
-                            )
-                            if submit_btn and await submit_btn.is_visible():
-                                try:
-                                    await submit_btn.click(timeout=1500)
-                                except PlaywrightError:
-                                    await text_input.press("Enter")
-                            else:
+                            # Trigger Save button so the answer registers and advances
+                            save_clicked = await self.click_chatbot_save_button()
+                            if not save_clicked:
                                 await text_input.press("Enter")
 
                             logger.debug(

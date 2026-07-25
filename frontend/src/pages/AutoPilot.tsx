@@ -45,8 +45,8 @@ export default function AutoPilot() {
     onError: (err: Error) => setNotification({ type: 'error', message: `Failed to save: ${err.message}` }),
   });
 
-  const addMutation = useMutation({
-    mutationFn: ({ company, list }: { company: string; list: string }) =>
+  const addMutation = useMutation<any, Error, { company: string; list: string }>({
+    mutationFn: ({ company, list }) =>
       list === 'whitelist' ? api.autopilot.addToWhitelist(company) : api.autopilot.addToBlacklist(company),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['autopilot', 'config'] });
@@ -56,8 +56,8 @@ export default function AutoPilot() {
     onError: (err: Error) => setNotification({ type: 'error', message: err.message }),
   });
 
-  const removeMutation = useMutation({
-    mutationFn: ({ company, list }: { company: string; list: string }) =>
+  const removeMutation = useMutation<any, Error, { company: string; list: string }>({
+    mutationFn: ({ company, list }) =>
       list === 'whitelist' ? api.autopilot.removeFromWhitelist(company) : api.autopilot.removeFromBlacklist(company),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['autopilot', 'config'] });

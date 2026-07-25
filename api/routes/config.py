@@ -50,6 +50,8 @@ class ConfigUpdate(BaseModel):
     notify_on_failure: bool | None = None
     notify_on_scam: bool | None = None
     notify_on_match: bool | None = None
+    enable_scam_filter: bool | None = None
+
 
 
 def _set_nested(d: dict, keys: list[str], value: Any) -> None:
@@ -205,6 +207,7 @@ async def update_config(update: ConfigUpdate):
         (["application", "notify_on_match"], update.notify_on_match, False),
         (["application", "rate_limit_capacity"], update.rate_limit_capacity, False),
         (["application", "rate_limit_refill_rate"], update.rate_limit_refill_rate, False),
+        (["exclusions", "enable_scam_filter"], update.enable_scam_filter, False),
     ]
 
     for keys, value, is_secret in updates:

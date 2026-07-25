@@ -2,21 +2,20 @@ import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Briefcase, FileCheck, History, Settings, User,
   BarChart3, Radar, ShieldAlert, Bot, Database, FileText, HardDrive, Activity,
-  Sun, Moon, Zap,   GitBranch, LineChart, Download, LogOut, LogIn,
-  Users, Webhook, Globe, Trash2, Layers, Bug,
+  Sun, Moon, Zap, LineChart, Download, LogOut, LogIn,
+  Users, Webhook, Globe, Trash2, Filter,
 } from 'lucide-react';
 import { useTheme } from '../lib/ThemeContext';
 import { useAuth } from '../lib/AuthContext';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard', end: true },
+  { to: '/job-inspector', icon: Filter, label: 'Job Inspector' },
   { to: '/market-intelligence', icon: LineChart, label: 'Market Intel' },
+
   { to: '/analytics', icon: BarChart3, label: 'Analytics' },
   { to: '/skills-gap', icon: Radar, label: 'Skills Gap' },
   { to: '/autopilot', icon: Zap, label: 'Auto-Pilot' },
-  { to: '/pipeline-debugger', icon: GitBranch, label: 'Pipeline' },
-  { to: '/pipeline-jobs', icon: Layers, label: 'Pipeline Jobs' },
-  { to: '/pipeline-debug', icon: Bug, label: 'Pipeline Debug' },
   { to: '/scam-detector', icon: ShieldAlert, label: 'Scam Detector' },
   { to: '/agent-control', icon: Bot, label: 'Agent Control' },
   { to: '/linkedin', icon: Globe, label: 'LinkedIn' },
