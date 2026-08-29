@@ -97,12 +97,14 @@ class HumanInteractions(IBrowserInteractions):
         if not page:
             return
 
-        # 1. Try Escape key
-        try:
-            await page.keyboard.press("Escape")
-            await asyncio.sleep(0.2)
-        except PlaywrightError:
-            pass
+        # 1. Try Escape key (skip if on login page to avoid closing login layer)
+        current_url = (page.url or "").lower()
+        if "login" not in current_url:
+            try:
+                await page.keyboard.press("Escape")
+                await asyncio.sleep(0.2)
+            except PlaywrightError:
+                pass
 
         # 2. Try close button selectors
         popup_selectors = [
@@ -137,7 +139,7 @@ class HumanInteractions(IBrowserInteractions):
             except (PlaywrightTimeoutError, PlaywrightError):
                 pass
 
-        # 3. Fallback: Hiding/removing overlays using DOM injection (excluding elements with Save button)
+        # 3. Fallback: Hiding/removing overlays using DOM injection (excluding elements with Save/Login form)
         try:
             popup_container_selectors = [
                 ".nps-feedback-container",
@@ -155,11 +157,15 @@ class HumanInteractions(IBrowserInteractions):
                     let count = 0;
                     document.querySelectorAll("{container_sel}").forEach(el => {{
                         if (!el) return;
-                        // Avoid removing the edit modal (which contains a Save button)
+                        // Avoid removing the edit modal (contains Save) or login form/modal
                         const hasSaveButton = Array.from(el.querySelectorAll('button')).some(
-                            btn => btn.textContent.trim().toLowerCase() === 'save'
+                            btn => (btn.textContent || '').trim().toLowerCase() === 'save'
                         );
-                        if (!hasSaveButton && !el.contains(document.querySelector('.profile-summary')) && !el.id.includes('root')) {{
+                        const isLoginForm = el.querySelector('input[type="password"], input[type="email"], input#usernameField, form') !== null ||
+                            Array.from(el.querySelectorAll('button, a')).some(
+                                btn => (btn.textContent || '').trim().toLowerCase().includes('login')
+                            );
+                        if (!hasSaveButton && !isLoginForm && !el.contains(document.querySelector('.profile-summary')) && !el.id.includes('root')) {{
                             el.remove();
                             count++;
                         }}

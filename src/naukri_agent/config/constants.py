@@ -57,9 +57,28 @@ class LoginSelectors:
     """Selectors for the Naukri login page."""
 
     # Login form inputs — using placeholder/type attributes (more stable)
-    EMAIL_INPUT = 'input[placeholder="Enter Email ID / Username"], input[placeholder*="Email ID"], input[placeholder*="Username"]'
-    PASSWORD_INPUT = 'input[placeholder="Enter Password"], input[placeholder*="Password"]'
-    LOGIN_BUTTON = '//button[contains(text(), "Login")]'
+    EMAIL_INPUT = (
+        'input[placeholder="Enter Email ID / Username"], '
+        'input[placeholder*="Email ID" i], '
+        'input[placeholder*="Username" i], '
+        'input[placeholder*="Email" i], '
+        'input[type="email"], '
+        'input#usernameField, '
+        'input[name="email" i], '
+        'input[name="username" i], '
+        'form input[type="text"]:not([placeholder*="Search" i])'
+    )
+    PASSWORD_INPUT = (
+        'input[placeholder="Enter Password"], '
+        'input[placeholder*="Password" i], '
+        'input[type="password"], '
+        'input#passwordField, '
+        'input[name="password" i]'
+    )
+    LOGIN_BUTTON = (
+        '//button[contains(text(), "Login") or contains(text(), "Sign in") or text()="Login"] | '
+        'button[type="submit"] | button.loginButton | .loginButton'
+    )
 
     # Direct OTP login selectors
     USE_OTP_LOGIN_LINK = (

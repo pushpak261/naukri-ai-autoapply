@@ -53,6 +53,16 @@ class LoginPage(BasePage):
         await self._interactions.wait_for_navigation_complete()
         await asyncio.sleep(2)
 
+        try:
+            email_el = await page.query_selector(LoginSelectors.EMAIL_INPUT)
+            if not email_el or not await email_el.is_visible():
+                login_btn = await page.query_selector('a#login_Layer, a:has-text("Login"), button:has-text("Login")')
+                if login_btn and await login_btn.is_visible():
+                    await login_btn.click()
+                    await asyncio.sleep(2)
+        except Exception:
+            pass
+
     async def navigate_to_base(self) -> None:
         """Navigate to Naukri base URL to check session."""
         page = self._engine.page
@@ -266,6 +276,17 @@ class LoginPage(BasePage):
 
     async def fill_credentials(self, email: str, password: str) -> None:
         """Fill in email and password fields."""
+        page = self._engine.page
+        try:
+            email_el = await page.query_selector(LoginSelectors.EMAIL_INPUT)
+            if not email_el or not await email_el.is_visible():
+                login_btn = await page.query_selector('a#login_Layer, a:has-text("Login"), button:has-text("Login")')
+                if login_btn and await login_btn.is_visible():
+                    await login_btn.click()
+                    await asyncio.sleep(2)
+        except Exception:
+            pass
+
         await self._interactions.human_type(LoginSelectors.EMAIL_INPUT, email)
         await self._interactions.action_delay()
         await self._interactions.human_type(LoginSelectors.PASSWORD_INPUT, password)
