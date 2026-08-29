@@ -100,8 +100,19 @@ app.add_middleware(
 # ---------------------------------------------------------------------------
 # API Key Authentication Middleware
 # ---------------------------------------------------------------------------
-PUBLIC_PATHS = {"/api/health", "/docs", "/openapi.json", "/redoc", "/favicon.ico"}
+PUBLIC_PATHS = {"/", "/api/health", "/docs", "/openapi.json", "/redoc", "/favicon.ico"}
 PUBLIC_PREFIXES = {"/docs/", "/redoc/", "/api/auth/"}
+
+
+@app.get("/", tags=["Health"])
+async def root() -> dict[str, str]:
+    return {
+        "status": "healthy",
+        "service": "Naukri AI Agent API",
+        "docs": "/docs",
+        "version": "2.0.0",
+    }
+
 
 
 @app.middleware("http")
