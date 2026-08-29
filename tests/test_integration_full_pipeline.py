@@ -48,31 +48,32 @@ class MockVectorFilter:
 # ---------------------------------------------------------------------------
 def make_exclusion_settings(**overrides: Any) -> ExclusionSettings:
     defaults: dict[str, Any] = {
-        companies=[
+        "companies": [
             "Techno Experts",
             "TeleInfoTech",
             "Codinglimits",
         ],
-        title_keywords=[
+        "title_keywords": [
             "customer support",
             "data entry",
             "sales",
             "bpo",
         ],
-        description_keywords=[
+        "description_keywords": [
             "send your resume",
             "whatsapp your resume",
             "registration fee",
         ],
-        fake_company_blocklist=[
+        "fake_company_blocklist": [
             "GIST Management Solutions",
             "TheGermanyGuide",
         ],
-        enable_scam_filter=True,
-        max_openings_without_logo=25,
+        "enable_scam_filter": True,
+        "max_openings_without_logo": 25,
     }
     defaults.update(overrides)
     return ExclusionSettings(**defaults)
+
 
 
 # ---------------------------------------------------------------------------

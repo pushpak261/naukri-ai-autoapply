@@ -55,4 +55,8 @@ exclude = ["tests/", "scripts/"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-addopts = "-ra --strict-markers"
+markers = [
+    "asyncio: mark test as async",
+]
+addopts = "-ra"
+
