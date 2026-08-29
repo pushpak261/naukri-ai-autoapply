@@ -122,14 +122,18 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
                 "--no-sandbox",
+                "--disable-setuid-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-extensions",
                 "--disable-gpu",
-                "--start-maximized",
+                "--no-zygote",
+                "--single-process",
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
             ]
+            if not is_headless:
+                launch_args.append("--start-maximized")
 
             try:
                 self._browser = await self._playwright.chromium.launch(
@@ -137,11 +141,11 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
                     args=launch_args,
                 )
             except Exception as launch_err:
-                if "Executable doesn't exist" in str(launch_err) or "playwright install" in str(launch_err):
+                if "Executable doesn't exist" in str(launch_err) or "playwright install" in str(launch_err) or "EPIPE" in str(launch_err):
                     import subprocess
                     import sys
-                    logger.info("Chromium not installed. Auto-installing Playwright Chromium...")
-                    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+                    logger.info("Installing Playwright Chromium dependencies...")
+                    subprocess.run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], check=False)
                     self._browser = await self._playwright.chromium.launch(
                         headless=is_headless,
                         args=launch_args,
@@ -149,10 +153,8 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
                 else:
                     raise launch_err
 
-
             # LinkedIn-specific context options
             context_options: dict[str, object] = {
-                "no_viewport": True,
                 "user_agent": DEFAULT_USER_AGENT,
                 "locale": DEFAULT_LOCALE,
                 "timezone_id": DEFAULT_TIMEZONE,
@@ -161,6 +163,11 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
                 "bypass_csp": False,
                 "ignore_https_errors": False,
             }
+            if is_headless:
+                context_options["viewport"] = {"width": 1920, "height": 1080}
+            else:
+                context_options["no_viewport"] = True
+
 
             # Restore session state if available
             if self._session_path and self._session_path.exists():

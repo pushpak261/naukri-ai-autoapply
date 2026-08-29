@@ -45,7 +45,7 @@ class GeminiProvider(ILLMProvider):
     LLM Provider implementation using Google Gemini.
     """
 
-    def __init__(self, api_key: str | list[str], model_name: str = "gemini-2.5-flash") -> None:
+    def __init__(self, api_key: str | list[str], model_name: str = "gemini-2.0-flash") -> None:
         """
         Initialize the Gemini provider.
 
@@ -99,73 +99,79 @@ class GeminiProvider(ILLMProvider):
         response_schema: Any = None,
     ) -> str:
         """
-        Generate content from a prompt using Gemini asynchronously.
-
-        Raises:
-            LLMQuotaExceededError: on HTTP 429 / RESOURCE_EXHAUSTED. Check
-                `.is_daily_quota` — if True, retrying within the same day
-                will not help; callers should stop and surface guidance to
-                the user rather than retry.
-            LLMAPIError: for any other failure to generate content.
+        Generate content from a prompt using Gemini asynchronously with automatic fallback models.
         """
-        # Acquire token from the rate limiter first to respect API constraints
         await self._rate_limiter.acquire(1.0)
-        try:
-            response = await self._get_client().aio.models.generate_content(
-                model=self._model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    temperature=temperature,
-                    max_output_tokens=max_output_tokens,
-                    response_mime_type=response_mime_type,
-                    response_schema=response_schema,
-                ),
-            )
 
-            if response.text is None:
-                finish_reason = None
-                if response.candidates:
-                    finish_reason = response.candidates[0].finish_reason
-                raise LLMAPIError(
-                    "Gemini returned no text content "
-                    f"(finish_reason={finish_reason!r}). This usually means the "
-                    "request was blocked by safety filters or hit a token limit."
+        # Candidates to try if model name is rejected (e.g. 404 model deprecated)
+        models_to_try = [self._model_name]
+        for fallback in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]:
+            if fallback not in models_to_try:
+                models_to_try.append(fallback)
+
+        last_error = None
+        for current_model in models_to_try:
+            try:
+                response = await self._get_client().aio.models.generate_content(
+                    model=current_model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=temperature,
+                        max_output_tokens=max_output_tokens,
+                        response_mime_type=response_mime_type,
+                        response_schema=response_schema,
+                    ),
                 )
 
-            response_text = response.text.strip()
+                if response.text is None:
+                    finish_reason = None
+                    if response.candidates:
+                        finish_reason = response.candidates[0].finish_reason
+                    raise LLMAPIError(
+                        "Gemini returned no text content "
+                        f"(finish_reason={finish_reason!r}). This usually means the "
+                        "request was blocked by safety filters or hit a token limit."
+                    )
 
-            # Clean markdown code fences if JSON was requested
-            if response_mime_type == "application/json" and response_text.startswith("```"):
-                lines = response_text.split("\n")
-                if lines[0].startswith("```"):
-                    lines = lines[1:]
-                if lines and lines[-1].strip() == "```":
-                    lines = lines[:-1]
-                response_text = "\n".join(lines)
+                response_text = response.text.strip()
 
-            return response_text
+                # Clean markdown code fences if JSON was requested
+                if response_mime_type == "application/json" and response_text.startswith("```"):
+                    lines = response_text.split("\n")
+                    if lines[0].startswith("```"):
+                        lines = lines[1:]
+                    if lines and lines[-1].strip() == "```":
+                        lines = lines[:-1]
+                    response_text = "\n".join(lines)
 
-        except genai_errors.APIError as e:
-            if e.code == 429:
-                is_daily = _is_daily_quota_violation(e)
-                if is_daily:
+                self._model_name = current_model
+                return response_text
+
+            except genai_errors.APIError as e:
+                if e.code == 429:
+                    is_daily = _is_daily_quota_violation(e)
+                    if is_daily:
+                        raise LLMQuotaExceededError(
+                            "Gemini free-tier DAILY request quota is exhausted for "
+                            f"model '{current_model}'.",
+                            is_daily_quota=True,
+                        ) from e
                     raise LLMQuotaExceededError(
-                        "Gemini free-tier DAILY request quota is exhausted for "
-                        f"model '{self._model_name}'. Retrying now will not help — "
-                        "the quota resets on a rolling daily window. Options: "
-                        "(1) wait and try again later, (2) switch ai.model in "
-                        "config.yaml to a different model (separate quota pool), "
-                        "or (3) enable billing on the Google Cloud project tied "
-                        "to this API key for much higher limits. See "
-                        "https://ai.google.dev/gemini-api/docs/rate-limits",
-                        is_daily_quota=True,
+                        f"Gemini rate limit hit (HTTP 429): {e.message or str(e)}",
+                        is_daily_quota=False,
                     ) from e
-                raise LLMQuotaExceededError(
-                    f"Gemini rate limit hit (HTTP 429): {e.message or str(e)}",
-                    is_daily_quota=False,
-                ) from e
-            raise LLMAPIError(f"Gemini API error ({e.code}): {e.message or str(e)}") from e
-        except LLMAPIError:
-            raise
-        except Exception as e:
-            raise LLMAPIError(f"Failed to generate content via Gemini API: {str(e)}") from e
+                if e.code == 404 or "no longer available" in str(e).lower() or "not found" in str(e).lower():
+                    logger.warning(f"Model '{current_model}' unavailable ({e.message or str(e)}), trying next fallback...")
+                    last_error = e
+                    continue
+                raise LLMAPIError(f"Gemini API error ({e.code}): {e.message or str(e)}") from e
+            except LLMAPIError:
+                raise
+            except Exception as e:
+                last_error = e
+                break
+
+        if last_error:
+            raise LLMAPIError(f"Failed to generate content across available models: {last_error}")
+        raise LLMAPIError("No response from Gemini API.")
+

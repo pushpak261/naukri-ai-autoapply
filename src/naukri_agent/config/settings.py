@@ -65,8 +65,9 @@ class AISettings(BaseModel):
 
     use_gemini: bool = True
     gemini_api_key: str = ""
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-2.0-flash"
     fallback_model: str | None = None
+
     enable_matching: bool = True
     abort_on_quota: bool = True
     temperature: float = 0.3
