@@ -15,7 +15,7 @@ from __future__ import annotations
 import asyncio
 from urllib.parse import parse_qs, urlparse
 
-from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Error as PlaywrightError
 
 from src.linked_agent.browser.pages.search import LinkedInSearchPage
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
@@ -119,7 +119,7 @@ class LinkedInJobSearcher:
                 await asyncio.sleep(LINKEDIN_RATE_LIMIT_DELAY / 1000)
 
         logger.info(
-            f"LinkedIn search complete — all jobs dictionary:\n"
+            "LinkedIn search complete — all jobs dictionary:\n"
             + "\n".join(
                 f"  [{job_id}] {j.title} @ {j.company}"
                 for job_id, j in all_jobs.items()

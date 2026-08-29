@@ -280,9 +280,7 @@ class FakeJobDetectionPipeline:
             j_id = str(job.naukri_job_id or "").strip()
             comp_key = ((job.title or "").strip().lower(), (job.company or "").strip().lower())
 
-            if j_id and j_id in seen_ids:
-                duplicate_jobs.append(job)
-            elif comp_key[0] and comp_key[1] and comp_key in seen_comps:
+            if j_id and j_id in seen_ids or comp_key[0] and comp_key[1] and comp_key in seen_comps:
                 duplicate_jobs.append(job)
             else:
                 if j_id:

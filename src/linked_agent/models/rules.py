@@ -24,13 +24,13 @@ class JobSpecification(ABC):
     def is_satisfied_by(self, job: Job) -> bool:
         ...
 
-    def __and__(self, other: "JobSpecification") -> "ComposedSpecification":
+    def __and__(self, other: JobSpecification) -> ComposedSpecification:
         return ComposedSpecification(self, other, operator="and")
 
-    def __or__(self, other: "JobSpecification") -> "ComposedSpecification":
+    def __or__(self, other: JobSpecification) -> ComposedSpecification:
         return ComposedSpecification(self, other, operator="or")
 
-    def __invert__(self) -> "NotSpecification":
+    def __invert__(self) -> NotSpecification:
         return NotSpecification(self)
 
 

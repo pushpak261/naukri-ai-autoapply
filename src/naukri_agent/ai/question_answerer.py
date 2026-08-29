@@ -427,7 +427,7 @@ class QuestionAnswerer(IQuestionAnswerer):
                 from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
                 best_fuzzy_score = 0.0
                 best_fuzzy_pattern = None
-                for pat in DIRECT_ANSWER_PATTERNS.keys():
+                for pat in DIRECT_ANSWER_PATTERNS:
                     sim = fuzzy_similarity_ratio(question_lower, pat)
                     if sim > best_fuzzy_score:
                         best_fuzzy_score = sim

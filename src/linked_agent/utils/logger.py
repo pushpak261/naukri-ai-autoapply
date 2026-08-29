@@ -8,12 +8,9 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
-from typing import Any
 
 from rich.console import Console
 from rich.logging import RichHandler
-from rich.panel import Panel
-from rich.table import Table
 
 console = Console(force_terminal=True)
 

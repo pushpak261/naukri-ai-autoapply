@@ -43,7 +43,7 @@ class LinkedInDependencyFactory:
         self,
         settings: Settings,
         db_manager: DatabaseManager | None = None,
-        naukri_db_manager: "NaukriDBManager | None" = None,
+        naukri_db_manager: NaukriDBManager | None = None,
     ) -> None:
         self._settings = settings
         self._db_manager = db_manager

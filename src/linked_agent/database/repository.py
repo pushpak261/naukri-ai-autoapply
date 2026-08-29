@@ -8,9 +8,7 @@ query LinkedIn data via the same source-filtered endpoints.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sqlalchemy import func, select
@@ -37,7 +35,7 @@ class SQLAlchemyRepository:
     def __init__(
         self,
         db_manager: DatabaseManager,
-        naukri_db_manager: "NaukriDBManager | None" = None,
+        naukri_db_manager: NaukriDBManager | None = None,
     ) -> None:
         self._db = db_manager
         self._naukri_db = naukri_db_manager

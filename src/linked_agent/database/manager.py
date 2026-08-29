@@ -6,7 +6,7 @@ Provides async session management with SQLAlchemy.
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 

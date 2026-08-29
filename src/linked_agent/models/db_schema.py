@@ -12,13 +12,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.linked_agent.database.manager import DatabaseManager
 
 from sqlalchemy import DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -143,7 +143,7 @@ class RunLog(Base):
 # ---------------------------------------------------------------------------
 # Database initialization
 # ---------------------------------------------------------------------------
-async def setup_database_manager(db_path: Path) -> "DatabaseManager":
+async def setup_database_manager(db_path: Path) -> DatabaseManager:
     """Initialize the SQLite engine and return a DatabaseManager."""
     from src.linked_agent.utils.logger import log_info
     from src.linked_agent.database.manager import DatabaseManager

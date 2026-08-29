@@ -468,11 +468,11 @@ class LinkedInAgent:
             # Dedup
             if self._repo:
                 if self._repo.is_already_applied(job.linkedin_job_id):
-                    log_info(f"Skipping duplicate (LinkedIn ID)")
+                    log_info("Skipping duplicate (LinkedIn ID)")
                     self._jobs_skipped += 1
                     continue
                 if self._repo.is_already_applied_composite(job.title, job.company):
-                    log_info(f"Skipping duplicate (title+company)")
+                    log_info("Skipping duplicate (title+company)")
                     self._jobs_skipped += 1
                     continue
 
@@ -581,7 +581,7 @@ class LinkedInAgent:
                             self._settings.ai.enable_matching = False
                             match_result = matcher._local_match(resume_profile, job)
                         except Exception:
-                            log_error(f"Fallback model failed unexpectedly — falling back to local matching")
+                            log_error("Fallback model failed unexpectedly — falling back to local matching")
                             self._settings.ai.enable_matching = False
                             match_result = matcher._local_match(resume_profile, job)
                     else:

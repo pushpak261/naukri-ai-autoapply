@@ -1206,7 +1206,7 @@ class JobApplier:
                 }
             )
             if result:
-                logger.info(f"JS force fill completed for remaining required questions")
+                logger.info("JS force fill completed for remaining required questions")
             return result
         except Exception as e:
             logger.debug(f"JS force fill all failed: {e}")

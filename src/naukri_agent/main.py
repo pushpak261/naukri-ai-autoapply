@@ -157,7 +157,7 @@ async def _run(
     if not active_account_email:
         async with db_manager.session_factory() as session:
             result = await session.execute(
-                select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
+                select(NaukriAccount).where(NaukriAccount.is_active.is_(True)).limit(1)
             )
             active = result.scalar_one_or_none()
             if active:

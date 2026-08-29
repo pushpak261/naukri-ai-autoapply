@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 from rich.panel import Panel
 
-from src.linked_agent.utils.logger import console, setup_logging, log_info, log_error
+from src.linked_agent.utils.logger import console, setup_logging
 
 
 def _run_async(coro):
@@ -35,7 +35,7 @@ def cli():
 def run(dry_run: bool, config_path: str | None) -> None:
     """Run the LinkedIn agent — search, match, and apply to jobs."""
     async def _run():
-        from src.linked_agent.config.settings import get_settings, Settings
+        from src.linked_agent.config.settings import get_settings
         from src.linked_agent.models.db_schema import setup_database_manager
         from src.linked_agent.bot.factory import LinkedInDependencyFactory
         from src.linked_agent.bot.agent import LinkedInAgent
@@ -104,7 +104,6 @@ def status() -> None:
         from src.linked_agent.config.settings import get_settings
         from src.linked_agent.models.db_schema import setup_database_manager
         from src.linked_agent.bot.factory import LinkedInDependencyFactory
-        from src.linked_agent.bot.agent import LinkedInAgent
         from rich.table import Table
 
         settings = get_settings()
@@ -204,7 +203,7 @@ logging:
 
     config_path = Path("linkedin_config.yaml")
     if config_path.exists():
-        console.print(f"[yellow]linkedin_config.yaml already exists. Skipping.[/yellow]")
+        console.print("[yellow]linkedin_config.yaml already exists. Skipping.[/yellow]")
         return
 
     config_path.write_text(config_template, encoding="utf-8")

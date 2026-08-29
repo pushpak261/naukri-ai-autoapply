@@ -393,7 +393,7 @@ class SQLAlchemyRepository(IRepository):
             result = await session.execute(
                 select(DBApplication).filter(
                     DBApplication.status == "applying",
-                    DBApplication.applied_at < cutoff,
+                    DBApplication.applied_at <= cutoff,
                 )
             )
             for app in result.scalars().all():

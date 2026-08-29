@@ -577,7 +577,7 @@ class LinkedInSearchPage(BasePage):
             prev_count = count
 
             if count >= 25:
-                logger.info(f"All 25 cards loaded")
+                logger.info("All 25 cards loaded")
                 break
 
             if stable_rounds >= max_stable and count > 0:

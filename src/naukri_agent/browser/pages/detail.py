@@ -2183,7 +2183,7 @@ class JobDetailPage(BasePage):
                             logger.info(f"Clicked chatbot Save button via Playwright (attempt {retry + 1}): '{clicked_text}'")
                         except Exception as pe:
                             logger.debug(f"Playwright native click failed, using JS click fallback: {pe}")
-                    
+
                     if not clicked_via_playwright:
                         await page.evaluate(
                             r"""() => {
@@ -2198,13 +2198,13 @@ class JobDetailPage(BasePage):
                             }"""
                         )
                         logger.info(f"Clicked chatbot Save button via JS fallback (attempt {retry + 1}): '{clicked_text}'")
-                    
+
                     # Clean up the target attribute
                     try:
                         await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
                     except Exception:
                         pass
-                    
+
                     await asyncio.sleep(1)
                     return True
             except Exception as e:
@@ -2326,7 +2326,7 @@ class JobDetailPage(BasePage):
                             logger.info(f"Clicked Save button via page-wide Playwright: '{any_save_clicked}'")
                         except Exception as pe:
                             logger.debug(f"Page-wide Playwright native click failed: {pe}")
-                            
+
                     if not clicked_via_playwright:
                         await page.evaluate(
                             r"""() => {
@@ -2341,13 +2341,13 @@ class JobDetailPage(BasePage):
                             }"""
                         )
                         logger.info(f"Clicked Save button via page-wide JS fallback: '{any_save_clicked}'")
-                        
+
                     # Clean up the target attribute
                     try:
                         await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
                     except Exception:
                         pass
-                        
+
                     await asyncio.sleep(1)
                     return True
             except Exception as e:
@@ -2462,7 +2462,7 @@ class JobDetailPage(BasePage):
                             logger.debug(f"Clicked Save button via Playwright: '{clicked_text}'")
                         except Exception as pe:
                             logger.debug(f"Playwright native click failed on intermediate Save: {pe}")
-                            
+
                     if not clicked_via_playwright:
                         await page.evaluate(
                             r"""() => {
@@ -2477,13 +2477,13 @@ class JobDetailPage(BasePage):
                             }"""
                         )
                         logger.debug(f"Clicked Save button via JS fallback: '{clicked_text}'")
-                        
+
                     # Clean up the target attribute
                     try:
                         await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
                     except Exception:
                         pass
-                        
+
                     return True
             except Exception as e:
                 logger.debug(f"JS intermediate save click failed: {e}")
@@ -2586,7 +2586,7 @@ class JobDetailPage(BasePage):
                         logger.debug("Successfully clicked submit/apply button via Playwright.")
                     except Exception as pe:
                         logger.debug(f"Playwright native submit click failed, falling back: {pe}")
-                        
+
                 if not clicked_via_playwright:
                     await page.evaluate(
                         r"""() => {
@@ -2601,13 +2601,13 @@ class JobDetailPage(BasePage):
                         }"""
                     )
                     logger.debug("Successfully clicked submit/apply button via JS fallback.")
-                    
+
                 # Clean up target attribute
                 try:
                     await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
                 except Exception:
                     pass
-                    
+
                 return True
         except Exception as e:
             logger.debug(f"JS submit click failed: {e}")

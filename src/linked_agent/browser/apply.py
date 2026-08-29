@@ -9,7 +9,6 @@ import asyncio
 import contextlib
 import os
 
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
 from src.linked_agent.config.constants import ApplicationStatus
@@ -280,9 +279,7 @@ class LinkedInJobApplier:
                     answer = next((opt for opt in options if opt.lower().strip() == "yes"), "")
                     if not answer:
                         answer = next((opt for opt in options if any(p in opt.lower() for p in ("yes", "i am", "willing", "agree", "confirm"))), options[0])
-                elif "salary" in question_lower or "compensation" in question_lower:
-                    pass
-                elif "gender" in question_lower or "ethnicity" in question_lower or "veteran" in question_lower or "disability" in question_lower:
+                elif "salary" in question_lower or "compensation" in question_lower or "gender" in question_lower or "ethnicity" in question_lower or "veteran" in question_lower or "disability" in question_lower:
                     pass
                 else:
                     positives = [opt for opt in options if opt.lower().strip() in ("yes", "true", "i agree", "confirm", "i accept", "agree")]
@@ -455,7 +452,7 @@ class LinkedInJobApplier:
                                 logger.info(f"Application modal closed after loop-submit: {job.title}")
                                 return {"status": ApplicationStatus.APPLIED}
                         if stuck_count >= 2:
-                            logger.error(f"Form stuck in loop — aborting")
+                            logger.error("Form stuck in loop — aborting")
                             break
                     else:
                         stuck_count = 0

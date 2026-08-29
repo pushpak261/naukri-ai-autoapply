@@ -18,7 +18,7 @@ from pydantic import BaseModel
 
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import ResumeProfile
-from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.naukri_agent.utils.exceptions import LLMQuotaExceededError
 from src.naukri_agent.bot.interfaces import ILLMProvider, IRepository, IResumeParser
 from src.naukri_agent.utils.helpers import hash_file, truncate_text
 from src.naukri_agent.utils.logger import (

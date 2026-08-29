@@ -16,7 +16,6 @@ import asyncio
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
 from src.linked_agent.browser.pages.login import LinkedInLoginPage
-from src.linked_agent.config.constants import LOGIN_TIMEOUT
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.bot.interfaces import IBrowserEngine, ILoginStrategy
 from src.linked_agent.utils.logger import (
@@ -114,7 +113,7 @@ class LinkedInLoginHandler:
         login_page: LinkedInLoginPage,
         engine: IBrowserEngine,
         settings: Settings,
-    ) -> "LinkedInLoginHandler":
+    ) -> LinkedInLoginHandler:
         """Factory method to create a properly configured handler."""
         strategy = LinkedInPasswordLoginStrategy(settings)
         return cls(login_page=login_page, engine=engine, strategy=strategy, settings=settings)
