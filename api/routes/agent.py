@@ -172,11 +172,9 @@ async def agent_output(lines: int = 50000):
     running = state.agent_process is not None and state.agent_process.poll() is None
 
     with state.agent_output_lock:
-        if not running and not state.agent_output_buffer:
-            return PlainTextResponse("Agent process not found", status_code=404)
-
         if not state.agent_output_buffer:
-            return PlainTextResponse("Waiting for logs...\n")
+            return PlainTextResponse("Agent is stopped.\n")
+
 
         recent = state.agent_output_buffer[-lines:]
         return PlainTextResponse("".join(recent))

@@ -249,10 +249,37 @@ class Settings(BaseModel):
             )
 
         resume_path = self.project_root / self.resume.path if self.resume.path else None
-        if not resume_path:
-            problems.append("Resume path is not configured (resume.path in config.yaml).")
-        elif not resume_path.exists():
-            problems.append(f"Resume file not found at: {resume_path}")
+        if not resume_path or not resume_path.exists():
+            found = False
+            # Check uploaded resume in resume_profile.json
+            profile_json = self.project_root / "resume_profile.json"
+            if profile_json.exists():
+                try:
+                    import json
+                    data = json.loads(profile_json.read_text(encoding="utf-8"))
+                    up = data.get("uploaded_file_path")
+                    if up and Path(up).exists():
+                        self.resume.path = up
+                        found = True
+                except Exception:
+                    pass
+
+            # Check data/resumes directory
+            if not found and self.resumes_dir.exists():
+                candidates = sorted(
+                    list(self.resumes_dir.glob("*.pdf")) + list(self.resumes_dir.glob("*.docx")),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+                if candidates:
+                    self.resume.path = str(candidates[0])
+                    found = True
+
+            if not found:
+                if not resume_path:
+                    problems.append("Resume path is not configured (upload a resume on the Dashboard or set resume.path in config.yaml).")
+                elif not resume_path.exists():
+                    problems.append(f"Resume file not found at: {resume_path}")
 
         if self.search.experience_min > self.search.experience_max:
             problems.append(
@@ -261,6 +288,7 @@ class Settings(BaseModel):
             )
 
         return problems
+
 
 
 def _load_yaml_config() -> dict:
