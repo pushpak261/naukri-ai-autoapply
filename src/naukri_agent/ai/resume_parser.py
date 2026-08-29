@@ -597,13 +597,11 @@ class ResumeParser(IResumeParser):
                 log_error(f"⚠️  Gemini daily quota exhausted: {e}")
             else:
                 log_error(f"⚠️  Gemini rate limit hit: {e}")
-            return ResumeProfile(file_hash=file_hash)
-        except LLMAPIError as e:
-            logger.error(str(e))
-            return ResumeProfile(file_hash=file_hash)
+            return await self._parse_locally(resume_text, file_hash, profile_json_path, path)
         except Exception as e:
-            log_error(f"Failed to parse resume with AI: {e}")
-            return ResumeProfile(file_hash=file_hash)
+            log_error(f"Failed to parse resume with AI ({e}). Falling back to local parsing.")
+            return await self._parse_locally(resume_text, file_hash, profile_json_path, path)
+
 
     async def _parse_locally(
         self, resume_text: str, file_hash: str, profile_json_path: Path, path: Path
