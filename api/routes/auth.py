@@ -133,16 +133,18 @@ async def register(body: RegisterRequest, response: Response):
     falsy). Operators seed credentials via ``NAUKRI_EMAIL``/``NAUKRI_PASSWORD``
     in ``.env``/``config.yaml`` and use the login endpoint.
     """
-    if os.environ.get("OPEN_REGISTRATION", "false").strip().lower() not in (
-        "1",
-        "true",
-        "yes",
-        "on",
+    # Allow registration unless explicitly disabled with OPEN_REGISTRATION=false
+    if os.environ.get("OPEN_REGISTRATION", "true").strip().lower() in (
+        "0",
+        "false",
+        "no",
+        "off",
     ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Public registration is disabled",
         )
+
 
     email = body.email.strip()
     password = body.password
