@@ -90,17 +90,29 @@ def _patch_resume_path_from_uploaded(settings) -> None:
     file, patch the runtime settings so the agent and validation use that file.
     """
     profile_json_path = settings.project_root / "resume_profile.json"
-    if not profile_json_path.exists():
-        return
-    try:
-        import json
+    if profile_json_path.exists():
+        try:
+            import json
 
-        data = json.loads(profile_json_path.read_text(encoding="utf-8"))
-        uploaded = data.get("uploaded_file_path")
-        if uploaded and Path(uploaded).exists():
-            settings.resume.path = uploaded
-    except Exception:
-        pass
+            data = json.loads(profile_json_path.read_text(encoding="utf-8"))
+            uploaded = data.get("uploaded_file_path")
+            if uploaded and Path(uploaded).exists():
+                settings.resume.path = uploaded
+                return
+        except Exception:
+            pass
+
+    # Check data/resumes directory
+    resumes_dir = settings.project_root / "data" / "resumes"
+    if resumes_dir.exists():
+        candidates = sorted(
+            list(resumes_dir.glob("*.pdf")) + list(resumes_dir.glob("*.docx")),
+            key=lambda p: p.stat().st_mtime,
+            reverse=True,
+        )
+        if candidates:
+            settings.resume.path = str(candidates[0])
+            return
 
 
 async def _run(
