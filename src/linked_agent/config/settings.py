@@ -38,7 +38,7 @@ class AISettings(BaseModel):
 
     use_gemini: bool = True
     gemini_api_key: str = ""
-    model: str = "gemini-2.0-flash"
+    model: str = "gemini-3.5-flash"
     fallback_model: str | None = None
 
 

@@ -138,7 +138,7 @@ linkedin:
 ai:
   use_gemini: false
   gemini_api_key: ""  # Or set GEMINI_API_KEY in .env
-  model: "gemini-2.5-flash"
+  model: "gemini-3.5-flash"
   fallback_model: null
   enable_matching: true
   abort_on_quota: true

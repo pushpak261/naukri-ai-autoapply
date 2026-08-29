@@ -283,7 +283,7 @@ async def get_linkedin_config():
         "ai": {
             "use_gemini": ai.get("use_gemini", False),
             "has_api_key": bool(ai.get("gemini_api_key")),
-            "model": ai.get("model", "gemini-2.5-flash"),
+            "model": ai.get("model", "gemini-3.5-flash"),
             "enable_matching": ai.get("enable_matching", True),
         },
         "resume": {

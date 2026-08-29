@@ -45,7 +45,7 @@ class GeminiProvider(ILLMProvider):
     LLM Provider implementation using Google Gemini.
     """
 
-    def __init__(self, api_key: str | list[str], model_name: str = "gemini-2.0-flash") -> None:
+    def __init__(self, api_key: str | list[str], model_name: str = "gemini-3.5-flash") -> None:
         """
         Initialize the Gemini provider.
 
@@ -105,7 +105,7 @@ class GeminiProvider(ILLMProvider):
 
         # Candidates to try if model name is rejected (e.g. 404 model deprecated)
         models_to_try = [self._model_name]
-        for fallback in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]:
+        for fallback in ["gemini-3.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
             if fallback not in models_to_try:
                 models_to_try.append(fallback)
 

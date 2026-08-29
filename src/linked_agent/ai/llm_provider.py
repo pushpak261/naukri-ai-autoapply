@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class GeminiProvider(ILLMProvider):
     """Google Gemini LLM provider for LinkedIn agent AI operations."""
 
-    def __init__(self, api_key: str, model_name: str = "gemini-2.0-flash") -> None:
+    def __init__(self, api_key: str, model_name: str = "gemini-3.5-flash") -> None:
         self._api_key = api_key
         self._model_name = model_name
 
@@ -47,7 +47,7 @@ class GeminiProvider(ILLMProvider):
             config["response_mime_type"] = response_mime_type
 
         models_to_try = [self._model_name]
-        for fallback in ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]:
+        for fallback in ["gemini-3.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
             if fallback not in models_to_try:
                 models_to_try.append(fallback)
 

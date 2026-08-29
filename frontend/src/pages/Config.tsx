@@ -287,7 +287,7 @@ export default function Config() {
             </div>
             <div className="md:col-span-2">
               <label className={labelClass}>AI Model</label>
-              <input type="text" value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })} className={inputClass} placeholder="gemini-2.5-flash" />
+              <input type="text" value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })} className={inputClass} placeholder="gemini-3.5-flash" />
             </div>
           </div>
         </div>

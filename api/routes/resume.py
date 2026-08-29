@@ -130,7 +130,7 @@ async def upload_resume(file: UploadFile = File(...)):
 
     llm = GeminiProvider(
         api_key=api_key,
-        model_name=state.settings.ai.model or "gemini-2.5-flash",
+        model_name=state.settings.ai.model or "gemini-3.5-flash",
     )
 
     parser = ResumeParser(llm_provider=llm, repository=state.repo, settings=state.settings)
