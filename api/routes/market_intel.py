@@ -56,16 +56,18 @@ async def salary_benchmarks():
 
 
 @router.get("/api/market-intel/skill-demand")
-async def skill_demand():
+async def skill_demand(days: int = Query(365, ge=1, le=365)):
     """Which skills yield highest match scores."""
     from sqlalchemy import select
 
+    since = datetime.now(UTC) - timedelta(days=days)
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
         result = await session.execute(
             select(DBJob.skills, DBApplication.match_score)
             .join(DBApplication, DBApplication.job_id == DBJob.id)
             .where(DBApplication.match_score.isnot(None))
+            .where(DBApplication.applied_at >= since)
         )
         rows = result.all()
 
@@ -128,31 +130,41 @@ async def win_rate_prediction():
     """Simple prediction of application success based on match score brackets."""
     from sqlalchemy import case, func, select
 
+    brackets = [(0, 30), (30, 50), (50, 70), (70, 85), (85, 101)]
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
-        brackets = [(0, 30), (30, 50), (50, 70), (70, 85), (85, 101)]
-        items = []
-        for low, high in brackets:
-            result = await session.execute(
-                select(
-                    func.count(DBApplication.id).label("total"),
-                    func.sum(case((DBApplication.status == "applied", 1), else_=0)).label(
-                        "applied_count"
-                    ),
-                )
-                .where(DBApplication.match_score >= low)
-                .where(DBApplication.match_score < high)
-            )
-            row = result.one()
-            total = row.total or 0
-            applied = row.applied_count or 0
-            rate = round((applied / total * 100), 1) if total > 0 else 0
-            items.append(
-                {
-                    "bracket": f"{low}-{high - 1}",
-                    "total": total,
-                    "applied": applied,
-                    "success_rate": rate,
-                }
-            )
-        return {"items": items}
+        # Compute all five brackets in a single grouped query instead of five
+        # sequential round-trips.
+        bucket_case = case(
+            (DBApplication.match_score < 30, 0),
+            (DBApplication.match_score < 50, 1),
+            (DBApplication.match_score < 70, 2),
+            (DBApplication.match_score < 85, 3),
+            else_=4,
+        )
+        result = await session.execute(
+            select(
+                bucket_case.label("bucket"),
+                func.count(DBApplication.id).label("total"),
+                func.sum(case((DBApplication.status == "applied", 1), else_=0)).label(
+                    "applied_count"
+                ),
+            ).group_by("bucket").order_by("bucket")
+        )
+        rows = {row.bucket: row for row in result.all()}
+
+    items = []
+    for i, (low, high) in enumerate(brackets):
+        row = rows.get(i)
+        total = row.total if row else 0
+        applied = row.applied_count if row else 0
+        rate = round((applied / total * 100), 1) if total > 0 else 0
+        items.append(
+            {
+                "bracket": f"{low}-{high - 1}",
+                "total": total,
+                "applied": applied,
+                "success_rate": rate,
+            }
+        )
+    return {"items": items}

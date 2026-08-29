@@ -177,10 +177,10 @@ async def stop_agents(
             continue
         proc.terminate()
         try:
-            proc.wait(timeout=10)
+            await asyncio.to_thread(proc.wait, timeout=10)
         except subprocess.TimeoutExpired:
             proc.kill()
-            proc.wait()
+            await asyncio.to_thread(proc.wait)
         state.agent_processes[plat] = None
         state.agent_started_at_map[plat] = None
         with state.agent_output_locks[plat]:

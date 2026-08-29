@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import hashlib
 import json
@@ -21,7 +22,9 @@ async def get_resume_profile():
     if not profile_json_path.exists():
         return {"exists": False, "profile": None}
     try:
-        profile = json.loads(profile_json_path.read_text(encoding="utf-8"))
+        profile = json.loads(
+            await asyncio.to_thread(profile_json_path.read_text, encoding="utf-8")
+        )
         return {"exists": True, "profile": profile}
     except Exception:
         return {"exists": False, "profile": None}
@@ -33,7 +36,9 @@ async def get_match_cache(search: str = Query("", max_length=200)):
     if not cache_path.exists():
         return {"items": [], "total": 0}
     try:
-        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        cache = json.loads(
+            await asyncio.to_thread(cache_path.read_text, encoding="utf-8")
+        )
         items = []
         for key, value in cache.items():
             if search and search.lower() not in key.lower():
@@ -62,7 +67,9 @@ async def get_match_cache_stats():
     if not cache_path.exists():
         return {"total_entries": 0, "avg_score": 0, "would_apply": 0, "would_skip": 0}
     try:
-        cache = json.loads(cache_path.read_text(encoding="utf-8"))
+        cache = json.loads(
+            await asyncio.to_thread(cache_path.read_text, encoding="utf-8")
+        )
         scores = [v.get("score", 0) for v in cache.values()]
         would_apply = sum(1 for v in cache.values() if v.get("should_apply", False))
         return {
@@ -95,7 +102,9 @@ async def get_metrics():
             "duration_seconds": 0,
         }
     try:
-        metrics = json.loads(metrics_path.read_text(encoding="utf-8"))
+        metrics = json.loads(
+            await asyncio.to_thread(metrics_path.read_text, encoding="utf-8")
+        )
         return metrics
     except Exception:
         return {
@@ -145,7 +154,9 @@ async def read_log(log_path: str = Query(...), max_lines: int = Query(200, ge=1,
     if not full_path.exists() or not full_path.is_file():
         raise HTTPException(status_code=404, detail="Log file not found")
     try:
-        content = full_path.read_text(encoding="utf-8", errors="replace")
+        content = await asyncio.to_thread(
+            full_path.read_text, encoding="utf-8", errors="replace"
+        )
         lines = content.splitlines()
         total = len(lines)
         if total > max_lines:
@@ -188,7 +199,7 @@ async def session_status(
 
     if naukri_path.exists():
         try:
-            raw = naukri_path.read_bytes()
+            raw = await asyncio.to_thread(naukri_path.read_bytes)
             decrypted = _try_decrypt_session(raw, state.settings)
             session_data = json.loads(decrypted.decode("utf-8"))
             cookies = session_data.get("cookies", [])
@@ -232,7 +243,7 @@ async def session_status(
 
     if linkedin_path.exists():
         try:
-            raw = linkedin_path.read_bytes()
+            raw = await asyncio.to_thread(linkedin_path.read_bytes)
             decrypted = _try_decrypt_session(raw, state.settings)
             session_data = json.loads(decrypted.decode("utf-8"))
             cookies = session_data.get("cookies", [])

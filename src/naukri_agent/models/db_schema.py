@@ -66,6 +66,8 @@ class Job(Base):
     __table_args__ = (
         Index("idx_jobs_company", "company"),
         Index("idx_jobs_scraped_at", "scraped_at"),
+        Index("idx_jobs_source_scraped_at", "source", "scraped_at"),
+        Index("idx_jobs_source_status", "source", "naukri_status"),
     )
 
     def __repr__(self) -> str:
@@ -98,6 +100,11 @@ class Application(Base):
     __table_args__ = (
         Index("idx_applications_status", "status"),
         Index("idx_applications_applied_at", "applied_at"),
+        # Composite indexes for the common stats access patterns:
+        # today-count, daily timeline, and success-rate trend all filter on
+        # (status, applied_at); source-scoped stats add `source`.
+        Index("idx_applications_status_applied_at", "status", "applied_at"),
+        Index("idx_applications_source_status_applied_at", "source", "status", "applied_at"),
     )
 
     def __repr__(self) -> str:
@@ -267,13 +274,18 @@ async def setup_database_manager(db_path: Path) -> DatabaseManager:
     engine = create_async_engine(
         f"sqlite+aiosqlite:///{db_path}",
         echo=False,
-        connect_args={"check_same_thread": False},
+        # `timeout` is sqlite3's busy-timeout (ms). Passing it via connect_args
+        # makes every pooled connection inherit it, avoiding "database is locked"
+        # under concurrent writes (a transient PRAGMA would not reach pooled conns).
+        connect_args={"check_same_thread": False, "timeout": 5},
+        pool_pre_ping=True,
+        pool_size=10,
+        max_overflow=20,
     )
 
-    # Enable WAL mode for concurrent read/write safety
+    # Enable WAL mode for concurrent read/write safety (file-level, persists).
     async with engine.connect() as conn:
         await conn.exec_driver_sql("PRAGMA journal_mode=WAL")
-        await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
         await conn.commit()
 
     # Sync schema for SQLite

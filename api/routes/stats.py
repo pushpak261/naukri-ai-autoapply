@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Query
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 
 from api.deps import state
 from src.naukri_agent.models.db_schema import Application as DBApplication
@@ -30,24 +30,19 @@ async def get_stats(days: int = Query(7, ge=1, le=365), source: str = Query("", 
         if source:
             base_filters.append(DBApplication.source == source)
 
-        applied_q = select(func.count(DBApplication.id)).where(
-            DBApplication.status == "applied"
+        # All-time totals computed in a single aggregate query (was 3 separate
+        # count queries — one round-trip instead of three).
+        counts_q = select(
+            func.count(DBApplication.id),
+            func.sum(case((DBApplication.status == "applied", 1), else_=0)),
+            func.sum(case((DBApplication.status.like("skipped%"), 1), else_=0)),
         )
-        skipped_q = select(func.count(DBApplication.id)).where(
-            DBApplication.status.startswith("skipped")
-        )
-        failed_q = select(func.count(DBApplication.id)).where(
-            DBApplication.status.notin_(["applied"]),
-            ~DBApplication.status.startswith("skipped"),
-        )
-        if source:
-            applied_q = applied_q.where(DBApplication.source == source)
-            skipped_q = skipped_q.where(DBApplication.source == source)
-            failed_q = failed_q.where(DBApplication.source == source)
-
-        total_applied = (await session.execute(applied_q)).scalar_one() or 0
-        total_skipped = (await session.execute(skipped_q)).scalar_one() or 0
-        total_failed = (await session.execute(failed_q)).scalar_one() or 0
+        if base_filters:
+            counts_q = counts_q.where(*base_filters)
+        total_c, applied_c, skipped_c = (await session.execute(counts_q)).one()
+        total_applied = applied_c or 0
+        total_skipped = skipped_c or 0
+        total_failed = (total_c or 0) - total_applied - total_skipped
 
     return {
         "stats": stats,
@@ -97,15 +92,18 @@ async def location_distribution():
 
 
 @router.get("/api/analytics/keyword-performance")
-async def keyword_performance():
+async def keyword_performance(days: int = Query(365, ge=1, le=365)):
     import re
 
     from sqlalchemy import select
 
+    since = datetime.now(UTC) - timedelta(days=days)
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
         result = await session.execute(
-            select(DBJob, DBApplication).join(DBApplication, DBApplication.job_id == DBJob.id)
+            select(DBJob, DBApplication)
+            .join(DBApplication, DBApplication.job_id == DBJob.id)
+            .where(DBApplication.applied_at >= since)
         )
         rows = result.all()
         keyword_stats: dict[str, dict[str, int]] = {}

@@ -120,10 +120,10 @@ async def stop_agent():
 
     state.agent_process.terminate()
     try:
-        state.agent_process.wait(timeout=10)
+        await asyncio.to_thread(state.agent_process.wait, timeout=10)
     except subprocess.TimeoutExpired:
         state.agent_process.kill()
-        state.agent_process.wait()
+        await asyncio.to_thread(state.agent_process.wait)
     state.agent_process = None
     state.agent_started_at = None
     state.agent_platform = None

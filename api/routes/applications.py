@@ -25,7 +25,9 @@ async def get_applications(
     response.headers["Expires"] = "0"
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
-        query = select(DBApplication)
+        # Join job in a single query instead of one round-trip per application
+        # (was a 1+N query on every /api/applications call).
+        query = select(DBApplication, DBJob).join(DBJob, DBApplication.job_id == DBJob.id)
         count_query = select(func.count(DBApplication.id))
 
         if sort == "newest":
@@ -48,12 +50,10 @@ async def get_applications(
         total = (await session.execute(count_query)).scalar_one()
         offset = (page - 1) * per_page
         result = await session.execute(query.offset(offset).limit(per_page))
-        apps = result.scalars().all()
+        rows = result.all()
 
         items = []
-        for app in apps:
-            job_result = await session.execute(select(DBJob).where(DBJob.id == app.job_id))
-            job = job_result.scalar_one_or_none()
+        for app, job in rows:
             items.append(
                 {
                     "id": app.id,

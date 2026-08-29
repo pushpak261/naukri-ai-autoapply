@@ -80,12 +80,19 @@ async def get_jobs(
         result = await session.execute(query.offset(offset).limit(per_page))
         jobs = result.scalars().all()
 
+        # Fetch applications for the whole page in a single query instead of
+        # one round-trip per job (was a 1+N query on every /api/jobs call).
+        app_by_job_id: dict[int, DBApplication] = {}
+        if jobs:
+            job_ids = [job.id for job in jobs]
+            apps_result = await session.execute(
+                select(DBApplication).where(DBApplication.job_id.in_(job_ids))
+            )
+            app_by_job_id = {app.job_id: app for app in apps_result.scalars().all()}
+
         items = []
         for job in jobs:
-            app_result = await session.execute(
-                select(DBApplication).where(DBApplication.job_id == job.id)
-            )
-            app = app_result.scalar_one_or_none()
+            app = app_by_job_id.get(job.id)
             items.append(
                 {
                     "id": job.id,
@@ -133,14 +140,31 @@ async def get_jobs_inspector(
 ):
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
-        query = select(DBJob)
+        # `total_scraped_raw` must reflect the source-scoped total (search is
+        # applied only to the evaluated set below), matching prior behaviour.
+        count_stmt = select(func.count(DBJob.id))
+        fetch_query = select(DBJob)
         if source and source != "all":
             if source == "naukri":
-                from sqlalchemy import or_
-                query = query.where(or_(DBJob.source == "naukri", DBJob.source.is_(None)))
+                src_filter = or_(DBJob.source == "naukri", DBJob.source.is_(None))
             else:
-                query = query.where(DBJob.source == source)
-        result = await session.execute(query.order_by(DBJob.scraped_at.desc()))
+                src_filter = DBJob.source == source
+            fetch_query = fetch_query.where(src_filter)
+            count_stmt = count_stmt.where(src_filter)
+
+        # Push the free-text search into SQL so we don't load and heuristically
+        # evaluate every job just to discard non-matches in Python.
+        if search:
+            search_filter = or_(
+                DBJob.title.ilike(f"%{search}%"),
+                DBJob.company.ilike(f"%{search}%"),
+                DBJob.location.ilike(f"%{search}%"),
+                DBJob.skills.ilike(f"%{search}%"),
+            )
+            fetch_query = fetch_query.where(search_filter)
+
+        total_scraped_raw = (await session.execute(count_stmt)).scalar_one()
+        result = await session.execute(fetch_query.order_by(DBJob.scraped_at.desc()))
         db_jobs = result.scalars().all()
 
         apps_result = await session.execute(select(DBApplication))
@@ -239,17 +263,6 @@ async def get_jobs_inspector(
                 for f_key, f_eval in eval_res["filter_evaluations"].items():
                     if f_eval["enabled"] and not f_eval["passed"]:
                         rejections_by_filter[f_key] = rejections_by_filter.get(f_key, 0) + 1
-
-            if search:
-                s_term = search.lower()
-                matches_search = (
-                    s_term in (job.title or "").lower()
-                    or s_term in (job.company or "").lower()
-                    or s_term in (job.location or "").lower()
-                    or s_term in (job.skills or "").lower()
-                )
-                if not matches_search:
-                    continue
 
             if status_view == "passed" and not passed:
                 continue

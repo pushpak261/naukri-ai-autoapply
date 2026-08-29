@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from src.naukri_agent.database.manager import DatabaseManager
 import functools
@@ -422,28 +422,33 @@ class SQLAlchemyRepository(IRepository):
 
     @with_failover
     async def get_application_stats(self, days: int = 7) -> dict[str, int]:
-        """Get application statistics for the last N days."""
+        """Get application statistics for the last N days.
+
+        Computed with a single aggregate query instead of loading every
+        matching row into Python and counting in a loop.
+        """
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session:
             since = datetime.now(UTC) - timedelta(days=days)
-            result = await session.execute(
-                select(DBApplication).filter(DBApplication.applied_at >= since)
-            )
-            apps = result.scalars().all()
-            stats: dict[str, int] = {
-                "total": len(apps),
-                "applied": 0,
-                "skipped": 0,
-                "failed": 0,
+            total, applied, skipped = (
+                await session.execute(
+                    select(
+                        func.count(DBApplication.id),
+                        func.sum(case((DBApplication.status == "applied", 1), else_=0)),
+                        func.sum(case((DBApplication.status.like("skipped%"), 1), else_=0)),
+                    ).filter(DBApplication.applied_at >= since)
+                )
+            ).one()
+            total = total or 0
+            applied = applied or 0
+            skipped = skipped or 0
+            return {
+                "total": total,
+                "applied": applied,
+                "skipped": skipped,
+                # Anything not applied and not skipped* mirrors the prior bucketing.
+                "failed": total - applied - skipped,
             }
-            for app in apps:
-                if app.status == "applied":
-                    stats["applied"] += 1
-                elif app.status.startswith("skipped"):
-                    stats["skipped"] += 1
-                else:
-                    stats["failed"] += 1
-            return stats
 
     @with_failover
     async def get_recent_applications(self, limit: int = 20) -> list[dict]:

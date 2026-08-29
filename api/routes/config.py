@@ -1,5 +1,6 @@
 from typing import Any
 
+import asyncio
 import yaml
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -170,8 +171,8 @@ async def update_config(update: ConfigUpdate):
 
         raise HTTPException(status_code=404, detail="config.yaml not found")
 
-    with open(config_path, encoding="utf-8") as f:
-        config_data = yaml.safe_load(f) or {}
+    text = await asyncio.to_thread(config_path.read_text, encoding="utf-8")
+    config_data = yaml.safe_load(text) or {}
 
     updates: list[tuple[list[str], Any, bool]] = [
         (["naukri", "email"], update.naukri_email, True),
@@ -231,8 +232,11 @@ async def update_config(update: ConfigUpdate):
             else:
                 _set_nested(config_data, keys, value)
 
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+    await asyncio.to_thread(
+        config_path.write_text,
+        yaml.dump(config_data, default_flow_style=False, allow_unicode=True),
+        encoding="utf-8",
+    )
 
     get_settings.cache_clear()
     import api.deps
@@ -262,8 +266,8 @@ async def get_linkedin_config():
     config_path = _get_linkedin_config_path()
     config_data = {}
     if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
-            config_data = yaml.safe_load(f) or {}
+        text = await asyncio.to_thread(config_path.read_text, encoding="utf-8")
+        config_data = yaml.safe_load(text) or {}
 
     # Check .env for credentials
     env_email = os.environ.get("LINKEDIN_EMAIL", "")
@@ -330,8 +334,8 @@ async def update_linkedin_config(update: LinkedInConfigUpdate):
     config_path = _get_linkedin_config_path()
     config_data = {}
     if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
-            config_data = yaml.safe_load(f) or {}
+        text = await asyncio.to_thread(config_path.read_text, encoding="utf-8")
+        config_data = yaml.safe_load(text) or {}
 
     # Ensure sections exist
     config_data.setdefault("linkedin", {})
@@ -344,7 +348,7 @@ async def update_linkedin_config(update: LinkedInConfigUpdate):
     env_path = state.settings.project_root / ".env"
     env_lines = []
     if env_path.exists():
-        env_lines = env_path.read_text(encoding="utf-8").splitlines()
+        env_lines = (await asyncio.to_thread(env_path.read_text, encoding="utf-8")).splitlines()
 
     def _set_env(key: str, value: str) -> None:
         nonlocal env_lines
@@ -390,11 +394,16 @@ async def update_linkedin_config(update: LinkedInConfigUpdate):
         config_data["resume"]["path"] = update.resume_path
 
     # Write .env
-    env_path.write_text("\n".join(env_lines) + "\n", encoding="utf-8")
+    await asyncio.to_thread(
+        env_path.write_text, "\n".join(env_lines) + "\n", encoding="utf-8"
+    )
 
     # Write linkedin_config.yaml
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
+    await asyncio.to_thread(
+        config_path.write_text,
+        yaml.dump(config_data, default_flow_style=False, allow_unicode=True),
+        encoding="utf-8",
+    )
 
     return {"status": "ok", "message": "LinkedIn configuration updated"}
 
