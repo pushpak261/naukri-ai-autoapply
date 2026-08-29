@@ -21,6 +21,7 @@ import base64
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 
 from cryptography.fernet import Fernet
@@ -128,7 +129,20 @@ class PlaywrightEngine(IBrowserEngine):
         try:
             self._playwright = await async_playwright().start()
 
-            is_headless = os.environ.get("HEADLESS", "").lower() in ("true", "1", "yes") or not os.environ.get("DISPLAY")
+            # Resolve headless mode:
+            #   - Explicit override via HEADLESS env (true/false/1/0/yes/no).
+            #   - Default: headed when a graphical display is available
+            #     (desktop supervision, harder for Akamai to block) and
+            #     headless only on display-less servers. This agent is
+            #     designed for supervised use, so we prefer a real window.
+            headless_env = os.environ.get("HEADLESS", "").lower()
+            if headless_env in ("true", "1", "yes"):
+                is_headless = True
+            elif headless_env in ("false", "0", "no"):
+                is_headless = False
+            else:
+                is_headless = not os.environ.get("DISPLAY") and sys.platform != "win32"
+
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
@@ -137,8 +151,6 @@ class PlaywrightEngine(IBrowserEngine):
                 "--disable-dev-shm-usage",
                 "--disable-extensions",
                 "--disable-gpu",
-                "--no-zygote",
-                "--single-process",
             ]
             if not is_headless:
                 launch_args.append("--start-maximized")
@@ -151,7 +163,6 @@ class PlaywrightEngine(IBrowserEngine):
             except Exception as launch_err:
                 if "Executable doesn't exist" in str(launch_err) or "playwright install" in str(launch_err) or "EPIPE" in str(launch_err):
                     import subprocess
-                    import sys
                     logger.info("Installing Playwright Chromium dependencies...")
                     subprocess.run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], check=False)
                     self._browser = await self._playwright.chromium.launch(

@@ -292,4 +292,8 @@ class LoginHandler:
             else:
                 log_error(f"Login failed with error: {e}")
                 logger.exception("Login exception details")
+                import contextlib
+
+                with contextlib.suppress(Exception):
+                    await self._login_page.dump_debug("login_failure")
             return False

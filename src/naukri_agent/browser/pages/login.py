@@ -17,6 +17,8 @@ from src.naukri_agent.config.constants import (
 )
 from src.naukri_agent.utils.logger import get_logger
 
+from pathlib import Path
+
 logger = get_logger(__name__)
 
 # Known Naukri error message texts that indicate login failure
@@ -53,6 +55,17 @@ class LoginPage(BasePage):
         await self._interactions.wait_for_navigation_complete()
         await asyncio.sleep(2)
 
+        # Detect bot-protection / access-denied interstitials early so we
+        # surface a clear error instead of a 30s selector timeout.
+        if await self.is_blocked():
+            await self.dump_debug("login_blocked")
+            raise RuntimeError(
+                "Naukri returned an 'Access Denied' / bot-protection page. "
+                "This usually means the browser was detected as automated "
+                "(e.g. running headless). Run the agent in headed mode "
+                "(set HEADLESS=false) on a desktop session."
+            )
+
         try:
             email_el = await page.query_selector(LoginSelectors.EMAIL_INPUT)
             if not email_el or not await email_el.is_visible():
@@ -63,6 +76,36 @@ class LoginPage(BasePage):
         except Exception:
             pass
 
+    async def is_blocked(self) -> bool:
+        """Detect Akamai/EdgeSuite 'Access Denied' bot-protection pages."""
+        page = self._engine.page
+        try:
+            title = (await page.title() or "").lower()
+            if "access denied" in title:
+                return True
+            text = await page.evaluate("document.body.innerText")
+            lower = (text or "").lower()
+            if "access denied" in lower or "you don't have permission" in lower:
+                return True
+            if "reference #" in lower and "edgesuite" in lower:
+                return True
+        except PlaywrightError:
+            pass
+        return False
+
+    async def dump_debug(self, name: str) -> None:
+        """Save an HTML snapshot + screenshot to debug_artifacts for triage."""
+        page = self._engine.page
+        try:
+            out_dir = Path("debug_artifacts")
+            out_dir.mkdir(exist_ok=True)
+            html = await page.content()
+            (out_dir / f"{name}.html").write_text(html, encoding="utf-8")
+            await page.screenshot(path=str(out_dir / f"{name}.png"), full_page=False)
+            logger.warning(f"Saved debug artifacts to debug_artifacts/{name}.html / .png")
+        except PlaywrightError as e:
+            logger.debug(f"dump_debug failed: {e}")
+
     async def navigate_to_base(self) -> None:
         """Navigate to Naukri base URL to check session."""
         page = self._engine.page
@@ -72,11 +115,11 @@ class LoginPage(BasePage):
 
     async def wait_for_navigation_settle(self) -> None:
         """Wait for page to reach a settled state (post-login redirects, etc.)."""
+        import contextlib
+
         page = self._engine.page
-        try:
+        with contextlib.suppress(Exception):
             await page.wait_for_load_state("networkidle", timeout=15_000)
-        except Exception:
-            pass
         await asyncio.sleep(3)
 
     async def is_logged_in(self) -> bool:
@@ -131,10 +174,10 @@ class LoginPage(BasePage):
         page = self._engine.page
 
         # Wait briefly for any post-login redirects to settle
-        try:
+        import contextlib
+
+        with contextlib.suppress(Exception):
             await page.wait_for_load_state("networkidle", timeout=15_000)
-        except Exception:
-            pass
         await asyncio.sleep(2)
 
         # 1. URL check — must NOT be on the login page
