@@ -36,10 +36,11 @@ class LinkedInCredentials(BaseModel):
 class AISettings(BaseModel):
     """Gemini AI configuration."""
 
-    use_gemini: bool = False
+    use_gemini: bool = True
     gemini_api_key: str = ""
     model: str = "gemini-2.5-flash"
     fallback_model: str | None = None
+
     enable_matching: bool = True
     abort_on_quota: bool = True
     temperature: float = 0.3
@@ -275,10 +276,16 @@ def _apply_env_overrides(config: dict) -> dict:
                 config[section] = {}
             if (section, key) in _bool_keys:
                 config[section][key] = env_val.strip().lower() in ("true", "1", "yes")
-            else:
                 config[section][key] = env_val
 
+    # Auto-enable use_gemini if GEMINI_API_KEY is set and USE_GEMINI wasn't explicitly disabled
+    if os.environ.get("GEMINI_API_KEY") and not os.environ.get("USE_GEMINI"):
+        if "ai" not in config:
+            config["ai"] = {}
+        config["ai"]["use_gemini"] = True
+
     return config
+
 
 
 @lru_cache(maxsize=1)
