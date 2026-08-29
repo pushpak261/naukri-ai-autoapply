@@ -15,6 +15,11 @@ data/match_cache.json
 data/qa_cache.json
 src/data/
 
+# Personal data — your resume contains PII and shouldn't be pushed to a
+# remote repo even though the agent needs a local copy to run.
+resume_profile.json
+resume_key.txt
+
 # Default resume included
 !resume.pdf
 !data/resumes/pushpak_pandharpatte_9921626877.pdf
