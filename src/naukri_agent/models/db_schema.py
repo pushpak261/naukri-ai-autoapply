@@ -277,10 +277,15 @@ async def setup_database_manager(db_path: Path) -> DatabaseManager:
         await conn.commit()
 
     # Sync schema for SQLite
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(_run_migrations)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            await conn.run_sync(_run_migrations)
+    except Exception as exc:
+        if "already exists" not in str(exc).lower() and "duplicate column" not in str(exc).lower():
+            raise
 
     log_info(f"Using local SQLite database at {db_path}.")
 
     return DatabaseManager(engine=engine)
+

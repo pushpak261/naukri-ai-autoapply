@@ -161,8 +161,13 @@ async def setup_database_manager(db_path: Path) -> "DatabaseManager":
         await conn.exec_driver_sql("PRAGMA busy_timeout=5000")
         await conn.commit()
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception as exc:
+        if "already exists" not in str(exc).lower():
+            raise
 
     log_info(f"LinkedIn agent using SQLite database at {db_path}.")
     return DatabaseManager(engine=engine)
+
