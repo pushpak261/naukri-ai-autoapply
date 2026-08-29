@@ -1,4 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
+import { useAppSelector, useAppDispatch } from './store';
+import { toggleTheme } from './store';
 
 type Theme = 'dark' | 'light';
 
@@ -7,29 +9,19 @@ interface ThemeContextType {
   toggle: () => void;
 }
 
-const ThemeContext = createContext<ThemeContextType>({ theme: 'dark', toggle: () => {} });
-
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>(() => {
-    const saved = localStorage.getItem('theme');
-    if (saved === 'light' || saved === 'dark') return saved;
-    return 'dark';
-  });
+  const theme = useAppSelector((s) => s.theme.theme);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
     localStorage.setItem('theme', theme);
   }, [theme]);
 
-  const toggle = () => setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
-
-  return (
-    <ThemeContext.Provider value={{ theme, toggle }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  return <>{children}</>;
 }
 
-export function useTheme() {
-  return useContext(ThemeContext);
+export function useTheme(): ThemeContextType {
+  const dispatch = useAppDispatch();
+  const theme = useAppSelector((s) => s.theme.theme);
+  return { theme, toggle: () => dispatch(toggleTheme()) };
 }

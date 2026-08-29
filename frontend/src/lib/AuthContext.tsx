@@ -1,10 +1,6 @@
-import { createContext, useContext, useCallback, useEffect, useState, type ReactNode } from 'react';
-import { api, setAuthToken } from './api';
-
-interface User {
-  email: string;
-  naukriConfigured: boolean;
-}
+import { useEffect, type ReactNode } from 'react';
+import { useAppDispatch, useAppSelector } from './store';
+import { loginThunk, logoutThunk, restoreSession, type User } from './store';
 
 interface AuthContextValue {
   user: User | null;
@@ -13,81 +9,22 @@ interface AuthContextValue {
   logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextValue | null>(null);
-
-const USER_KEY = 'naukri_auth_user';
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(USER_KEY);
-      if (saved) {
-        try {
-          return JSON.parse(saved);
-        } catch {
-          return null;
-        }
-      }
-    }
-    return null;
-  });
-  const [loading, setLoading] = useState(!user);
-
-  // Restore session on mount
+  const dispatch = useAppDispatch();
   useEffect(() => {
-    (async () => {
-      try {
-        const me = await api.auth.me();
-        const userData = { email: me.email, naukriConfigured: me.naukri_configured };
-        setUser(userData);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem(USER_KEY, JSON.stringify(userData));
-        }
-      } catch {
-        setUser(null);
-        if (typeof window !== 'undefined') {
-          localStorage.removeItem(USER_KEY);
-        }
-        setAuthToken(null);
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  const login = useCallback(async (email: string, password: string) => {
-    const res = await api.auth.login(email, password);
-    setAuthToken(res.access_token);
-    const userData = { email: res.email, naukriConfigured: true };
-    setUser(userData);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(USER_KEY, JSON.stringify(userData));
-    }
-  }, []);
-
-  const logout = useCallback(async () => {
-    try {
-      await api.auth.logout();
-    } catch {
-      // ignore
-    }
-    setAuthToken(null);
-    setUser(null);
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(USER_KEY);
-    }
-  }, []);
-
-
-  return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
-      {children}
-    </AuthContext.Provider>
-  );
+    dispatch(restoreSession());
+  }, [dispatch]);
+  return <>{children}</>;
 }
 
 export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
+  const dispatch = useAppDispatch();
+  const user = useAppSelector((s) => s.auth.user);
+  const loading = useAppSelector((s) => s.auth.loading);
+
+  const login = (email: string, password: string) =>
+    dispatch(loginThunk({ email, password })).then(() => undefined);
+  const logout = () => dispatch(logoutThunk()).then(() => undefined);
+
+  return { user, loading, login, logout };
 }
