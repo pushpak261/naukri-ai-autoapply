@@ -114,12 +114,17 @@ async def upload_resume(file: UploadFile = File(...)):
 
         return {"status": "cached", "profile": cached_profile, "file_path": str(dest_path)}
 
-    api_key = state.settings.ai.gemini_api_key
+    api_key = (
+        state.settings.ai.gemini_api_key
+        if state.settings and state.settings.ai and state.settings.ai.gemini_api_key
+        else os.environ.get("GEMINI_API_KEY", "")
+    )
     if not api_key:
         raise HTTPException(
             status_code=400,
             detail="Gemini API key not configured. Set GEMINI_API_KEY in environment or config.",
         )
+
 
     llm = GeminiProvider(
         api_key=api_key,
