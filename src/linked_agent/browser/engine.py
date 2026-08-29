@@ -115,21 +115,38 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
         try:
             self._playwright = await async_playwright().start()
 
-            # Launch visible Chromium with anti-detection flags
-            self._browser = await self._playwright.chromium.launch(
-                headless=False,
-                args=[
-                    "--disable-blink-features=AutomationControlled",
-                    "--disable-infobars",
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-extensions",
-                    "--start-maximized",
-                    "--disable-background-timer-throttling",
-                    "--disable-backgrounding-occluded-windows",
-                    "--disable-renderer-backgrounding",
-                ],
-            )
+            is_headless = os.environ.get("HEADLESS", "").lower() in ("true", "1", "yes") or not os.environ.get("DISPLAY")
+            launch_args = [
+                "--disable-blink-features=AutomationControlled",
+                "--disable-infobars",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-extensions",
+                "--disable-gpu",
+                "--start-maximized",
+                "--disable-background-timer-throttling",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
+            ]
+
+            try:
+                self._browser = await self._playwright.chromium.launch(
+                    headless=is_headless,
+                    args=launch_args,
+                )
+            except Exception as launch_err:
+                if "Executable doesn't exist" in str(launch_err) or "playwright install" in str(launch_err):
+                    import subprocess
+                    import sys
+                    logger.info("Chromium not installed. Auto-installing Playwright Chromium...")
+                    subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=False)
+                    self._browser = await self._playwright.chromium.launch(
+                        headless=is_headless,
+                        args=launch_args,
+                    )
+                else:
+                    raise launch_err
+
 
             # LinkedIn-specific context options
             context_options: dict[str, object] = {
