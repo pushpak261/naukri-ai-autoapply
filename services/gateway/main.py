@@ -191,9 +191,16 @@ async def api_index() -> dict[str, Any]:
 def _require_user(request: Request) -> str | None:
     """Verify the bearer JWT locally; return the user email or ``None``."""
     auth = request.headers.get("Authorization", "")
-    if not auth.startswith("Bearer "):
+    token = ""
+    if auth.startswith("Bearer "):
+        token = auth[len("Bearer ") :].strip()
+    elif "token" in request.query_params:
+        token = request.query_params["token"].strip()
+    elif "access_token" in request.cookies:
+        token = request.cookies["access_token"].strip()
+
+    if not token:
         return None
-    token = auth[len("Bearer ") :].strip()
     payload = verify_access_token(token)
     if payload is None:
         return None

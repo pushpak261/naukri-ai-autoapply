@@ -662,7 +662,10 @@ export const api = {
     stop: () => fetchJSON<{ status: string; message: string }>('/agent/stop', { method: 'POST' }),
     status: () => fetchJSON<AgentStatus>('/agent/status'),
     output: (lines = 50000) => fetchText(`/agent/output?lines=${lines}`),
-    outputStreamUrl: (history = 50000) => `${SSE_BASE}/agent/output/stream?history=${history}`,
+    outputStreamUrl: (history = 50000) => {
+      const token = getAuthToken();
+      return `${SSE_BASE}/agent/output/stream?history=${history}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+    },
   },
 
   multi: {
@@ -679,8 +682,10 @@ export const api = {
     status: () => fetchJSON<MultiAgentStatus>('/multi/status'),
     output: (platform: string, lines = 50000) =>
       fetchText(`/multi/output?platform=${platform}&lines=${lines}`),
-    outputStreamUrl: (platform: string, history = 50000) =>
-      `${SSE_BASE}/multi/output/stream?platform=${platform}&history=${history}`,
+    outputStreamUrl: (platform: string, history = 50000) => {
+      const token = getAuthToken();
+      return `${SSE_BASE}/multi/output/stream?platform=${platform}&history=${history}${token ? `&token=${encodeURIComponent(token)}` : ''}`;
+    },
   },
 
   cache: {

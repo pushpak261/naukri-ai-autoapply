@@ -230,7 +230,7 @@ async def agents_output(platform: str = Query(...), lines: int = 50000):
     with state.agent_output_locks[platform]:
         buffer = state.agent_output_buffers.get(platform, [])
         if not running and not buffer:
-            return PlainTextResponse(f"No output for platform '{platform}'", status_code=404)
+            return PlainTextResponse(f"Agent '{platform}' is stopped. Waiting for logs...\n")
         if not buffer:
             return PlainTextResponse("Waiting for logs...\n")
         recent = buffer[-lines:]
