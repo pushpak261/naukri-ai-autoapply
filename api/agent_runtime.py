@@ -79,10 +79,15 @@ def _spawn_kwargs() -> dict:
 
 
 def spawn_agent(cmd: list[str], cwd: str, env: dict) -> subprocess.Popen:
+    env = dict(env or {})
+    # Unbuffered stdout/stderr so the SSE live terminal streams in real time
+    # even during long steps (browser launch / `playwright install`).
+    env.setdefault("PYTHONUNBUFFERED", "1")
     return subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
+        bufsize=1,
         cwd=cwd,
         env=env,
         **_spawn_kwargs(),

@@ -100,6 +100,33 @@ export default function AgentControl() {
   const [uptime, setUptime] = useState<number | null>(null);
   const sseRef = useRef<EventSource | null>(null);
 
+  // Buffer incoming SSE chunks and flush to state on a animation frame so a
+  // burst of log lines collapses into a single re-render instead of one
+  // setState per message (which made the terminal janky under high volume).
+  const pendingRef = useRef('');
+  const rafRef = useRef<number | null>(null);
+
+  const flushOutput = useCallback(() => {
+    rafRef.current = null;
+    const pending = pendingRef.current;
+    if (!pending) return;
+    pendingRef.current = '';
+    setOutput(prev => {
+      const next = prev ? prev + pending : pending;
+      // Keep the stored log bounded to the most recent ~50k lines.
+      if (next.length > 10_000_000) {
+        const lines = next.split('\n');
+        return lines.length > 60000 ? lines.slice(-50000).join('\n') : next;
+      }
+      return next;
+    });
+  }, []);
+
+  const scheduleFlush = useCallback(() => {
+    if (rafRef.current != null) return;
+    rafRef.current = requestAnimationFrame(flushOutput);
+  }, [flushOutput]);
+
   const outputLines = useMemo(() => {
     return output ? output.split('\n').filter(Boolean) : [];
   }, [output]);
@@ -109,6 +136,15 @@ export default function AgentControl() {
     const lower = logSearch.toLowerCase();
     return outputLines.filter(l => l.toLowerCase().includes(lower));
   }, [outputLines, logSearch]);
+
+  // Only render a bounded slice of lines as DOM nodes. Rendering the full
+  // (up to 50k-line) log as one <span> per line cratered the UI under load;
+  // the no-search case now renders the raw string (a single text node).
+  const MAX_RENDER = 5000;
+  const displayLines = useMemo(
+    () => (logSearch ? filteredLines.slice(-MAX_RENDER) : []),
+    [logSearch, filteredLines],
+  );
 
   const handleScroll = useCallback(() => {
     if (!outputRef.current) return;
@@ -195,16 +231,8 @@ export default function AgentControl() {
 
     es.onmessage = (event) => {
       if (event.data) {
-        setOutput(prev => {
-          const next = prev ? prev + event.data + '\n' : event.data + '\n';
-          if (next.length > 10000000) {
-            const lines = next.split('\n');
-            if (lines.length > 60000) {
-              return lines.slice(-50000).join('\n');
-            }
-          }
-          return next;
-        });
+        pendingRef.current += event.data + '\n';
+        scheduleFlush();
       }
     };
 
@@ -212,7 +240,7 @@ export default function AgentControl() {
       es.close();
       sseRef.current = null;
     };
-  }, [fetchOutput]);
+  }, [fetchOutput, scheduleFlush]);
 
   const refreshAll = useCallback(async () => {
     const s = await fetchStatus();
@@ -256,16 +284,8 @@ export default function AgentControl() {
 
     es.onmessage = (event) => {
       if (event.data) {
-        setOutput(prev => {
-          const next = prev ? prev + event.data + '\n' : event.data + '\n';
-          if (next.length > 10000000) {
-            const lines = next.split('\n');
-            if (lines.length > 60000) {
-              return lines.slice(-50000).join('\n');
-            }
-          }
-          return next;
-        });
+        pendingRef.current += event.data + '\n';
+        scheduleFlush();
       }
     };
 
@@ -273,7 +293,7 @@ export default function AgentControl() {
       es.close();
       multiSseRef.current = null;
     };
-  }, [fetchMultiOutput, logPlatform]);
+  }, [fetchMultiOutput, logPlatform, scheduleFlush]);
 
   // Initial load
   useEffect(() => {
@@ -320,6 +340,9 @@ export default function AgentControl() {
       if (healthIntervalRef.current) clearInterval(healthIntervalRef.current);
       if (sseRef.current) sseRef.current.close();
       if (multiSseRef.current) multiSseRef.current.close();
+      if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+      flushOutput();
     };
   }, [fetchStatus, fetchOutput, checkHealth, fetchMetrics, useSSE, connectSSE, parallelMode, fetchMultiStatus, connectMultiSSE, fetchMultiOutput]);
 
@@ -825,7 +848,7 @@ export default function AgentControl() {
         <div className="flex items-center justify-between mb-2 text-xs" style={{ color: 'var(--color-text-muted)' }}>
           <span>
             {logSearch
-              ? `${filteredLines.length} of ${outputLines.length} lines match`
+              ? `${displayLines.length}${filteredLines.length > MAX_RENDER ? '+' : ''} of ${outputLines.length} lines match`
               : `${outputLines.length} lines`}
           </span>
           <span>{(parallelMode ? multiAnyRunning : status?.running) ? (useSSE ? 'Real-time SSE' : 'Refreshing every 3s') : 'Agent stopped'}</span>
@@ -833,7 +856,7 @@ export default function AgentControl() {
 
         <pre
           ref={outputRef}
-          className="bg-[#0f172a] border border-[#334155] rounded-lg p-4 text-xs font-mono overflow-auto max-h-[500px] whitespace-pre-wrap leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#38bdf8]/30"
+          className="bg-[#0f172a] border border-[#334155] rounded-lg p-4 text-xs font-mono overflow-auto max-h-[500px] whitespace-pre-wrap break-words leading-relaxed focus:outline-none focus:ring-1 focus:ring-[#38bdf8]/30"
           style={{ color: output ? '#e2e8f0' : '#64748b' }}
           onScroll={handleScroll}
           tabIndex={0}
@@ -841,13 +864,19 @@ export default function AgentControl() {
           aria-label="Agent output log"
           aria-live="polite"
         >
-          {output
-            ? (logSearch ? filteredLines : outputLines).map((line, i) => (
+          {output ? (
+            logSearch ? (
+              displayLines.map((line, i) => (
                 <span key={i} style={{ color: lineColor(line), display: 'block' }}>{line}</span>
               ))
-            : (parallelMode ? multiAnyRunning : status?.running)
-              ? 'Waiting for logs...'
-              : 'No output yet. Start the agent to see live logs.'}
+            ) : (
+              output
+            )
+          ) : (parallelMode ? multiAnyRunning : status?.running) ? (
+            'Waiting for logs...'
+          ) : (
+            'No output yet. Start the agent to see live logs.'
+          )}
         </pre>
 
         {!autoScroll && outputLines.length > 0 && (

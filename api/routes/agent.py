@@ -83,6 +83,11 @@ async def start_agent(platform: str = Query("naukri", max_length=20)):
     else:
         cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
     env = os.environ.copy()
+    # Force unbuffered stdout/stderr so log lines reach the SSE stream in
+    # real time. When stdout is a pipe (not a TTY) Python block-buffers it,
+    # so a long/hung step (e.g. `playwright install` during browser launch)
+    # would otherwise make the live terminal look frozen until the buffer flushes.
+    env["PYTHONUNBUFFERED"] = "1"
     if state.active_account_email:
         env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
     try:
@@ -90,6 +95,7 @@ async def start_agent(platform: str = Query("naukri", max_length=20)):
             cmd,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            bufsize=1,
             cwd=str(state.settings.project_root),
             env=env,
         )
