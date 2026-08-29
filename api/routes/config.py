@@ -5,6 +5,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from api.deps import state
+from libs.common.security import encrypt_value
 
 router = APIRouter(tags=["config"])
 
@@ -223,6 +224,9 @@ async def update_config(update: ConfigUpdate):
                 }
                 env_var = env_var_map.get(tuple(keys))
                 if env_var:
+                    # Keep the password encrypted at rest in config.yaml.
+                    if tuple(keys) == ("naukri", "password"):
+                        value = encrypt_value(value)
                     _set_nested(config_data, keys, value)
             else:
                 _set_nested(config_data, keys, value)

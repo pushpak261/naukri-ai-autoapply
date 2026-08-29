@@ -47,7 +47,7 @@ class MockVectorFilter:
 # Fake ExclusionSettings for testing
 # ---------------------------------------------------------------------------
 def make_exclusion_settings(**overrides: Any) -> ExclusionSettings:
-    defaults: dict[str, Any] = dict(
+    defaults: dict[str, Any] = {
         companies=[
             "Techno Experts",
             "TeleInfoTech",
@@ -70,7 +70,7 @@ def make_exclusion_settings(**overrides: Any) -> ExclusionSettings:
         ],
         enable_scam_filter=True,
         max_openings_without_logo=25,
-    )
+    }
     defaults.update(overrides)
     return ExclusionSettings(**defaults)
 

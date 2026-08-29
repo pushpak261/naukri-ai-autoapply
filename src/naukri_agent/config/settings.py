@@ -7,17 +7,37 @@ overrides. Provides typed, validated access to all settings.
 
 from __future__ import annotations
 
+import base64
+import hashlib
 import os
 from functools import lru_cache
 from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
+from cryptography.fernet import Fernet
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # ---------------------------------------------------------------------------
 # Project root is two levels up from this file (src/config/settings.py)
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+
+
+def _decrypt_secret(value: str) -> str:
+    """Decrypt a ``enc:<token>`` secret (mirrors ``libs.common.security`` keying).
+
+    Values without the ``enc:`` prefix are returned unchanged so plaintext
+    (e.g. provided via env) keeps working. Key resolution matches
+    ``libs.common.security.resolve_encryption_key`` so the two round-trip.
+    """
+    if not value or not value.startswith("enc:"):
+        return value
+    raw = os.environ.get("SESSION_ENCRYPTION_KEY") or f"local-{PROJECT_ROOT}"
+    key = base64.urlsafe_b64encode(hashlib.sha256(raw.encode("utf-8")).digest())
+    try:
+        return Fernet(key).decrypt(value[len("enc:") :].encode("utf-8")).decode("utf-8")
+    except Exception:
+        return ""
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +48,11 @@ class NaukriCredentials(BaseModel):
 
     email: str = ""
     password: str = ""
+
+    @field_validator("password", mode="before")
+    @classmethod
+    def _decrypt_password(cls, v: object) -> object:
+        return _decrypt_secret(v) if isinstance(v, str) else v
     gmail_otp_email: str = ""
     gmail_app_password: str = ""
     mobile_number: str = ""
@@ -259,7 +284,7 @@ def _apply_env_overrides(config: dict) -> dict:
     if env_path.exists():
         from dotenv import load_dotenv
 
-        load_dotenv(env_path, override=True)
+        load_dotenv(env_path, override=False)
 
     # Apply overrides
     env_map = {

@@ -287,6 +287,124 @@ class SQLAlchemyRepository(IRepository):
             )
 
     @with_failover
+    async def begin_application(
+        self,
+        job_id: int,
+        match_score: float,
+        match_reasoning: str = "",
+        matching_skills: str = "",
+        missing_skills: str = "",
+    ) -> int:
+        """Pre-claim an application row (status ``applying``) *before* the
+        network apply call.
+
+        This closes the crash-during-apply double-apply window: if the bot
+        succeeds on Naukri but dies before persisting, the in-flight ``applying``
+        row blocks a duplicate attempt on the next run (it is loaded into the
+        dedup cache) until :meth:`recover_stuck_applications` flips it to
+        ``failed`` after a timeout.
+
+        Idempotent: if a non-failed application row already exists for the job,
+        its id is returned instead of inserting a duplicate.
+        """
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
+            existing = await session.execute(
+                select(DBApplication)
+                .filter(DBApplication.job_id == job_id)
+                .order_by(DBApplication.applied_at.desc())
+            )
+            prior = existing.scalars().first()
+            if prior and prior.status != "failed":
+                return prior.id
+
+            app = DBApplication(
+                job_id=job_id,
+                match_score=match_score,
+                match_reasoning=match_reasoning,
+                matching_skills=matching_skills,
+                missing_skills=missing_skills,
+                status="applying",
+            )
+            session.add(app)
+            await session.flush()
+            await session.refresh(app)
+            app_id = app.id
+
+            # Block re-scanning the same job within this run.
+            job_result = await session.execute(select(DBJob).filter(DBJob.id == job_id))
+            job = job_result.scalar_one_or_none()
+            if job:
+                now = datetime.now(UTC)
+                if job.naukri_job_id:
+                    self._applied_jobs_cache[job.naukri_job_id] = now
+                if job.title and job.company:
+                    self._applied_composite_cache[
+                        (job.title.lower().strip(), job.company.lower().strip())
+                    ] = now
+            return app_id
+
+    @with_failover
+    async def finalize_application(
+        self,
+        app_id: int,
+        status: str,
+        error_message: str = "",
+        match_reasoning: str = "",
+        matching_skills: str = "",
+        missing_skills: str = "",
+    ) -> None:
+        """Finalize a pre-claimed application row (see :meth:`begin_application`)."""
+        from libs.common.metrics import AGENT_LAST_APPLY_TIMESTAMP
+
+        session_factory = await self._db_manager.get_session_factory()
+        async with session_factory() as session, session.begin():
+            result = await session.execute(
+                select(DBApplication).filter(DBApplication.id == app_id)
+            )
+            app = result.scalar_one_or_none()
+            if app is None:
+                return
+            app.status = status
+            app.error_message = error_message
+            app.match_reasoning = match_reasoning
+            app.matching_skills = matching_skills
+            app.missing_skills = missing_skills
+            app.applied_at = datetime.now(UTC)
+
+        # Dead-man's-switch: surface the last successful apply timestamp.
+        if status == "applied" and AGENT_LAST_APPLY_TIMESTAMP is not None:
+            AGENT_LAST_APPLY_TIMESTAMP.set(datetime.now(UTC).timestamp())
+
+    @with_failover
+    async def recover_stuck_applications(self, timeout_minutes: int = 15) -> int:
+        """Flip ``applying`` rows older than ``timeout_minutes`` to ``failed``.
+
+        A row stuck in ``applying`` means the apply crashed between the network
+        call and persistence. Marking it ``failed`` lets the cooldown-based
+        retry logic re-attempt it; Naukri's own "already applied" UI guard
+        prevents a true double-apply if the first attempt actually landed.
+        Returns the number of rows recovered.
+        """
+        session_factory = await self._db_manager.get_session_factory()
+        cutoff = datetime.now(UTC) - timedelta(minutes=timeout_minutes)
+        recovered = 0
+        async with session_factory() as session, session.begin():
+            result = await session.execute(
+                select(DBApplication).filter(
+                    DBApplication.status == "applying",
+                    DBApplication.applied_at < cutoff,
+                )
+            )
+            for app in result.scalars().all():
+                app.status = "failed"
+                app.error_message = (
+                    app.error_message or "Recovered from stuck 'applying' state"
+                )
+                recovered += 1
+        return recovered
+
+    @with_failover
     async def get_today_application_count(self) -> int:
         """Count applications made today (UTC)."""
         session_factory = await self._db_manager.get_session_factory()

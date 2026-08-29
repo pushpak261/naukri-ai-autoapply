@@ -55,6 +55,29 @@ class IRepository(Protocol):
         error_message: str = "",
     ) -> JobApplication: ...
 
+    async def begin_application(
+        self,
+        job_id: int,
+        match_score: float,
+        match_reasoning: str = "",
+        matching_skills: str = "",
+        missing_skills: str = "",
+    ) -> int:
+        """Pre-claim an application row (status ``applying``) before the network call."""
+        ...
+
+    async def finalize_application(
+        self,
+        app_id: int,
+        status: str,
+        error_message: str = "",
+        match_reasoning: str = "",
+        matching_skills: str = "",
+        missing_skills: str = "",
+    ) -> None:
+        """Finalize a pre-claimed application row."""
+        ...
+
     async def get_today_application_count(self) -> int: ...
 
     async def get_application_stats(self, days: int = 7) -> dict[str, int]: ...

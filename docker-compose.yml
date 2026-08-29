@@ -1,0 +1,287 @@
+# Naukri AI Agent — microservice platform
+#
+# True distributed services, each in its own container, talking REST over the
+# network, all sharing one Postgres database. The Gateway is the single
+# external entry point (auth + reverse proxy) and also serves the frontend.
+#
+# Quick start:
+#   cp .env.example .env   # fill in NAUKRI_EMAIL, GEMINI_API_KEY, DASHBOARD_API_KEY,
+#                          # JWT_SECRET, SERVICE_TOKEN, SESSION_ENCRYPTION_KEY, POSTGRES_PASSWORD
+#   docker compose up --build
+#   open http://localhost:8000
+
+x-common-env: &common-env
+  DATABASE_URL: postgresql+asyncpg://naukri:${POSTGRES_PASSWORD:-naukri}@postgres:5432/naukri
+  AUTH_SERVICE_URL: http://auth:8101
+  CONFIG_SERVICE_URL: http://config:8102
+  JOBS_SERVICE_URL: http://jobs:8103
+  RESUME_SERVICE_URL: http://resume:8104
+  APPLICATIONS_SERVICE_URL: http://applications:8105
+  AI_SERVICE_URL: http://ai:8106
+  AGENT_SERVICE_URL: http://agent:8107
+  DATA_SERVICE_URL: http://data:8108
+  # Shared secrets (gateway verifies JWT with JWT_SECRET; services require
+  # SERVICE_TOKEN / DASHBOARD_API_KEY to accept proxied calls). MUST be set in
+  # production (compose `environment` overrides take precedence over .env).
+  SERVICE_TOKEN: ${SERVICE_TOKEN:-}
+  JWT_SECRET: ${JWT_SECRET:-}
+  SESSION_ENCRYPTION_KEY: ${SESSION_ENCRYPTION_KEY:-}
+  # Postgres connection pool tuning.
+  DB_POOL_SIZE: "10"
+  DB_MAX_OVERFLOW: "20"
+  DB_POOL_TIMEOUT: "30"
+  DB_POOL_RECYCLE: "1800"
+  # CORS origins for the gateway (comma-separated).
+  CORS_ORIGINS: ${CORS_ORIGINS:-}
+  AGENT_MAX_RUNTIME_SECONDS: "3600"
+
+x-healthcheck: &healthcheck
+  interval: 15s
+  timeout: 5s
+  retries: 5
+  start_period: 20s
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: naukri
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-naukri}
+      POSTGRES_DB: naukri
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U naukri"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - backend
+    restart: unless-stopped
+
+  gateway:
+    <<: *restart
+    build:
+      context: .
+      dockerfile: Dockerfile.services
+    command: uvicorn services.gateway.main:app --host 0.0.0.0 --port 8000
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      GATEWAY_PORT: "8000"
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+      FRONTEND_DIST: /app/frontend/dist
+      PROD: ${PROD:-false}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      auth:
+        condition: service_healthy
+      config:
+        condition: service_healthy
+      jobs:
+        condition: service_healthy
+      resume:
+        condition: service_healthy
+      applications:
+        condition: service_healthy
+      ai:
+        condition: service_healthy
+      agent:
+        condition: service_healthy
+      data:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/api/health').status==200 else 1)"]
+    mem_limit: 512m
+    cpus: "1.0"
+    networks:
+      - edge
+      - backend
+
+  auth:
+    <<: *restart
+    build: { context: ., dockerfile: Dockerfile.services }
+    command: uvicorn services.auth.main:app --host 0.0.0.0 --port 8101
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8101/api/health').status==200 else 1)"]
+    mem_limit: 384m
+    cpus: "1.0"
+    networks:
+      - backend
+
+  config:
+    <<: *restart
+    build: { context: ., dockerfile: Dockerfile.services }
+    command: uvicorn services.config.main:app --host 0.0.0.0 --port 8102
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8102/api/health').status==200 else 1)"]
+    mem_limit: 384m
+    cpus: "1.0"
+    networks:
+      - backend
+
+  jobs:
+    <<: *restart
+    build: { context: ., dockerfile: Dockerfile.services }
+    command: uvicorn services.jobs.main:app --host 0.0.0.0 --port 8103
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8103/api/health').status==200 else 1)"]
+    mem_limit: 384m
+    cpus: "1.0"
+    networks:
+      - backend
+
+  resume:
+    <<: *restart
+    build: { context: ., dockerfile: Dockerfile.services }
+    command: uvicorn services.resume.main:app --host 0.0.0.0 --port 8104
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8104/api/health').status==200 else 1)"]
+    mem_limit: 512m
+    cpus: "1.0"
+    networks:
+      - backend
+
+  applications:
+    <<: *restart
+    build: { context: ., dockerfile: Dockerfile.services }
+    command: uvicorn services.applications.main:app --host 0.0.0.0 --port 8105
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8105/api/health').status==200 else 1)"]
+    mem_limit: 384m
+    cpus: "1.0"
+    networks:
+      - backend
+
+  ai:
+    <<: *restart
+    build: { context: ., dockerfile: Dockerfile.services }
+    command: uvicorn services.ai.main:app --host 0.0.0.0 --port 8106
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8106/api/health').status==200 else 1)"]
+    mem_limit: 512m
+    cpus: "1.0"
+    networks:
+      - backend
+
+  agent:
+    <<: *restart
+    build: { context: ., dockerfile: Dockerfile.services }
+    command: uvicorn services.agent.main:app --host 0.0.0.0 --port 8107
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+      ai:
+        condition: service_healthy
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8107/api/health').status==200 else 1)"]
+    # The agent spawns browser subprocesses; give it room and the device.
+    shm_size: "1gb"
+    mem_limit: 1536m
+    cpus: "2.0"
+    networks:
+      - backend
+
+  data:
+    <<: *restart
+    build: { context: ., dockerfile: Dockerfile.services }
+    command: uvicorn services.data_ops.main:app --host 0.0.0.0 --port 8108
+    env_file:
+      - .env
+    environment:
+      <<: *common-env
+      DASHBOARD_API_KEY: ${DASHBOARD_API_KEY:-}
+    depends_on:
+      postgres: { condition: service_healthy }
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8108/api/health').status==200 else 1)"]
+    mem_limit: 384m
+    cpus: "1.0"
+    networks:
+      - backend
+
+  frontend:
+    <<: *restart
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      - gateway
+    healthcheck:
+      <<: *healthcheck
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost/').status==200 else 1)"]
+    mem_limit: 128m
+    cpus: "0.5"
+    networks:
+      - edge
+
+volumes:
+  pgdata:
+
+networks:
+  edge:
+  backend:

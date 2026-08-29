@@ -222,6 +222,11 @@ class NaukriAgent:
         if dry_run:
             self._settings.application.dry_run = True
 
+        # Reset any prior external-block state at the start of a run.
+        from api.agent_runtime import clear_agent_blocked
+
+        clear_agent_blocked()
+
         # Setup
         self._print_banner()
         setup_logging(
@@ -257,6 +262,13 @@ class NaukriAgent:
                 raise RuntimeError("LoginHandler not configured.")
             login_success = await login_handler.login()
             if not login_success:
+                from api.agent_runtime import mark_agent_blocked
+                from src.naukri_agent.bot.block_detector import classify_block
+
+                last_err = getattr(login_handler, "last_error", "") or ""
+                block = classify_block(last_err)
+                if block:
+                    await mark_agent_blocked(self._settings, block, None)
                 log_error("Login failed. Cannot proceed.")
                 return
 
@@ -767,22 +779,62 @@ class NaukriAgent:
                     self._jobs_failed += 1
                     continue
 
+            # Pre-claim the application row BEFORE the network apply so a crash
+            # between a successful Naukri apply and persistence can't cause a
+            # duplicate application on the next run.
+            claimed_id = None
+            if self._repo and db_job:
+                claimed_id = await self._repo.begin_application(
+                    job_id=db_job.id,
+                    match_score=match_score,
+                    match_reasoning=match_result.match_reasoning,
+                    matching_skills=match_result.matching_skills,
+                    missing_skills=match_result.missing_skills,
+                )
+
             # Run apply flow
             apply_result = await applier.apply_to_job(job)
             status = apply_result.get("status", ApplicationStatus.FAILED)
             error_msg = apply_result.get("error_message", "")
 
+            # External-block playbook: if Naukri threw a captcha/OTP/IP-ban,
+            # pause and notify instead of hammering the site (which worsens a ban).
+            from src.naukri_agent.bot.block_detector import classify_block
+
+            block = classify_block(error_msg) or classify_block(status)
+            if block:
+                from api.agent_runtime import mark_agent_blocked
+
+                await mark_agent_blocked(self._settings, block, job)
+                if self._repo and db_job and claimed_id is not None:
+                    await self._repo.finalize_application(
+                        app_id=claimed_id,
+                        status="failed",
+                        error_message=f"External block ({block}): {error_msg}",
+                    )
+                self._jobs_failed += 1
+                break
+
             if self._repo and db_job:
-                assert db_job.id is not None
-                await self._repo.save_application(
-                    job_id=db_job.id,
-                    match_score=match_score,
-                    status=status,
-                    match_reasoning=match_result.match_reasoning,
-                    matching_skills=match_result.matching_skills,
-                    missing_skills=match_result.missing_skills,
-                    error_message=error_msg,
-                )
+                if claimed_id is not None:
+                    await self._repo.finalize_application(
+                        app_id=claimed_id,
+                        status=status,
+                        error_message=error_msg,
+                        match_reasoning=match_result.match_reasoning,
+                        matching_skills=match_result.matching_skills,
+                        missing_skills=match_result.missing_skills,
+                    )
+                else:
+                    await self._repo.save_application(
+                        job_id=db_job.id,
+                        match_score=match_score,
+                        status=status,
+                        match_reasoning=match_result.match_reasoning,
+                        matching_skills=match_result.matching_skills,
+                        missing_skills=match_result.missing_skills,
+                        error_message=error_msg,
+                    )
 
             if status == ApplicationStatus.APPLIED:
                 self._jobs_applied += 1

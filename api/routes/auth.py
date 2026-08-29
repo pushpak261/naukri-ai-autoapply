@@ -8,6 +8,7 @@ The refresh token is encrypted on disk so the session survives server restarts.
 from __future__ import annotations
 
 import secrets
+import os
 
 import yaml
 from fastapi import APIRouter, HTTPException, Request, Response, status
@@ -25,6 +26,7 @@ from api.auth.jwt import (
     verify_refresh_token,
 )
 from api.deps import state
+from libs.common.security import encrypt_value
 
 router = APIRouter(tags=["auth"])
 
@@ -112,7 +114,7 @@ def _save_naukri_credentials(email: str, password: str) -> None:
 
     config_data.setdefault("naukri", {})
     config_data["naukri"]["email"] = email
-    config_data["naukri"]["password"] = password
+    config_data["naukri"]["password"] = encrypt_value(password)
 
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
@@ -125,7 +127,23 @@ def _save_naukri_credentials(email: str, password: str) -> None:
 
 @router.post("/api/auth/register")
 async def register(body: RegisterRequest, response: Response):
-    """Register a new user and persist credentials for the agent."""
+    """Register a new user and persist credentials for the agent.
+
+    Public self-registration is disabled by default (``OPEN_REGISTRATION`` is
+    falsy). Operators seed credentials via ``NAUKRI_EMAIL``/``NAUKRI_PASSWORD``
+    in ``.env``/``config.yaml`` and use the login endpoint.
+    """
+    if os.environ.get("OPEN_REGISTRATION", "false").strip().lower() not in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Public registration is disabled",
+        )
+
     email = body.email.strip()
     password = body.password
 

@@ -16,6 +16,15 @@ aiosqlite>=0.20.0,<1.0.0
 # Resilience
 tenacity>=8.4.0,<10.0.0
 
+# Web framework / HTTP / observability
+fastapi>=0.110.0,<1.0.0
+uvicorn>=0.30.0,<1.0.0
+httpx>=0.27.0,<1.0.0
+prometheus-client>=0.20.0,<1.0.0
+pyjwt>=2.8.0,<3.0.0
+alembic>=1.13.0,<2.0.0
+cryptography>=43.0.0,<44.0.0
+
 # Configuration
 pydantic>=2.0.0,<3.0.0
 pydantic-settings>=2.0.0,<3.0.0

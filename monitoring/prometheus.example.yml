@@ -1,0 +1,17 @@
+# Prometheus scrape config (example). Point your Prometheus at every service
+# and the gateway on their /metrics endpoint.
+scrape_configs:
+  - job_name: gateway
+    static_configs:
+      - targets: ["gateway:8000"]
+  - job_name: naukri-services
+    static_configs:
+      - targets:
+          - "auth:8101"
+          - "config:8102"
+          - "jobs:8103"
+          - "resume:8104"
+          - "applications:8105"
+          - "ai:8106"
+          - "agent:8107"
+          - "data:8108"

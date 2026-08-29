@@ -247,7 +247,7 @@ def _apply_env_overrides(config: dict) -> dict:
     if env_path.exists():
         from dotenv import load_dotenv
 
-        load_dotenv(env_path, override=True)
+        load_dotenv(env_path, override=False)
 
     env_map = {
         ("linkedin", "email"): "LINKEDIN_EMAIL",

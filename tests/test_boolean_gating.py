@@ -228,8 +228,6 @@ class TestResumeParserGating:
         repo.get_cached_profile = AsyncMock(return_value=None)
         settings = _make_settings(use_gemini=True, project_root=tmp_path)
 
-        parser = ResumeParser(mock_llm, repo, settings)
-
         # Need a real file for hash_file()
         fake_pdf = tmp_path / "resume.pdf"
         fake_pdf.write_bytes(b"%PDF-1.4 fake")

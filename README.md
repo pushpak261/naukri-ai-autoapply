@@ -253,6 +253,78 @@ The cloud bot will now automatically inherit your login session and skip the log
 | Low match scores | Adjust `match_score_threshold` or refine resume |
 | Bot detected | Increase delays, reduce daily cap, use a VPN |
 
+## 🛡️ Production Hardening & Deployment
+
+The platform is built as a set of 12-factor, stateless microservices behind a single
+API gateway. The following hardening is already in place:
+
+### Architecture
+- **API gateway** verifies JWTs locally (no extra network hop) and enforces
+  per-IP rate limiting, request-size limits, and request-ID correlation.
+- **Per-service auth** — the gateway proves itself to backends with a shared
+  `SERVICE_TOKEN` (`X-Service-Token`); direct access to a backend port without
+  it is rejected when the token is configured.
+- **Resilience** — every cross-service HTTP call uses a pooled client, retries
+  with exponential backoff, and a per-upstream **circuit breaker**. If a backend
+  is down the gateway fails fast with `502/503` instead of hanging.
+- **Agent safety** — at most one run per platform (concurrency gate), cross-platform
+  process kill (incl. Windows `taskkill /T`), a supervisor that recovers stuck runs,
+  and crashed runs are recorded as `error` (not `completed`).
+- **Data layer** — idempotent application writes (no duplicate blocking rows),
+  transient-failure retries, and a DB-aware `/api/health` + `/api/ready` + `/api/live`.
+
+### Required environment variables (production)
+| Variable | Purpose |
+|----------|---------|
+| `JWT_SECRET` | HS256 signing secret for user JWTs. **Required in prod** — the gateway fails fast on boot if missing. Use the same value for every service. |
+| `SERVICE_TOKEN` (or `DASHBOARD_API_KEY`) | Shared gateway↔service token. Set identically on gateway + backends. |
+| `SESSION_ENCRYPTION_KEY` | Fernet key for encrypting stored Naukri credentials at rest. |
+| `POSTGRES_*` / `DATABASE_URL` | Database connection (pool size/env tunable). |
+| `CORS_ORIGINS` | Comma-separated allowed browser origins. |
+| `OPEN_REGISTRATION` | `false` (default) disables public self-registration. |
+| `PROD` | `true` enables the `JWT_SECRET` fail-fast check. |
+
+### Secrets at rest
+- Naukri credentials in `config.yaml` are stored as `enc:<fernet-token>` (transparently
+  decrypted at load). The plain `config.yaml` is **git-ignored**; commit
+  `config.yaml.example` as a template instead.
+- **The plaintext password that previously existed in git history has been scrubbed**
+  from the `main` / `hotfix/*` / `feature/*` / `release/*` branches via `git filter-repo`.
+  Ensure `JWT_SECRET`, `SERVICE_TOKEN`, and `SESSION_ENCRYPTION_KEY` are provided via
+  your secrets manager / CI, never committed.
+
+### Observability
+- Every service and the gateway expose Prometheus metrics on `GET /metrics`
+  (`http_requests_total`, `http_request_duration_seconds`, `http_requests_in_flight`).
+  Scrape these for SLOs and alerting. The gateway also exposes `GET /api/health`
+  which probes each backend.
+
+### Local run vs container
+- `python scripts/run_services.py` boots all services on a local SQLite DB (handy for
+  dev). `docker-compose.yml` provides a production-shaped deployment with secrets via
+  env, healthchecks, resource limits, and `edge`/`backend` network segmentation.
+
+## 📈 Monitoring & Alerting
+
+Every service and the gateway expose Prometheus metrics on `GET /metrics`
+(`http_requests_total`, `http_request_duration_seconds`, `http_requests_in_flight`,
+plus the gateway `http_server_errors_total` / `gateway_circuit_breaker_open` and the
+agent `agent_running` / `agent_last_run_timestamp_seconds` / `agent_last_apply_timestamp_seconds`
+/ `agent_blocked`). Scrape them with Prometheus (`monitoring/prometheus.example.yml`)
+and load `monitoring/alerts.yaml` as rule files.
+
+**The two alerts that matter most for a client engagement** (the dead-man's-switch):
+- `AgentStalled` — no agent run in 6h → the bot may have silently died.
+- `NoApplicationsLately` — no successful application in 24h → investigate Naukri blockers.
+- `AgentExternallyBlocked` — Naukri threw a captcha/OTP/IP-ban; a human must resolve it
+  and restart the run (the agent pauses automatically instead of hammering the site).
+
+Kubernetes: manifests are not included in this tree (deploy via Docker Compose for
+now). The gateway and stateless backends are safe to run multi-replica behind a
+load balancer; keep the `agent` service at a single replica because its single-run
+gate is in-process. The one remaining single point of failure to plan for is the
+database — use a managed Postgres with a standby for HA.
+
 ## 📜 License
 
 This project is for personal, educational use only. Use responsibly.

@@ -1,0 +1,61 @@
+# Prometheus alerting rules for the Naukri AI Agent platform.
+# Load with: promtool check rules alerts.yaml  &&  mount as a RuleFiles target.
+#
+# The two dead-man's-switch alerts below are the most important for a client:
+# they fire when the bot silently stops applying (the #1 way a "paid for a
+# working bot" engagement goes wrong unnoticed).
+
+groups:
+  - name: naukri-platform
+    rules:
+      # Gateway / upstream health
+      - alert: Gateway5xxSpike
+        expr: rate(http_server_errors_total{service="gateway"}[5m]) > 0.1
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Gateway returning 5xx"
+          description: "Gateway is emitting server errors (rate {{ $value }}/s)."
+
+      - alert: UpstreamCircuitOpen
+        expr: gateway_circuit_breaker_open == 1
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Upstream circuit breaker open"
+          description: "A backend is down and the gateway is failing fast."
+
+      # Dead-man's-switch: the bot stopped running
+      - alert: AgentNotRunning
+        expr: agent_running == 0
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "No agent run in progress"
+          description: "The agent has not been running for 30m. Confirm the schedule."
+
+      - alert: AgentStalled
+        # last run older than 6h while we expect periodic runs
+        expr: (time() - agent_last_run_timestamp_seconds) > 21600
+        for: 10m
+        labels: { severity: critical }
+        annotations:
+          summary: "Agent has not run in 6h"
+          description: "The bot may have silently died. Check the agent pod logs."
+
+      - alert: NoApplicationsLately
+        # no successful application in 24h (adjust to the client's cadence)
+        expr: (time() - agent_last_apply_timestamp_seconds) > 86400
+        for: 30m
+        labels: { severity: critical }
+        annotations:
+          summary: "No job applications in 24h"
+          description: "The bot applied to nothing in 24h — investigate Naukri blockers."
+
+      - alert: AgentExternallyBlocked
+        expr: agent_blocked == 1
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Agent paused by Naukri block"
+          description: "Naukri threw a CAPTCHA/OTP/IP-ban. A human must resolve it and restart."
