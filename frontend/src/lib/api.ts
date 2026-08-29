@@ -1,6 +1,20 @@
 const rawBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const BASE_URL = rawBase ? `${rawBase}/api` : '/api';
 
+// Hard timeout so a slow/unreachable backend fails fast instead of hanging the
+// dashboard (e.g. a disabled Koyeb deployment would otherwise make the app spin
+// indefinitely and surface as a vague CORS error in the console).
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS) || 12000;
+
+function withTimeout(options?: RequestInit): RequestInit {
+  if (options?.signal) return options;
+  const signal =
+    typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+      ? AbortSignal.timeout(API_TIMEOUT_MS)
+      : undefined;
+  return { ...options, signal };
+}
+
 // ---------------------------------------------------------------------------
 // JWT access token management
 // ---------------------------------------------------------------------------
@@ -39,10 +53,10 @@ async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     try {
-      const res = await fetch(`${BASE_URL}/auth/refresh`, {
+      const res = await fetch(`${BASE_URL}/auth/refresh`, withTimeout({
         method: 'POST',
         credentials: 'include',
-      });
+      }));
       if (!res.ok) {
         accessToken = null;
         return null;
@@ -88,22 +102,22 @@ async function fetchJSON<T>(url: string, options?: RequestInit, skipAuth = false
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${BASE_URL}${url}`, {
+  let res = await fetch(`${BASE_URL}${url}`, withTimeout({
     ...options,
     headers,
     credentials: 'include',
-  });
+  }));
 
   // On 401, attempt token refresh and retry once
   if (res.status === 401 && !skipAuth) {
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(`${BASE_URL}${url}`, {
+      res = await fetch(`${BASE_URL}${url}`, withTimeout({
         ...options,
         headers,
         credentials: 'include',
-      });
+      }));
     }
   }
 
@@ -128,22 +142,22 @@ async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${BASE_URL}${url}`, {
+  let res = await fetch(`${BASE_URL}${url}`, withTimeout({
     method: 'POST',
     body: formData,
     headers,
     credentials: 'include',
-  });
+  }));
   if (res.status === 401) {
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(`${BASE_URL}${url}`, {
+      res = await fetch(`${BASE_URL}${url}`, withTimeout({
         method: 'POST',
         body: formData,
         headers,
         credentials: 'include',
-      });
+      }));
     }
   }
   if (!res.ok) {
@@ -167,12 +181,12 @@ async function fetchText(url: string): Promise<string> {
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${BASE_URL}${url}`, { headers, credentials: 'include' });
+  let res = await fetch(`${BASE_URL}${url}`, withTimeout({ headers, credentials: 'include' }));
   if (res.status === 401) {
     const newToken = await refreshAccessToken();
     if (newToken) {
       headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(`${BASE_URL}${url}`, { headers, credentials: 'include' });
+      res = await fetch(`${BASE_URL}${url}`, withTimeout({ headers, credentials: 'include' }));
     }
   }
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
