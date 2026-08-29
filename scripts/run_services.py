@@ -61,8 +61,18 @@ def main() -> int:
     parser.add_argument(
         "--only", help="Comma-separated service names to run (default: all)"
     )
-    parser.add_argument("--no-gateway", action="store_true", help="Skip the gateway")
-    parser.add_argument("--reload", action="store_true", help="Enable uvicorn --reload")
+    parser.add_argument(
+        "--reload",
+        action="store_true",
+        default=True,
+        help="Enable uvicorn --reload (default: True)",
+    )
+    parser.add_argument(
+        "--no-reload",
+        action="store_false",
+        dest="reload",
+        help="Disable uvicorn --reload",
+    )
     args = parser.parse_args()
 
     wanted = set(SERVICES)

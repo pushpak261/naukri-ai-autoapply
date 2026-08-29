@@ -211,11 +211,8 @@ export default function AgentControl() {
     es.onerror = () => {
       es.close();
       sseRef.current = null;
-      if (useSSE) {
-        setTimeout(connectSSE, 3000);
-      }
     };
-  }, [useSSE, fetchOutput]);
+  }, [fetchOutput]);
 
   const refreshAll = useCallback(async () => {
     const s = await fetchStatus();
@@ -246,7 +243,7 @@ export default function AgentControl() {
         setOutput(prev => mergeLogs(prev, text));
       }
     } catch {
-      // 404 is expected when that platform isn't running
+      // expected when that platform isn't running
     }
   }, [logPlatform]);
 
@@ -275,11 +272,8 @@ export default function AgentControl() {
     es.onerror = () => {
       es.close();
       multiSseRef.current = null;
-      if (useSSE) {
-        setTimeout(connectMultiSSE, 3000);
-      }
     };
-  }, [useSSE, fetchMultiOutput, logPlatform]);
+  }, [fetchMultiOutput, logPlatform]);
 
   // Initial load
   useEffect(() => {
@@ -290,8 +284,9 @@ export default function AgentControl() {
       fetchMultiStatus().then(s => {
         if (!mounted) return;
         setLoading(false);
-        if (s && useSSE) connectMultiSSE();
-        else if (s) fetchMultiOutput();
+        const anyRunning = s && (s.agents.naukri?.running || s.agents.linkedin?.running);
+        if (anyRunning && useSSE) connectMultiSSE();
+        else if (anyRunning) fetchMultiOutput();
       });
     } else {
       fetchStatus().then(s => {
