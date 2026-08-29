@@ -8,7 +8,6 @@ from api.deps import state
 
 router = APIRouter(tags=["config"])
 
-
 class ConfigUpdate(BaseModel):
     naukri_email: str | None = None
     naukri_password: str | None = None
@@ -52,13 +51,10 @@ class ConfigUpdate(BaseModel):
     notify_on_match: bool | None = None
     enable_scam_filter: bool | None = None
 
-
-
 def _set_nested(d: dict, keys: list[str], value: Any) -> None:
     for key in keys[:-1]:
         d = d.setdefault(key, {})
     d[keys[-1]] = value
-
 
 @router.get("/api/config")
 async def get_config():
@@ -150,11 +146,18 @@ async def get_config():
             ),
         },
         "rate_limits": {
-            "rate_limit_capacity": s.application.rate_limit_capacity,
-            "rate_limit_refill_rate": s.application.rate_limit_refill_rate,
+            "rate_limit_capacity": (
+                s.application.get("rate_limit_capacity", 10.0)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "rate_limit_capacity", 10.0)
+            ),
+            "rate_limit_refill_rate": (
+                s.application.get("rate_limit_refill_rate", 1.0)
+                if isinstance(s.application, dict)
+                else getattr(s.application, "rate_limit_refill_rate", 1.0)
+            ),
         },
     }
-
 
 @router.put("/api/config")
 async def update_config(update: ConfigUpdate):
@@ -213,7 +216,7 @@ async def update_config(update: ConfigUpdate):
     for keys, value, is_secret in updates:
         if value is not None:
             if is_secret:
-                env_var_map = {
+                env_var_map: dict[tuple[str, ...], str] = {
                     ("naukri", "email"): "NAUKRI_EMAIL",
                     ("naukri", "password"): "NAUKRI_PASSWORD",
                     ("ai", "gemini_api_key"): "GEMINI_API_KEY",
@@ -234,12 +237,10 @@ async def update_config(update: ConfigUpdate):
 
     return {"status": "ok", "message": "Configuration updated"}
 
-
 # ---------------------------------------------------------------------------
 # LinkedIn Config Endpoints
 # ---------------------------------------------------------------------------
 LINKEDIN_CONFIG_PATH = None  # resolved at runtime
-
 
 def _get_linkedin_config_path():
     global LINKEDIN_CONFIG_PATH
@@ -247,7 +248,6 @@ def _get_linkedin_config_path():
         from pathlib import Path
         LINKEDIN_CONFIG_PATH = state.settings.project_root / "linkedin_config.yaml"
     return LINKEDIN_CONFIG_PATH
-
 
 @router.get("/api/config/linkedin")
 async def get_linkedin_config():
@@ -291,17 +291,16 @@ async def get_linkedin_config():
             "locations": search.get("locations", []),
             "work_type": search.get("work_type", ""),
             "freshness": search.get("freshness", "past_week"),
-            "max_pages": search.get("max_pages", 3),
-            "sort_by": search.get("sort_by", "relevance"),
+            "max_pages": search.get("max_pages", 25),
+            "sort_by": search.get("sort_by", "date"),
         },
         "application": {
-            "daily_cap": application.get("daily_cap", 50),
-            "match_score_threshold": application.get("match_score_threshold", 70),
-            "easy_apply_only": application.get("easy_apply_only", False),
+            "daily_cap": application.get("daily_cap", 150),
+            "match_score_threshold": application.get("match_score_threshold", 40),
+            "easy_apply_only": application.get("easy_apply_only", True),
             "dry_run": application.get("dry_run", False),
         },
     }
-
 
 class LinkedInConfigUpdate(BaseModel):
     linkedin_email: str | None = None
@@ -318,7 +317,6 @@ class LinkedInConfigUpdate(BaseModel):
     easy_apply_only: bool | None = None
     dry_run: bool | None = None
     resume_path: str | None = None
-
 
 @router.put("/api/config/linkedin")
 async def update_linkedin_config(update: LinkedInConfigUpdate):
@@ -395,3 +393,14 @@ async def update_linkedin_config(update: LinkedInConfigUpdate):
         yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
 
     return {"status": "ok", "message": "LinkedIn configuration updated"}
+
+# ---------------------------------------------------------------------------
+
+    from src.naukri_agent.config.settings import get_settings as get_naukri_settings
+
+    get_naukri_settings.cache_clear()
+    import api.deps
+
+    api.deps.state.settings = get_naukri_settings()
+
+    return {"status": "ok", "message": "Configuration updated"}

@@ -80,6 +80,7 @@ Design principles:
 from __future__ import annotations
 
 import re
+from typing import Any
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
@@ -152,7 +153,11 @@ _WHITELIST_RE = re.compile(
     r"capgemini|ibm|deloitte|kpmg|pwc|ey|ernst & young|amazon|google|"
     r"microsoft|meta|apple|netflix|oracle|cisco|intel|nvidia|muthoot finance|"
     r"l&t|ltimindtree|tech mahindra|hcl|hexaware|mindtree|zoho|"
-    r"zomato|swiggy|flipkart|paytm|razorpay"
+    r"zomato|swiggy|flipkart|paytm|razorpay|"
+    r"saviynt|mastercard|qualcomm|goldman sachs|voxelgrids|davies|"
+    r"jpmorgan|jpmc|goldman|sap|salesforce|servicenow|workday|vmware|"
+    r"adobe|paypal|cisco|intuit|uber|booking|expedia|walmart|target|"
+    r"sony|samsung|motorola|vmware|genpact|exl|ntt data|nttdata"
     r")\b"
 )
 
@@ -488,6 +493,36 @@ def is_job_in_excluded_domain(job: Job) -> tuple[bool, str]:
     return False, ""
 
 
+# Core Java/JVM stack tokens. Deliberately excludes Kotlin/Scala/Gradle/Maven
+# (JVM but not "Java jobs") and generic "backend" (could be any language).
+_JAVA_STACK_RE = re.compile(
+    r"(?i)\b("
+    r"java|j2ee|javaee|jee|jakarta ee|spring|springboot|spring boot|"
+    r"hibernate|jsp|servlet|struts|ejb|jdbc|core java|advanced java|"
+    r"java developer|java engineer|java backend|java full stack|"
+    r"java microservices|spring framework|spring mvc|spring data"
+    r")\b"
+)
+
+
+def is_java_related(job: Job) -> tuple[bool, str]:
+    """
+    Determine whether a job is a Java/Spring role (the user's target stack).
+
+    Returns:
+        Tuple of (is_java, reason). True only when the title, skills, or
+        description clearly references the Java/JVM + Spring stack.
+    """
+    if not job:
+        return False, "No job provided"
+
+    text = f"{job.title or ''} {job.skills or ''} {job.description or ''}"
+    if _JAVA_STACK_RE.search(text):
+        return True, "Java/Spring stack detected in posting"
+
+    return False, "No Java/Spring stack found in title, skills, or description"
+
+
 # ======================================================================
 # PHASE 5: Scoring Engine
 # ======================================================================
@@ -546,10 +581,18 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
     # Phases 2-4: Scam Signals
     # ------------------------------------------------------------------
     scam_signals_score = 0
+    # critical_score tracks only undeniable-scam signals (agency/overseas/
+    # financial/WhatsApp/education-or-generic-services-name/multi-phone).
+    # The "force floor to threshold" rule (below) only triggers for these so
+    # that medium-risk wording like "freshers advertisement" + "generic
+    # description" on a REAL MNC (logo + detailed tech description) can be
+    # rescued by genuine deductions instead of being wrongly excluded.
+    critical_score = 0
 
     # S1: Financial scam terms in description (+200)
     if desc_text and _FINANCIAL_SCAM_RE.search(desc_text):
         scam_signals_score += 200
+        critical_score += 200
         reasons.append("Financial scam terms in description (+200)")
 
     # S12a: Agency/consultancy keywords in COMPANY (+200) or TITLE (+100)
@@ -557,6 +600,7 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
     in_title = job.title and _AGENCY_RE.search(job.title)
     if in_company:
         scam_signals_score += 200
+        critical_score += 200
         reasons.append("Agency/consultancy keywords in company (+200)")
     elif in_title:
         scam_signals_score += 100
@@ -568,6 +612,7 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
     overseas_in_desc = desc_text and _OVERSEAS_RECRUITER_RE.search(desc_text)
     if overseas_in_company or overseas_in_title:
         scam_signals_score += 200
+        critical_score += 200
         reasons.append("Overseas/abroad job recruiter in company/title (+200)")
     elif overseas_in_desc:
         scam_signals_score += 80
@@ -576,6 +621,7 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
     # S2: WhatsApp number in description (+120)
     if desc_text and _WHATSAPP_RE.search(desc_text):
         scam_signals_score += 120
+        critical_score += 120
         reasons.append("WhatsApp number in description (+120)")
 
     # S10: Phone number stuffed in title or company (+100)
@@ -591,11 +637,13 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
     # S13: Education/training company name (+120)
     if job.company and _EDUCATION_TRAINING_RE.search(job.company):
         scam_signals_score += 120
+        critical_score += 120
         reasons.append("Education/training company name (+120)")
 
     # S14: Generic services company name (+120)
     if job.company and _GENERIC_SERVICES_RE.search(job.company):
         scam_signals_score += 120
+        critical_score += 120
         reasons.append("Generic services company name (+120)")
 
     # S15: BPO / call-centre / data-entry keywords (+100)
@@ -613,6 +661,7 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
         phone_matches = _MULTIPLE_PHONES_RE.findall(desc_text)
         if len(phone_matches) >= 3:
             scam_signals_score += 120
+            critical_score += 120
             reasons.append(f"Multiple phone numbers in description ({len(phone_matches)} found) (+120)")
         elif len(phone_matches) >= 1:
             scam_signals_score += 40
@@ -682,10 +731,15 @@ def compute_scam_score(job: Job) -> ScamScoreResult:
 
     raw_score = scam_signals_score + genuine_deductions
 
-    # CRITICAL FIX: If positive scam signals meet or exceed SCAM_THRESHOLD (80),
-    # genuine deductions (logo, tech skills) must NOT reduce raw_score below SCAM_THRESHOLD
-    # unless it is a whitelisted company (-500).
-    if not is_whitelisted and scam_signals_score >= SCAM_THRESHOLD:
+    # CRITICAL FIX: The "force floor to threshold" rule only applies when a
+    # CRITICAL scam signal fired (agency/overseas/financial/WhatsApp/
+    # education-or-generic-services company name / 3+ phones). This prevents a
+    # real MNC (verified logo + detailed technical description) from being
+    # excluded just because medium-risk wording (e.g. "freshers welcome" +
+    # "good communication skills") stacked to >= 80. Genuine deductions are
+    # still allowed to pull such listings below threshold. Whititelisted
+    # companies (-500) always bypass the floor entirely.
+    if not is_whitelisted and critical_score >= SCAM_THRESHOLD:
         raw_score = max(SCAM_THRESHOLD, raw_score)
 
     display_score = max(0, min(100, raw_score))

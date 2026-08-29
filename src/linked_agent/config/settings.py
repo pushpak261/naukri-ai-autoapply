@@ -64,6 +64,10 @@ class SearchSettings(BaseModel):
     max_pages: int = 3
     sort_by: str = "relevance"
     enable_heuristics: bool = True
+    # Mandatory title filter: a job title MUST contain at least one of these
+    # (word-boundary matched) for the agent to consider applying. Empty = no
+    # mandatory requirement (any job from the search keywords is eligible).
+    required_title_keywords: list[str] = Field(default_factory=list)
 
     @field_validator("sort_by")
     @classmethod

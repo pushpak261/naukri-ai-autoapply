@@ -140,7 +140,7 @@ async def list_logs():
 
 
 @router.get("/api/logs/read")
-async def read_log(log_path: str = Query(...), max_lines: int = Query(200, ge=1, le=5000)):
+async def read_log(log_path: str = Query(...), max_lines: int = Query(200, ge=1, le=50000)):
     full_path = state.settings.project_root / log_path
     if not full_path.exists() or not full_path.is_file():
         raise HTTPException(status_code=404, detail="Log file not found")

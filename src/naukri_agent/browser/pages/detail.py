@@ -576,7 +576,9 @@ class JobDetailPage(BasePage):
 
                         const questionBubbles = botBubbles.filter(el => {
                             const t = (el.innerText || el.textContent || '').trim();
-                            return t.includes('?') || /how many|years|experience|exp|notice|ctc|salary|skill|location|resid|relocat|qualification|degree|rate|level|proficiency/i.test(t);
+                            // Questions may or may not have ? marks (e.g. "Enter your expected CTC")
+                            return t.includes('?')
+                                || /how many|years|experience|exp|notice|ctc|salary|skill|location|resid|relocat|qualification|degree|rate|level|proficiency|availability|joining|start|date|birth|language|portfolio|github|linkedin|phone|mobile|number|contact|strength|weakness|achievement|project|describe|reason|change|why|describe/gi.test(t);
                         });
 
                         if (questionBubbles.length > 0) {
@@ -942,10 +944,61 @@ class JobDetailPage(BasePage):
                     }
 
                     let finalQuestionText = cleanedQuestion;
-                    if (!finalQuestionText) {
+                    if (!finalQuestionText || finalQuestionText.length < 3) {
                         const el0 = group.elements[0];
-                        const ph = el0.getAttribute ? (el0.getAttribute('placeholder') || el0.getAttribute('aria-label') || el0.getAttribute('name') || el0.id || '') : '';
-                        finalQuestionText = cleanQuestionText(ph) || ('Question ' + (index + 1));
+                        // Smarter inference chain:
+                        // 1. aria-label
+                        let inferred = el0.getAttribute ? (el0.getAttribute('aria-label') || '').trim() : '';
+                        // 2. placeholder
+                        if (!inferred || inferred.length < 3) {
+                            inferred = el0.getAttribute ? (el0.getAttribute('placeholder') || '').trim() : '';
+                        }
+                        // 3. name attribute (convert camelCase/snake_case to words)
+                        if (!inferred || inferred.length < 3) {
+                            const nameAttr = el0.getAttribute ? (el0.getAttribute('name') || '') : '';
+                            if (nameAttr) {
+                                inferred = nameAttr
+                                    .replace(/_/g, ' ')
+                                    .replace(/([A-Z])/g, ' $1')
+                                    .replace(/(\d+)/g, ' $1')
+                                    .trim()
+                                    .toLowerCase();
+                            }
+                        }
+                        // 4. parent container text (up to 3 levels)
+                        if (!inferred || inferred.length < 3) {
+                            let walker = el0.parentElement;
+                            for (let i = 0; i < 3 && walker; i++) {
+                                const siblings = Array.from(walker.children).filter(c =>
+                                    c !== el0 && c.tagName !== 'INPUT' && c.tagName !== 'SELECT' && c.tagName !== 'TEXTAREA'
+                                );
+                                for (const sib of siblings) {
+                                    const st = (sib.innerText || '').trim();
+                                    if (st && st.length > 3 && st.length < 200) {
+                                        inferred = st;
+                                        break;
+                                    }
+                                }
+                                if (inferred) break;
+                                walker = walker.parentElement;
+                            }
+                        }
+                        // 5. preceding sibling heading/strong text
+                        if (!inferred || inferred.length < 3) {
+                            let prev = el0.previousElementSibling;
+                            while (prev) {
+                                const tag = prev.tagName.toLowerCase();
+                                if (['h1','h2','h3','h4','h5','h6','strong','b','label','span','div','p'].includes(tag)) {
+                                    const pt = (prev.innerText || '').trim();
+                                    if (pt && pt.length > 3 && pt.length < 200) {
+                                        inferred = pt;
+                                        break;
+                                    }
+                                }
+                                prev = prev.previousElementSibling;
+                            }
+                        }
+                        finalQuestionText = cleanQuestionText(inferred) || ('Question ' + (index + 1));
                     }
 
                     questions.push({
@@ -964,11 +1017,27 @@ class JobDetailPage(BasePage):
 
                 // Chatbot flow fallback
                 if (questions.length === 0) {
-                    const chatbotMsgs = document.querySelectorAll('[class*="chatbot-msg"], [class*="bot-msg"], [class*="chat-msg"], [class*="msg-bubble"], [class*="message"]:not([class*="error"])');
+                    const chatbotSelectors = '[class*="chatbot-msg"], [class*="bot-msg"], [class*="chat-msg"], [class*="msg-bubble"], [class*="message"]:not([class*="error"]), [class*="bot-text"], [class*="chat-text"], [class*="bot-content"], [class*="question-text"], [class*="screening-question"]';
+                    const chatbotMsgs = document.querySelectorAll(chatbotSelectors);
                     if (chatbotMsgs.length > 0) {
-                        const lastMsg = chatbotMsgs[chatbotMsgs.length - 1];
+                        // Find the last visible message that looks like a question
+                        let lastMsg = null;
+                        for (let i = chatbotMsgs.length - 1; i >= 0; i--) {
+                            const msg = chatbotMsgs[i];
+                            try {
+                                const style = window.getComputedStyle(msg);
+                                if (style.display === 'none' || style.visibility === 'hidden') continue;
+                                const rect = msg.getBoundingClientRect();
+                                if (rect.width === 0 || rect.height === 0) continue;
+                                lastMsg = msg;
+                                break;
+                            } catch(e) { continue; }
+                        }
+                        if (!lastMsg) lastMsg = chatbotMsgs[chatbotMsgs.length - 1];
                         const msgText = (lastMsg.innerText || lastMsg.textContent || "").trim();
-                        if (msgText) {
+                        // Try to find question text even if msgText was cleaned out
+                        const rawMsgText = msgText || (lastMsg.parentElement ? (lastMsg.parentElement.innerText || '').trim() : '');
+                        if (rawMsgText) {
                             const chatbotContainer = lastMsg.closest('[class*="bot"], [class*="chat"]');
                             const options = [];
                             let chatbotInputSelector = "";
@@ -1010,18 +1079,21 @@ class JobDetailPage(BasePage):
                                 chatbotInputSelector = "[data-agent-field-id='" + fieldId + "']";
                             }
 
-                            questions.push({
-                                id: "agent_chat_q",
-                                question: cleanQuestionText(msgText),
-                                original_question: msgText,
-                                type: options.length > 0 ? "radio" : "text",
-                                options: options,
-                                required: true,
-                                selector: chatbotInputSelector || "input:not([type='hidden'])",
-                                stableSelector: chatbotInputSelector,
-                                elementFingerprint: "",
-                                value: ""
-                            });
+                            const cleanedQText = cleanQuestionText(rawMsgText);
+                            if (cleanedQText) {
+                                questions.push({
+                                    id: "agent_chat_q",
+                                    question: cleanedQText,
+                                    original_question: rawMsgText,
+                                    type: options.length > 0 ? "radio" : "text",
+                                    options: options,
+                                    required: true,
+                                    selector: chatbotInputSelector || "input:not([type='hidden'])",
+                                    stableSelector: chatbotInputSelector,
+                                    elementFingerprint: "",
+                                    value: ""
+                                });
+                            }
                         }
                     }
                 }
@@ -1045,7 +1117,7 @@ class JobDetailPage(BasePage):
         page = self._engine.page
         q_type = question.get("type")
         q_text = question.get("question")
-        selector = question.get("selector")
+        selector = question.get("selector") or ""
         stable_selector = question.get("stableSelector", "")
         fingerprint = question.get("elementFingerprint", "")
         options = question.get("options", [])

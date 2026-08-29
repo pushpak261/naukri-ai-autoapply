@@ -374,7 +374,7 @@ class JobApplier:
 
     def _generate_safe_fallback_for_question(self, question: dict) -> str:
         q_text = question.get("question", "").lower()
-        q_type = question.get("type")
+        q_type = question.get("type", "text")
         options = [o.get("text", "") for o in question.get("options", [])]
 
         # Helper to pick closest choice
@@ -385,49 +385,110 @@ class JobApplier:
                         return opt
             return options[0] if options else default
 
-        is_exp_q = any(kw in q_text for kw in ["experience", "years", "month", "exp", "how many"])
+        def has_any_keyword(kws):
+            return any(kw in q_text for kw in kws)
+
+        import re
+        is_exp_q = has_any_keyword(["experience", "years", "month"]) or re.search(r"\bexp\b", q_text) is not None
+        is_ctc_q = has_any_keyword(["ctc", "salary", "package", "compensation", "lpa"])
+        is_notice_q = has_any_keyword(["notice", "joining", "join", "available"])
+        is_location_q = has_any_keyword(["location", "city", "reside", "based", "place"])
+        is_reloc_q = has_any_keyword(["reloc", "relocation", "travel", "shift", "willing", "work from office", "onsite"])
+        is_yes_no_q = has_any_keyword(["agree", "consent", "accept", "confirm", "authorize", "declare", "certify", "willing"])
+        is_qual_q = has_any_keyword(["qualification", "degree", "education"])
+        is_name_q = has_any_keyword(["name", "full name", "candidate name"])
+        is_email_q = has_any_keyword(["email"])
+        is_phone_q = has_any_keyword(["phone", "mobile", "contact number"])
+        is_lang_q = has_any_keyword(["language", "english"])
+        is_prof_q = has_any_keyword(["rate yourself", "proficiency", "skill level"])
+        is_why_q = has_any_keyword(["why", "reason for change", "reason for leaving", "why leaving"])
+
         if q_type in ("radio", "dropdown", "checkbox"):
             if is_exp_q:
                 return pick_option(["1 year", "1-2", "0-1", "1"], options[0] if options else "1 year")
-            if "reloc" in q_text or "travel" in q_text or "shift" in q_text or "agree" in q_text or "consent" in q_text or "resid" in q_text:
-                return pick_option(["yes", "agree", "true", "y"], "Yes")
-            if "notice" in q_text:
+            if is_notice_q:
                 return pick_option(["immediate", "0 days", "15 days", "serving"], "Immediate")
+            if is_ctc_q:
+                return pick_option(["4", "5", "6"], options[0] if options else "6 LPA")
+            if is_location_q:
+                return pick_option(["pune"], "Pune")
+            if is_reloc_q or is_yes_no_q:
+                return pick_option(["yes", "agree", "true", "y"], "Yes")
             if "gender" in q_text:
                 return pick_option(["male"], "Male")
-            if "ctc" in q_text or "salary" in q_text:
-                return pick_option(["4", "5", "6"], options[0] if options else "6 LPA")
-            if "location" in q_text or "city" in q_text:
-                return pick_option(["pune"], "Pune")
+            if is_qual_q:
+                return pick_option(["pg-dac", "bachelor", "graduate"], options[0] if options else "PG-DAC")
+            if is_lang_q:
+                return pick_option(["fluent", "english", "professional"], options[0] if options else "Fluent")
+            if "marital" in q_text:
+                return pick_option(["single", "unmarried"], "Single")
+            if "birth" in q_text or "dob" in q_text:
+                return pick_option(["2001", "02/06"], options[0] if options else "02/06/2001")
             return pick_option(["yes", "agree", "true", "y"], options[0] if options else "Yes")
         else:
-            # Text / number / date fields
+            # Text / number / date / textarea fields
             if is_exp_q:
                 return "1" if (q_type == "number" or "digit" in q_text) else "1 year"
-            if "ctc" in q_text or "salary" in q_text:
+            if is_ctc_q:
                 if "expected" in q_text:
                     return (
-                        "600000"
-                        if "rupee" in q_text or "rs" in q_text or "annual" in q_text
-                        else "6 LPA"
+                        "600000" if "rupee" in q_text or "rs" in q_text or "annual" in q_text else "6 LPA"
                     )
                 return (
                     "450000" if "rupee" in q_text or "rs" in q_text or "annual" in q_text else "4.5 LPA"
                 )
-            if "notice" in q_text:
+            if is_notice_q:
                 return "Immediate"
-            if "location" in q_text or "city" in q_text:
-                return "Pune"
-            if "phone" in q_text or "mobile" in q_text:
+            if is_location_q:
+                return self._settings.profile.current_location or "Pune"
+            if is_name_q:
+                return self._settings.naukri.name or self._qa._profile.name or "Candidate"
+            if is_email_q:
+                return self._settings.naukri.email or ""
+            if is_phone_q:
                 return self._settings.naukri.mobile_number or "9999999999"
-            if "email" in q_text:
-                return self._settings.naukri.email or "candidate@example.com"
-            if "name" in q_text:
-                return getattr(self._settings.naukri, "name", "") or "Candidate"
-            if "why" in q_text or "join" in q_text or "fit" in q_text:
-                return "I have 1 year of hands-on experience in Java, Spring Boot, and React. I build scalable microservices and deliver high-quality code efficiently."
+            if is_qual_q:
+                return "PG-DAC / Bachelor of Mechanical Engineering"
+            if "graduation" in q_text or "passing" in q_text or "degree year" in q_text:
+                return "2023"
+            if is_lang_q:
+                return "Fluent"
+            if is_prof_q:
+                return "8"
+            if "date of birth" in q_text or "dob" in q_text or "birth date" in q_text:
+                return self._settings.profile.date_of_birth or "02/06/2001"
+            if "marital" in q_text:
+                return self._settings.profile.marital_status or "Single"
+            if "github" in q_text or "portfolio" in q_text or "linkedin" in q_text:
+                return self._settings.profile.github_url or self._settings.profile.linkedin_url or "N/A"
+            if "strength" in q_text:
+                return "Strong problem-solving skills and ability to deliver high-quality code"
+            if "weakness" in q_text:
+                return "I focus heavily on code quality and sometimes need to balance speed with perfection"
+            if is_why_q:
+                return self._settings.profile.reason_for_change or "Seeking challenging role with growth opportunities in a product-based company"
             if "project" in q_text or "describe" in q_text:
-                return "I developed full-stack web applications and microservices using Spring Boot, React, and MySQL, with automated CI/CD deployment."
+                work = self._qa._profile.work_experience
+                if work and work[0].get("highlights"):
+                    return work[0]["highlights"][0]
+                return "Developed full-stack web applications and microservices using Spring Boot, React, and MySQL with CI/CD"
+            if "achievement" in q_text or "accomplish" in q_text:
+                achievements = self._qa._profile.key_achievements
+                if achievements:
+                    return achievements[0]
+                return "Built production-grade autonomous RPA agent using Python, Playwright, and Google Gemini API"
+            if "availability" in q_text or "start" in q_text or "available from" in q_text:
+                return "Immediate"
+            if "certification" in q_text or "certified" in q_text:
+                certs = self._qa._profile.certifications
+                if certs:
+                    return certs[0]
+                return "Full Stack Development"
+            if "date" in q_text:
+                from datetime import date
+                return date.today().strftime("%d/%m/%Y")
+            if "url" in q_text or "link" in q_text or "website" in q_text:
+                return self._settings.profile.linkedin_url or "N/A"
             return "Yes"
 
     async def _fill_screening_questions(self, job: Job) -> bool:
@@ -444,6 +505,7 @@ class JobApplier:
             seen_questions: set[str] = set()
             last_unfilled_count = 0
             stale_iterations = 0
+            last_question_texts: frozenset[str] = frozenset()
 
             while attempt < max_attempts:
                 attempt += 1
@@ -470,6 +532,15 @@ class JobApplier:
                     val = (q.get("value") or "").strip()
                     is_unfilled = not val or val.lower() in ("select", "--select--", "choose")
                     if is_unfilled:
+                        q_text = q.get("question", "").strip()
+                        # Fix empty question text: infer from options or container metadata
+                        if not q_text:
+                            options = q.get("options", [])
+                            if options:
+                                q_text = options[0].get("text", "")
+                            else:
+                                q_text = q.get("original_question", "") or q.get("id", "Question")
+                            q["question"] = q_text
                         unfilled_questions.append(q)
 
                 if not unfilled_questions:
@@ -477,11 +548,20 @@ class JobApplier:
                     break
 
                 current_unfilled = len(unfilled_questions)
+                current_question_texts = frozenset(
+                    q.get("question", "") for q in unfilled_questions
+                )
                 if current_unfilled == last_unfilled_count:
-                    stale_iterations += 1
+                    if current_question_texts != last_question_texts:
+                        # Question text changed — chatbot advanced to a new question
+                        logger.debug("Question text changed, resetting stale counter")
+                        stale_iterations = 0
+                    else:
+                        stale_iterations += 1
                 else:
                     stale_iterations = 0
                 last_unfilled_count = current_unfilled
+                last_question_texts = current_question_texts
 
                 if stale_iterations >= 2:
                     logger.info(
@@ -504,7 +584,7 @@ class JobApplier:
                 fresh_questions = [
                     q
                     for q in unfilled_questions
-                    if (q.get("id") or q.get("question", "")) not in seen_questions
+                    if (q.get("question", "") if q.get("id") == "agent_chat_q" else (q.get("id") or q.get("question", ""))) not in seen_questions
                 ]
                 if not fresh_questions:
                     logger.info(
@@ -530,7 +610,7 @@ class JobApplier:
                     break
 
                 for q in fresh_questions:
-                    qid = q.get("id") or q.get("question", "")
+                    qid = q.get("question", "") if q.get("id") == "agent_chat_q" else (q.get("id") or q.get("question", ""))
                     if qid:
                         seen_questions.add(qid)
 
@@ -980,9 +1060,14 @@ class JobApplier:
             default_exp = self._settings.profile.total_experience or "1"
             default_notice = self._settings.profile.notice_period or "Immediate"
             default_location = self._settings.profile.current_location or "Pune"
+            default_name = self._qa._profile.name or self._settings.naukri.name or "Candidate"
+            default_email = self._qa._profile.email or self._settings.naukri.email or ""
+            default_phone = self._qa._profile.phone or self._settings.naukri.mobile_number or "9999999999"
+            default_github = self._settings.profile.github_url or ""
+            default_linkedin = self._settings.profile.linkedin_url or ""
 
             result = await page.evaluate(
-                r"""({ defaultCtc, defaultExp, defaultNotice, defaultLocation }) => {
+                r"""({ defaultCtc, defaultExp, defaultNotice, defaultLocation, defaultName, defaultEmail, defaultPhone, defaultGithub, defaultLinkedin }) => {
                     if (!CSS.escape) {
                         CSS.escape = function(value) {
                             if (typeof value !== 'string') return '';
@@ -1059,11 +1144,15 @@ class JobApplier:
                             } else if (ph.includes('location') || ph.includes('city') || ctx.includes('location') || ctx.includes('city')) {
                                 fillVal = defaultLocation;
                             } else if (ph.includes('phone') || ph.includes('mobile') || ctx.includes('phone') || ctx.includes('mobile')) {
-                                fillVal = '9999999999';
+                                fillVal = defaultPhone;
                             } else if (ph.includes('name') || ctx.includes('name')) {
-                                fillVal = 'Candidate';
+                                fillVal = defaultName;
                             } else if (ph.includes('email') || ctx.includes('email')) {
-                                fillVal = 'candidate@example.com';
+                                fillVal = defaultEmail;
+                            } else if (ph.includes('github') || ph.includes('portfolio') || ctx.includes('github') || ctx.includes('portfolio')) {
+                                fillVal = defaultGithub;
+                            } else if (ph.includes('linkedin') || ctx.includes('linkedin')) {
+                                fillVal = defaultLinkedin;
                             } else {
                                 fillVal = '1';
                             }
@@ -1109,6 +1198,11 @@ class JobApplier:
                     "defaultExp": default_exp,
                     "defaultNotice": default_notice,
                     "defaultLocation": default_location,
+                    "defaultName": default_name,
+                    "defaultEmail": default_email,
+                    "defaultPhone": default_phone,
+                    "defaultGithub": default_github,
+                    "defaultLinkedin": default_linkedin,
                 }
             )
             if result:

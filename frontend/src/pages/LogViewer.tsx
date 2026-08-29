@@ -118,6 +118,7 @@ export default function LogViewer() {
                   <option value={1000}>1000 lines</option>
                   <option value={2000}>2000 lines</option>
                   <option value={5000}>5000 lines</option>
+                  <option value={50000}>50000 lines</option>
                 </select>
               </div>
             )}

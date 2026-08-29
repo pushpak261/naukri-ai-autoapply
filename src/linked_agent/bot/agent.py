@@ -384,6 +384,11 @@ class LinkedInAgent:
                 self._jobs_skipped += 1
                 continue
 
+            if not self._passes_required_title(job):
+                log_info(f"Skipping (title missing required keyword): {job.title} @ {job.company}")
+                self._jobs_skipped += 1
+                continue
+
             if self._settings.search.enable_heuristics:
                 text_to_score = f"{job.title} {job.company} {job.skills}"
                 score = vector_filter.get_similarity_score(text_to_score)
@@ -476,6 +481,11 @@ class LinkedInAgent:
                 self._jobs_skipped += 1
                 continue
 
+            if not self._passes_required_title(job):
+                log_info(f"Skipping (title missing required keyword): {job.title} @ {job.company}")
+                self._jobs_skipped += 1
+                continue
+
             # Browser health check
             if not self._engine.is_alive():
                 log_warning("Browser disconnected! Attempting recovery...")
@@ -526,6 +536,11 @@ class LinkedInAgent:
                         f"Scam/consultancy job caught after description fetch: {job.title} @ {job.company}",
                         f"<p>Job: {job.title} @ {job.company}<br>URL: {job.url}</p>",
                     )
+                continue
+
+            if not self._passes_required_title(job):
+                log_info(f"Skipping (title missing required keyword): {job.title} @ {job.company}")
+                self._jobs_skipped += 1
                 continue
 
             # Similarity pre-filter
@@ -810,6 +825,20 @@ class LinkedInAgent:
         if not self._exclusion_spec:
             return False
         return self._exclusion_spec.is_satisfied_by(job)
+
+    def _passes_required_title(self, job: Job) -> bool:
+        """Hard gate: if required_title_keywords is set, the job title must contain
+        at least one of them (word-boundary matched). Used to restrict the agent
+        to a specific job family, e.g. only Java developer roles."""
+        required = getattr(self._settings.search, "required_title_keywords", [])
+        if not required:
+            return True
+        title_lower = (job.title or "").lower()
+        for kw in required:
+            pattern = rf"\b{re.escape(kw.lower())}\b"
+            if re.search(pattern, title_lower):
+                return True
+        return False
 
     async def _cleanup(self) -> None:
         # Send external jobs email if needed

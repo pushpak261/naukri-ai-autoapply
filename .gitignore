@@ -72,6 +72,8 @@ linkedin_config.yaml
 # Local database folders and screenshots
 data/linkedin/
 data/screenshots/
+data/chrome_cdp_profile/
+data/scratch/
 
 # Temporary / debug scripts and logs
 _check_db.py

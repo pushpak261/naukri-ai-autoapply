@@ -99,6 +99,10 @@ class ApplicationSettings(BaseModel):
     notify_on_match: bool = False
     # Retry settings (feature 3)
     max_retries: int = 3
+    # Re-application cooldown (days): after this many days an already-applied
+    # job becomes eligible again, so refreshed/reposted listings get re-applied
+    # and interview chances stay high. Set to 0 to block forever (legacy behavior).
+    reapply_after_days: int = 30
     # Rate limiter settings (feature 10)
     rate_limit_capacity: float = 10.0
     rate_limit_refill_rate: float = 1.0
@@ -113,6 +117,14 @@ class ProfileSettings(BaseModel):
     current_location: str = ""
     preferred_locations: list[str] = Field(default_factory=list)
     total_experience: str = ""
+    github_url: str = ""
+    linkedin_url: str = ""
+    languages: list[str] = Field(default_factory=lambda: ["English"])
+    willing_to_relocate: bool = True
+    preferred_work_mode: str = "Hybrid"
+    reason_for_change: str = ""
+    date_of_birth: str = ""
+    marital_status: str = ""
 
 
 class ExclusionSettings(BaseModel):

@@ -27,5 +27,17 @@ class AppState:
 
     active_account_email: str | None = None
 
+    # ---------------------------------------------------------------------------
+    # Parallel multi-agent feature state
+    # Each platform (e.g. "naukri", "linkedin") runs in its own subprocess with
+    # its own output buffer and SSE client list, so several agents can run
+    # concurrently from the dashboard.
+    # ---------------------------------------------------------------------------
+    agent_processes: dict[str, Popen | None] = {}
+    agent_started_at_map: dict[str, datetime | None] = {}
+    agent_output_buffers: dict[str, list[str]] = {}
+    agent_output_locks: dict[str, threading.Lock] = {}
+    agent_sse_clients_map: dict[str, list[Any]] = {}
+
 
 state = AppState()

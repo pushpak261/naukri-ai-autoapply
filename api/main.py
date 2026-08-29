@@ -32,6 +32,7 @@ from api.routes import (
     autopilot as autopilot_router,
     market_intel as market_intel_router,
     webhooks as webhooks_router,
+    multi_agent as multi_agent_router,
 )
 from src.naukri_agent.config.settings import Settings, get_settings
 from src.naukri_agent.database.manager import DatabaseManager
@@ -67,6 +68,7 @@ async def lifespan(app: FastAPI):
 
     yield
     _cleanup_agent()
+    multi_agent_router.cleanup_multi_agents()
 
 
 def _cleanup_agent() -> None:
@@ -155,9 +157,16 @@ app.include_router(autopilot_router.router)
 app.include_router(market_intel_router.router)
 app.include_router(accounts_router.router)
 app.include_router(webhooks_router.router)
+app.include_router(multi_agent_router.router)
 
 
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run("api.main:app", host="0.0.0.0", port=8005, reload=False)
+    uvicorn.run(
+        "api.main:app",
+        host="0.0.0.0",
+        port=8005,
+        reload=True,
+        reload_dirs=["api", "src"],
+    )

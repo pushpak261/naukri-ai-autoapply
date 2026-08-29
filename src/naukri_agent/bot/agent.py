@@ -50,7 +50,6 @@ from src.naukri_agent.browser.search import JobSearcher
 from src.naukri_agent.config.constants import ApplicationStatus
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job, JobApplication, ResumeProfile
-from src.naukri_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
 from src.naukri_agent.bot.interfaces import (
     IBrowserEngine,
     IBrowserInteractions,
@@ -265,8 +264,15 @@ class NaukriAgent:
             searcher = self._job_searcher
             if not searcher:
                 raise RuntimeError("JobSearcher not configured.")
-            jobs = await searcher.search_all()
-            self._jobs_found = len(jobs)
+            jobs = await searcher.search_all(should_stop=lambda: self._interrupted)
+            self._jobs_found = max(self._jobs_found, len(jobs))
+
+            if self._interrupted:
+                log_warning(
+                    f"Run interrupted during search — {self._jobs_found} jobs were found "
+                    f"before stopping. Skipping job evaluation."
+                )
+                return
 
             if not jobs:
                 log_warning("No jobs found matching your search criteria.")
@@ -652,110 +658,29 @@ class NaukriAgent:
                 self._jobs_skipped += 1
                 continue
 
-            # Stage 4: TF-IDF similarity filter (using full description)
-            full_text = f"{job.title} {job.company} {job.skills} {job.description}"
-            sim_passed, full_sim_score = FakeJobDetectionPipeline.check_similarity(full_text, vector_filter)
-
-            if not sim_passed:
+            # Targeting gate: only Java/Spring roles within 0-2 yrs at a real
+            # company are applied. Everything else is skipped here (before any
+            # AI call) so we apply to ALL matching Java jobs, not a scored subset.
+            target_ok, target_reason = self._passes_targeting(job)
+            if not target_ok:
                 log_info(
-                    f"Skipping job: similarity score ({full_sim_score:.3f}) below threshold (0.10)"
+                    f"Skipping job: not in target (Java, 0-2 yrs): {target_reason} "
+                    f"({job.title} @ {job.company})"
                 )
                 self._jobs_skipped += 1
                 continue
-            else:
-                log_info(
-                    f"Similarity score ({full_sim_score:.3f}) passed pre-filter threshold (0.10)"
-                )
 
-            # AI Matching (rate-limited by TokenBucketRateLimiter in GeminiProvider)
-            if not self._settings.ai.enable_matching:
-                log_info("AI matching is disabled in config. Bypassing AI comparison.")
-                match_result = JobApplication(
-                    match_score=100.0,
-                    should_apply=True,
-                    match_reasoning="AI matching bypassed via config (enable_matching: false)",
-                    matching_skills="Bypassed",
-                    missing_skills="Bypassed",
-                )
-            else:
-                try:
-                    match_result = await matcher.match(resume_profile, job)
-                except (LLMQuotaExceededError, LLMAPIError) as e:
-                    # Determine if it's a daily quota error or any general API failure (like 503)
-                    is_daily = isinstance(e, LLMQuotaExceededError) and e.is_daily_quota
-
-                    # Fallback to model if configured (works for both daily quota exhaustion and model failures/503s)
-                    if self._settings.ai.fallback_model:
-                        fallback_model = self._settings.ai.fallback_model
-                        reason = (
-                            "daily request quota is exhausted"
-                            if is_daily
-                            else f"failed with error: {e}"
-                        )
-                        log_warning(f"⚠️  Primary model '{self._settings.ai.model}' {reason}.")
-                        log_success(
-                            f"✅ Switching to fallback model '{fallback_model}' and continuing run..."
-                        )
-
-                        # Update active model name
-                        llm_provider = self._llm
-                        if not llm_provider:
-                            raise RuntimeError("LLMProvider not configured.") from e
-                        if hasattr(llm_provider, "set_model"):
-                            llm_provider.set_model(fallback_model)
-                        else:
-                            log_warning(f"LLM provider does not support set_model — recreating with fallback model '{fallback_model}'")
-                            from src.naukri_agent.ai.factory import create_llm_provider
-                            self._llm = create_llm_provider(self._settings)
-                            llm_provider = self._llm
-
-                        # Update settings
-                        self._settings.ai.model = fallback_model
-                        self._settings.ai.fallback_model = None  # Prevent infinite fallback loop
-
-                        # Retry current match once
-                        try:
-                            match_result = await matcher.match(resume_profile, job)
-                        except Exception as fallback_err:
-                            logger.error(f"AI Match failed on fallback model: {fallback_err}")
-                            self._jobs_failed += 1
-                            continue
-                    else:
-                        if isinstance(e, LLMQuotaExceededError):
-                            if e.is_daily_quota:
-                                log_error(str(e))
-                                if self._settings.ai.abort_on_quota:
-                                    log_error(
-                                        "⚠️  Gemini's daily request quota is exhausted — stopping "
-                                        "the run here instead of marking every remaining job as a "
-                                        "non-match."
-                                    )
-                                    self._interrupted = True
-                                    break
-                                else:
-                                    log_warning(
-                                        f"⚠️  Gemini's daily request quota is exhausted for model '{self._settings.ai.model}', "
-                                        "but continuing run (abort_on_quota is False)."
-                                    )
-                                    self._jobs_failed += 1
-                                    continue
-                            else:
-                                log_error(
-                                    "⚠️  Gemini rate limit hit repeatedly — stopping the run "
-                                    "to avoid wasting further requests."
-                                )
-                                log_error(str(e))
-                                self._interrupted = True
-                                break
-                        else:
-                            log_error(f"⚠️  Gemini API error occurred: {e}")
-                            self._jobs_failed += 1
-                            continue
-                except Exception as e:
-                    logger.error(f"AI Match failed: {e}")
-                    self._jobs_failed += 1
-                    continue
-
+            # Targeted Java role reached — apply directly. The Java-stack +
+            # experience gate is stricter than the AI score, so we skip the
+            # TF-IDF similarity pre-filter and the AI match call entirely
+            # (saving tokens and guaranteeing every matching Java job is applied).
+            match_result = JobApplication(
+                match_score=100.0,
+                should_apply=True,
+                match_reasoning="Java/Spring role within 0-2 yrs target (targeting gate)",
+                matching_skills="Java/Spring (targeting gate)",
+                missing_skills="",
+            )
             # Save job in database
             db_job = None
             if self._repo:
@@ -895,6 +820,59 @@ class NaukriAgent:
         from src.naukri_agent.fake_job_detection.rules import is_job_in_excluded_domain
         is_excl, _ = is_job_in_excluded_domain(job)
         return is_excl
+
+    def _passes_targeting(self, job: Job) -> tuple[bool, str]:
+        """
+        Targeting gate: decide whether a job is in scope for this user.
+
+        In scope = a Java/Spring role that requires at most the configured
+        experience ceiling (0-2 yrs, matching the resume). Anything else
+        (Python/.NET/non-Java, or senior roles) is out of scope.
+
+        Returns:
+            (passed, reason)
+        """
+        from src.naukri_agent.fake_job_detection.rules import is_java_related
+
+        max_exp = self._settings.search.experience_max
+
+        # 1) Experience ceiling — only junior/associate roles (0-2 yrs).
+        exp_text = str(job.experience or "").lower()
+        if exp_text:
+            months = [
+                "jan", "feb", "mar", "apr", "may", "jun",
+                "jul", "aug", "sep", "oct", "nov", "dec",
+            ]
+            if not any(m in exp_text for m in months):
+                range_match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)", exp_text)
+                single_match = re.search(r"(\d+)", exp_text)
+                min_req = 0
+                max_req = 0
+                if range_match:
+                    min_req = int(range_match.group(1))
+                    max_req = int(range_match.group(2))
+                elif single_match:
+                    min_req = int(single_match.group(1))
+                    max_req = min_req
+
+                if min_req > max_exp:
+                    return (
+                        False,
+                        f"Experience required ({min_req} Yrs) exceeds {max_exp} Yrs target",
+                    )
+                # Skip clearly senior ranges even if the lower bound is within range.
+                if min_req >= 3 and max_req >= 4:
+                    return (
+                        False,
+                        f"Senior role ({min_req}-{max_req} Yrs) exceeds {max_exp} Yrs target",
+                    )
+
+        # 2) Java/Spring stack requirement.
+        ok, reason = is_java_related(job)
+        if not ok:
+            return False, reason
+
+        return True, "Java/Spring role within 0-2 yrs at a real company"
 
     async def _cleanup(self) -> None:
         """Save state, update run log, print summary, and close browser."""

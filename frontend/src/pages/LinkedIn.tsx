@@ -15,11 +15,11 @@ export default function LinkedIn() {
   const [locations, setLocations] = useState('');
   const [workType, setWorkType] = useState('');
   const [freshness, setFreshness] = useState('past_week');
-  const [maxPages, setMaxPages] = useState(3);
-  const [dailyCap, setDailyCap] = useState(50);
-  const [matchThreshold, setMatchThreshold] = useState(70);
+  const [maxPages, setMaxPages] = useState(25);
+  const [dailyCap, setDailyCap] = useState(150);
+  const [matchThreshold, setMatchThreshold] = useState(40);
   const [dryRun, setDryRun] = useState(false);
-  const [easyApplyOnly, setEasyApplyOnly] = useState(false);
+  const [easyApplyOnly, setEasyApplyOnly] = useState(true);
 
   const fetchConfig = useCallback(async () => {
     setLoading(true);
@@ -274,7 +274,7 @@ export default function LinkedIn() {
             <input
               type="number"
               min={1}
-              max={10}
+              max={50}
               value={maxPages}
               onChange={e => setMaxPages(Number(e.target.value))}
               className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#0077b5] transition-colors"
@@ -285,7 +285,7 @@ export default function LinkedIn() {
             <input
               type="number"
               min={1}
-              max={100}
+              max={500}
               value={dailyCap}
               onChange={e => setDailyCap(Number(e.target.value))}
               className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#0077b5] transition-colors"

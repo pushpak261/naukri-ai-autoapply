@@ -37,6 +37,7 @@ export default function JobInspector() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusView, setStatusView] = useState<'all' | 'passed' | 'rejected' | 'applied'>('all');
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'naukri' | 'linkedin'>('all');
   const [page, setPage] = useState(1);
   const [filterToggles, setFilterToggles] = useState<Record<string, boolean>>({
     master_enable: true,
@@ -57,7 +58,7 @@ export default function JobInspector() {
   const fetchInspectorData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.jobsInspector(page, 20, search, statusView, filterToggles);
+      const res = await api.jobsInspector(page, 20, search, statusView, filterToggles, sourceFilter);
       setData(res);
       if (res.active_toggles) {
         setFilterToggles((prev) => ({ ...prev, ...res.active_toggles }));
@@ -67,11 +68,11 @@ export default function JobInspector() {
     } finally {
       setLoading(false);
     }
-  }, [page, search, statusView, filterToggles]);
+  }, [page, search, statusView, filterToggles, sourceFilter]);
 
   useEffect(() => {
     fetchInspectorData();
-  }, [page, search, statusView]);
+  }, [page, search, statusView, sourceFilter]);
 
   const handleToggleFilter = (key: string) => {
     const nextVal = !filterToggles[key];
@@ -296,6 +297,18 @@ export default function JobInspector() {
               <option value="passed">Passed Filters Only</option>
               <option value="rejected">Rejected Jobs Only</option>
               <option value="applied">Applied Jobs Only</option>
+            </select>
+            <select
+              value={sourceFilter}
+              onChange={(e: any) => {
+                setSourceFilter(e.target.value);
+                setPage(1);
+              }}
+              className="bg-[#1e293b] border border-[#334155] rounded-xl px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8]"
+            >
+              <option value="all">All Sources</option>
+              <option value="naukri">Naukri</option>
+              <option value="linkedin">LinkedIn</option>
             </select>
           </div>
 

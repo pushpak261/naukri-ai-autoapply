@@ -1031,7 +1031,7 @@ class LinkedInJobDetailPage(BasePage):
         try:
             result = await page.evaluate("""
             () => {
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                const modal = document.querySelector('div.jobs-easy-apply-modal, div[role="dialog"], div.artdeco-modal');
                 // Modal gone entirely — if we previously had one open and it
                 // disappeared, that means the application was accepted.
                 if (!modal) return {success: true, reason: 'modal_gone', text: '', buttons: []};
@@ -1047,6 +1047,10 @@ class LinkedInJobDetailPage(BasePage):
                 const hasReviewBtn = btns.some(t => t.includes('review'));
                 const hasNextBtn = btns.some(t => t.includes('next') || t.includes('continue'));
                 const hasActionBtn = hasSubmitBtn || hasReviewBtn || hasNextBtn;
+
+                // Check for visible input fields (excluding hidden inputs)
+                const inputs = Array.from(modal.querySelectorAll('input:not([type="hidden"]), select, textarea'));
+                const hasVisibleInputs = inputs.some(i => i.offsetParent !== null);
 
                 // Check for success text
                 const hasSuccessText = (
@@ -1065,13 +1069,17 @@ class LinkedInJobDetailPage(BasePage):
                     t => t.includes('done') || t.includes('dismiss') || t.includes('close') || t === 'x' || t === '×'
                 );
 
-                const success = (hasSuccessText && !hasActionBtn) ||
-                                (hasSuccessText && onlyDoneOrDismiss) ||
-                                (onlyDoneOrDismiss && !hasActionBtn);
+                // It is NOT a success if there are still visible input fields we need to fill
+                let success = false;
+                if (!hasVisibleInputs) {
+                    success = (hasSuccessText && !hasActionBtn) ||
+                              (hasSuccessText && onlyDoneOrDismiss) ||
+                              (onlyDoneOrDismiss && !hasActionBtn);
+                }
 
                 return {
                     success: success,
-                    reason: success ? 'success_text' : (hasActionBtn ? 'has_action_btn' : 'no_success_text'),
+                    reason: success ? 'success_text' : (hasVisibleInputs ? 'has_visible_inputs' : (hasActionBtn ? 'has_action_btn' : 'no_success_text')),
                     text: text.substring(0, 200),
                     buttons: btns
                 };

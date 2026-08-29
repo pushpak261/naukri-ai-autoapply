@@ -34,7 +34,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 # Question answering prompt
 # ---------------------------------------------------------------------------
-QUESTION_ANSWER_PROMPT = """You are an ultra-precise job application assistant. Your task is to analyze each screening question and answer it strictly based on the candidate's profile, skills, education, and work experience.
+QUESTION_ANSWER_PROMPT = """You are an ultra-precise job application assistant. Your task is to analyze each screening question and answer it strictly based on the candidate's profile, skills, education, work experience, and the job description.
 
 CANDIDATE DETAILS (from resume profile):
 - Full Name: {candidate_name}
@@ -47,22 +47,29 @@ CANDIDATE DETAILS (from resume profile):
 - Current CTC: {current_ctc}
 - Expected CTC: {expected_ctc} (negotiable)
 - Notice Period: {notice_period}
+- Languages: {languages}
+- GitHub: {github_url}
+- LinkedIn: {linkedin_url}
 - Technical Skills: {skills}
 - Education:
 {education_summary}
 - Work Experience:
 {work_summary}
+- Key Achievements:
+{achievements_summary}
 
 {raw_text_section}
 
 JOB DETAILS:
 - Title: {job_title}
 - Company: {job_company}
+- Description: {job_description}
 
 QUESTIONS TO ANSWER:
 {questions_json}
 
 CRITICAL RULES:
+0. NEVER RETURN AN EMPTY ANSWER. Every question MUST receive a non-empty answer. If you are unsure, provide your best guess using context from the candidate profile or job description. An empty answer will cause the application to be rejected.
 1. EXPERIENCE QUESTIONS (TOTAL OR SKILL-SPECIFIC):
    - The candidate has 1 year of total professional experience.
    - For ANY question asking about experience (whether total experience or experience in specific technologies/skills like Java, Spring Boot, HTML, CSS, JavaScript, React, Python, SQL, AWS, microservices, etc.):
@@ -78,6 +85,19 @@ CRITICAL RULES:
    - For number fields: numeric digits only (e.g. "1", "2023", "450000").
 5. PRESERVE QUESTION ID:
    - Include the exact "id" provided in each input question object in your output object.
+6. QUESTION-SPECIFIC RULES:
+   - For "reason for change" / "why leaving current job": Answer "Seeking challenging role with growth opportunities in a product-based company" (or use job title from JOB DETAILS).
+   - For "why should we hire you" / "why you": Answer with a brief 1-sentence pitch combining job title and candidate skills.
+   - For "availability" / "start date" / "when can you join": Answer "Immediate" (notice period is Immediate).
+   - For "portfolio" / "github" / "linkedin": Use the GitHub or LinkedIn URL from profile if available, else answer "N/A".
+   - For "language" / "english proficiency": Answer "Fluent" or "Professional".
+   - For "rate yourself" / "proficiency" in a skill: Answer "8" (out of 10) or "Advanced".
+   - For "strength": Answer "Strong problem-solving skills and ability to deliver high-quality code".
+   - For "weakness": Answer "I sometimes focus too much on code quality, but I've learned to balance it with delivery timelines".
+   - For "project" / "describe your project": Answer with the most relevant project from work experience or achievements.
+   - For "certification": Answer with the most relevant certification from the profile.
+   - For "date" fields: Return date in DD/MM/YYYY format.
+   - For "url" fields: Return the appropriate profile URL or "N/A".
 
 EXPECTED JSON OUTPUT (Strictly return a JSON array of objects with the exact structure below, no markdown wrappers, no explanation):
 [
@@ -94,26 +114,90 @@ EXPECTED JSON OUTPUT (Strictly return a JSON array of objects with the exact str
 # Common question patterns (can be answered without AI)
 # ---------------------------------------------------------------------------
 DIRECT_ANSWER_PATTERNS = {
+    # CTC / Salary
     "current ctc": "current_ctc",
     "current salary": "current_ctc",
     "present ctc": "current_ctc",
     "current fixed ctc": "current_ctc",
+    "current annual ctc": "current_ctc",
+    "current gross salary": "current_ctc",
+    "current package": "current_ctc",
+    "ctc in lpa": "current_ctc",
+    "annual ctc": "current_ctc",
+    "last drawn salary": "current_ctc",
+    "what is your current ctc": "current_ctc",
+    "mention your current ctc": "current_ctc",
+    "current in-hand salary": "current_ctc",
+    "fixed salary": "current_ctc",
     "expected ctc": "expected_ctc",
     "expected salary": "expected_ctc",
+    "expected annual ctc": "expected_ctc",
+    "expected package": "expected_ctc",
+    "salary expectation": "expected_ctc",
+    "desired salary": "expected_ctc",
+    "desired ctc": "expected_ctc",
+    "what is your expected ctc": "expected_ctc",
+    "mention your expected ctc": "expected_ctc",
+    "expected compensation": "expected_ctc",
+
+    # Notice Period
     "notice period": "notice_period",
     "noticeperiod": "notice_period",
     "serving notice": "notice_period",
+    "what is your notice period": "notice_period",
+    "how much notice period": "notice_period",
+    "notice period in days": "notice_period",
+    "are you serving notice": "notice_period",
+    "currently serving notice": "notice_period",
+    "buyout notice": "notice_period",
+    "joining time": "notice_period",
+    "earliest joining date": "notice_period",
+    "when can you join": "notice_period",
+    "available to join": "notice_period",
+    "how soon can you join": "notice_period",
+
+    # Experience
     "total experience": "total_experience",
     "overall experience": "total_experience",
     "total work experience": "total_experience",
     "years of experience": "total_experience",
+    "total it experience": "total_experience",
+    "how many years": "total_experience",
+    "professional experience": "total_experience",
+    "work experience": "total_experience",
+    "total relevant experience": "total_experience",
     "experience in": "total_experience",
+
+    # Location
     "current location": "current_location",
     "current city": "current_location",
     "residence": "current_location",
     "live in": "current_location",
+    "based in": "current_location",
+    "residing in": "current_location",
+    "where are you located": "current_location",
+    "home city": "current_location",
+    "current place": "current_location",
+    "preferred location": "preferred_location",
+    "preferred city": "preferred_location",
+    "preferred work location": "preferred_location",
+
+    # Relocation / Willingness
     "relocate": "reloc_consent",
     "willing to relocate": "reloc_consent",
+    "open to relocation": "reloc_consent",
+    "ready to relocate": "reloc_consent",
+    "willing to work from office": "reloc_consent",
+    "willing to work onsite": "reloc_consent",
+    "comfortable relocating": "reloc_consent",
+    "willing to travel": "reloc_consent",
+    "ready to travel": "reloc_consent",
+    "work from office": "reloc_consent",
+    "night shift": "reloc_consent",
+    "rotational shift": "reloc_consent",
+    "flexible with shifts": "reloc_consent",
+
+    # Education
     "graduation year": "graduation_year",
     "year of graduation": "graduation_year",
     "passing year": "graduation_year",
@@ -121,7 +205,33 @@ DIRECT_ANSWER_PATTERNS = {
     "passing out year": "graduation_year",
     "degree year": "graduation_year",
     "education year": "graduation_year",
+    "highest qualification": "qualification",
+    "highest degree": "qualification",
+    "educational qualification": "qualification",
+    "qualification": "qualification",
+
+    # Personal
     "gender": "gender",
+    "full name": "candidate_name",
+    "candidate name": "candidate_name",
+    "your name": "candidate_name",
+    "email id": "candidate_email",
+    "email address": "candidate_email",
+    "contact number": "candidate_phone",
+    "phone number": "candidate_phone",
+    "mobile number": "candidate_phone",
+    "date of birth": "date_of_birth",
+    "dob": "date_of_birth",
+    "birth date": "date_of_birth",
+    "marital status": "marital_status",
+    "martial status": "marital_status",
+
+    # Language
+    "languages known": "languages",
+    "language proficiency": "languages",
+    "spoken languages": "languages",
+    "known languages": "languages",
+    "english proficiency": "languages",
 }
 
 
@@ -167,9 +277,25 @@ class QACache:
 
     def get(self, question_key: str) -> str | None:
         normalized = _normalize_question_text(question_key)
+        if not normalized:
+            return None
+        # Exact match first
         if normalized in self._qa_cache:
             return self._qa_cache[normalized]
-        return self._qa_cache.get(question_key)
+        if question_key in self._qa_cache:
+            return self._qa_cache[question_key]
+        # Fuzzy match: if any cached key is a substring or has high similarity
+        from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
+        best_score = 0.0
+        best_val = None
+        for cached_key, cached_val in self._qa_cache.items():
+            score = fuzzy_similarity_ratio(normalized, cached_key)
+            if score > best_score:
+                best_score = score
+                best_val = cached_val
+        if best_score >= 0.85:
+            return best_val
+        return None
 
     def set(self, question_key: str, answer: str) -> None:
         normalized = _normalize_question_text(question_key)
@@ -222,7 +348,7 @@ class QuestionAnswerer(IQuestionAnswerer):
             else None
         )
         self._direct_answers = {
-            "current_ctc": settings.profile.current_ctc or "4.4 LPA",
+            "current_ctc": settings.profile.current_ctc or "4.5 LPA",
             "expected_ctc": settings.profile.expected_ctc or "6 LPA",
             "notice_period": settings.profile.notice_period or "Immediate",
             "total_experience": settings.profile.total_experience
@@ -231,10 +357,19 @@ class QuestionAnswerer(IQuestionAnswerer):
             "current_location": settings.profile.current_location
             or resume_profile.current_title
             or "Pune",
+            "preferred_location": ", ".join(settings.profile.preferred_locations) or "Pune",
+            "candidate_name": resume_profile.name or "Candidate",
+            "candidate_email": resume_profile.email or settings.naukri.email or "",
+            "candidate_phone": resume_profile.phone or settings.naukri.mobile_number or "",
             "reloc_consent": "Yes",
             "graduation_year": "2023",
-            "qualification": "Bachelor of Mechanical Engineering / PG-DAC",
+            "qualification": "PG-DAC / Bachelor of Mechanical Engineering",
             "gender": "Male",
+            "date_of_birth": settings.profile.date_of_birth or "",
+            "marital_status": settings.profile.marital_status or "",
+            "languages": ", ".join(settings.profile.languages) or "English, Hindi, Marathi",
+            "github_url": settings.profile.github_url or "",
+            "linkedin_url": settings.profile.linkedin_url or "",
         }
 
         # Load local QA cache to save API tokens
@@ -257,45 +392,56 @@ class QuestionAnswerer(IQuestionAnswerer):
         """
         question_lower = question_text.lower().strip()
 
-        # Safeguard: If question asks about experience/knowledge in a specific skill or technology,
-        # or is descriptive, pass to LLM (which is prompted to answer 1 year from total experience).
-        skill_patterns = r"\b(html|css|javascript|js|react|angular|vue|python|java|c#|\.net|cpp|c\+\+|sql|mysql|postgres|mongodb|aws|azure|gcp|docker|kubernetes|git|node|express|django|flask|spring|rest|api|microservices|testing|qa|agile|devops|flutter|dart|android|ios|swift|kotlin|pandas|numpy|ml|ai)\b"
-        has_skill_word = re.search(skill_patterns, question_lower) is not None
+        # Determine if this is an experience question
+        is_experience_question = (
+            "experience" in question_lower
+            or "years" in question_lower
+            or "month" in question_lower
+            or re.search(r"\bexp\b", question_lower) is not None
+        )
         is_descriptive = any(kw in question_lower for kw in ["describe", "explain", "tell", "why", "project"])
-
-        if (has_skill_word or is_descriptive) and not any(k in question_lower for k in ["total experience", "overall experience", "total work experience"]):
-            return None
 
         config_key = None
         best_pattern = None
+        if is_experience_question and not is_descriptive:
+            config_key = "total_experience"
+            best_pattern = "experience_bypass"
 
-        # 1. Exact/Substring match using Aho-Corasick (Trie)
-        matched_patterns = self._trie.search(question_lower)
-        if matched_patterns:
-            best_pattern = str(max(matched_patterns.keys(), key=len))
-            config_key = DIRECT_ANSWER_PATTERNS.get(best_pattern, "")
-
-        # 2. Fuzzy Levenshtein match fallback
         if not config_key:
-            from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
+            # Safeguard: If question asks about experience/knowledge in a specific skill or technology,
+            # or is descriptive, pass to LLM (which is prompted to answer 1 year from total experience).
+            skill_patterns = r"\b(html|css|javascript|js|react|angular|vue|python|java|c#|\.net|cpp|c\+\+|sql|mysql|postgres|mongodb|aws|azure|gcp|docker|kubernetes|git|node|express|django|flask|spring|rest|api|microservices|testing|qa|agile|devops|flutter|dart|android|ios|swift|kotlin|pandas|numpy|ml|ai)\b"
+            has_skill_word = re.search(skill_patterns, question_lower) is not None
 
-            best_fuzzy_pattern = None
-            best_fuzzy_score = 0.0
+            if (has_skill_word or is_descriptive) and not any(k in question_lower for k in ["total experience", "overall experience", "total work experience"]):
+                return None
 
-            for pattern in DIRECT_ANSWER_PATTERNS:
-                score = fuzzy_similarity_ratio(pattern, question_lower)
-                if score > best_fuzzy_score:
-                    best_fuzzy_score = score
-                    best_fuzzy_pattern = pattern
+            # 1. Exact/Substring match using Aho-Corasick (Trie)
+            matched_patterns = self._trie.search(question_lower)
+            if matched_patterns:
+                best_pattern = str(max(matched_patterns.keys(), key=len))
+                config_key = DIRECT_ANSWER_PATTERNS.get(best_pattern, "")
 
-            if best_fuzzy_pattern and best_fuzzy_score >= 0.80:
-                best_pattern = best_fuzzy_pattern
-                config_key = DIRECT_ANSWER_PATTERNS[best_fuzzy_pattern]
+            # 2. Fuzzy Levenshtein match fallback
+            if not config_key:
+                from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
+                best_fuzzy_score = 0.0
+                best_fuzzy_pattern = None
+                for pat in DIRECT_ANSWER_PATTERNS.keys():
+                    sim = fuzzy_similarity_ratio(question_lower, pat)
+                    if sim > best_fuzzy_score:
+                        best_fuzzy_score = sim
+                        best_fuzzy_pattern = pat
+
+                if best_fuzzy_pattern and best_fuzzy_score >= 0.80:
+                    config_key = DIRECT_ANSWER_PATTERNS[best_fuzzy_pattern]
 
         if not config_key:
             return None
 
         raw_val = self._direct_answers.get(config_key, "")
+        if config_key == "total_experience":
+            raw_val = "1 year"
         if not raw_val:
             return None
 
@@ -481,11 +627,137 @@ class QuestionAnswerer(IQuestionAnswerer):
                             except Exception as user_e:
                                 logger.debug(f"Interactive user prompt skipped: {user_e}")
 
+                # ZERO BLANK GUARANTEE: only for AI-called answers (not disabled/skipped)
+                for ans in ai_answers:
+                    if not (ans.get("answer") or "").strip():
+                        ans["answer"] = self._generate_intelligent_fallback(ans, job)
+                        ans["confidence"] = "medium"
+
             answers.extend(ai_answers)
 
         # Sort by original index
         answers.sort(key=lambda x: x.get("index", 0))
         return answers
+
+    def _generate_intelligent_fallback(self, answer_entry: dict, job: Job) -> str:
+        """Generate a contextually appropriate fallback when AI returns empty."""
+        q_text = (answer_entry.get("question") or "").lower().strip()
+        q_type = answer_entry.get("type", "text")
+        options = answer_entry.get("options", [])
+
+        experience_kw = ["experience", "years", "exp", "year of"]
+        ctc_kw = ["ctc", "salary", "package", "compensation", "lpa"]
+        notice_kw = ["notice", "joining", "join", "available"]
+        location_kw = ["location", "city", "reside", "based in", "place"]
+        relocate_kw = ["relocate", "relocation", "travel", "shift", "willing", "work from office", "onsite"]
+        yes_no_kw = ["agree", "consent", "accept", "confirm", "authorize", "declare", "certify"]
+
+        if any(kw in q_text for kw in experience_kw):
+            if q_type == "number":
+                return "1"
+            return "1 year"
+
+        if any(kw in q_text for kw in ctc_kw):
+            if "expected" in q_text:
+                return self._direct_answers.get("expected_ctc", "6 LPA")
+            return self._direct_answers.get("current_ctc", "4.5 LPA")
+
+        if any(kw in q_text for kw in notice_kw):
+            return self._direct_answers.get("notice_period", "Immediate")
+
+        if any(kw in q_text for kw in location_kw):
+            if "preferred" in q_text or "prefer" in q_text:
+                return self._direct_answers.get("preferred_location", "Pune")
+            return self._direct_answers.get("current_location", "Pune")
+
+        if any(kw in q_text for kw in relocate_kw):
+            return "Yes"
+
+        if any(kw in q_text for kw in yes_no_kw):
+            return "Yes"
+
+        if "qualification" in q_text or "degree" in q_text or "education" in q_text:
+            return self._direct_answers.get("qualification", "PG-DAC / Bachelor of Mechanical Engineering")
+
+        if "graduation" in q_text or "passing" in q_text:
+            return self._direct_answers.get("graduation_year", "2023")
+
+        if "gender" in q_text:
+            return self._direct_answers.get("gender", "Male")
+
+        if "name" in q_text:
+            return self._direct_answers.get("candidate_name", "Candidate")
+
+        if "email" in q_text:
+            return self._direct_answers.get("candidate_email", "")
+
+        if "phone" in q_text or "mobile" in q_text or "contact" in q_text:
+            return self._direct_answers.get("candidate_phone", "")
+
+        if "date of birth" in q_text or "dob" in q_text or "birth" in q_text:
+            return self._settings.profile.date_of_birth or "01/01/2000"
+
+        if "marital" in q_text:
+            return self._settings.profile.marital_status or "Single"
+
+        if "language" in q_text or "english" in q_text:
+            return "Fluent"
+
+        if "github" in q_text or "portfolio" in q_text or "linkedin" in q_text:
+            url = self._settings.profile.github_url or self._settings.profile.linkedin_url or ""
+            return url if url else "N/A"
+
+        if "skill" in q_text and ("rate" in q_text or "proficiency" in q_text or "level" in q_text):
+            return "Advanced"
+
+        if "rate" in q_text and ("yourself" in q_text or "proficiency" in q_text):
+            return "8"
+
+        if "strength" in q_text:
+            return "Strong problem-solving skills and ability to deliver high-quality code"
+
+        if "weakness" in q_text:
+            return "I focus heavily on code quality and sometimes need to balance speed with perfection"
+
+        if "reason" in q_text and ("change" in q_text or "leave" in q_text or "job" in q_text):
+            return self._settings.profile.reason_for_change or "Seeking challenging role with growth opportunities"
+
+        if "why" in q_text and ("hire" in q_text or "join" in q_text or "you" in q_text):
+            role = job.title or "Software Engineer"
+            return f"1 year of hands-on experience building scalable {role} solutions with modern tech stack"
+
+        if "project" in q_text or "describe" in q_text:
+            return "Developed full-stack web applications and microservices using Spring Boot, React, and MySQL with CI/CD"
+
+        if "achievement" in q_text or "accomplish" in q_text:
+            achievements = self._profile.key_achievements
+            if achievements:
+                return achievements[0]
+            return "Built production-grade systems and optimized application performance"
+
+        if "certification" in q_text or "certified" in q_text:
+            certs = self._profile.certifications
+            if certs:
+                return certs[0]
+            return "Full Stack Development certification"
+
+        if "availability" in q_text or "start" in q_text or "available from" in q_text:
+            return "Immediate"
+
+        if "date" in q_text:
+            from datetime import date
+            return date.today().strftime("%d/%m/%Y")
+
+        if "url" in q_text or "link" in q_text or "website" in q_text:
+            return self._settings.profile.linkedin_url or "N/A"
+
+        # Absolute last resort
+        if q_type in ("dropdown", "radio", "checkbox") and options:
+            opt_texts = [o.get("text", "") for o in options]
+            if opt_texts:
+                return opt_texts[0]
+
+        return "Yes"
 
     @staticmethod
     def _format_education(education_list: list[dict]) -> str:
@@ -503,6 +775,12 @@ class QuestionAnswerer(IQuestionAnswerer):
                 parts.append(f"({year})")
             lines.append(" ".join(parts) if parts else "  * Unknown")
         return "\n".join(lines)
+
+    @staticmethod
+    def _format_achievements(achievements: list[str] | None) -> str:
+        if not achievements:
+            return "  * No achievements listed"
+        return "\n".join(f"  * {a}" for a in achievements[:5])
 
     @staticmethod
     def _format_work_experience(work_list: list[dict]) -> str:
@@ -562,6 +840,11 @@ class QuestionAnswerer(IQuestionAnswerer):
             else "Not specified"
         )
 
+        languages = ", ".join(self._settings.profile.languages) if self._settings.profile.languages else "English"
+        github_url = self._settings.profile.github_url or self._direct_answers.get("github_url", "")
+        linkedin_url = self._settings.profile.linkedin_url or self._direct_answers.get("linkedin_url", "")
+        job_description = job.description[:2000] if job.description else "Not specified"
+
         prompt = QUESTION_ANSWER_PROMPT.format(
             candidate_name=self._profile.name or "Not specified",
             candidate_email=self._profile.email or "Not specified",
@@ -573,12 +856,17 @@ class QuestionAnswerer(IQuestionAnswerer):
             total_experience=self._settings.profile.total_experience or "Not specified",
             current_location=self._settings.profile.current_location or "Not specified",
             preferred_locations=preferred_locations,
+            languages=languages,
+            github_url=github_url,
+            linkedin_url=linkedin_url,
             skills=skills_list,
             education_summary=self._format_education(self._profile.education),
             work_summary=self._format_work_experience(self._profile.work_experience),
+            achievements_summary=self._format_achievements(self._profile.key_achievements),
             raw_text_section=raw_text_section,
             job_title=job.title or "Unknown",
             job_company=job.company or "Unknown",
+            job_description=job_description,
             questions_json=questions_json,
         )
 

@@ -120,6 +120,7 @@ async def get_jobs_inspector(
     per_page: int = Query(50, ge=1, le=200),
     search: str = Query("", max_length=200),
     status_view: str = Query("all", max_length=20),
+    source: str = Query("all", max_length=20),
     enable_experience_filter: bool | None = Query(None),
     enable_freshness_filter: bool | None = Query(None),
     enable_scam_filter: bool | None = Query(None),
@@ -132,7 +133,14 @@ async def get_jobs_inspector(
 ):
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
-        result = await session.execute(select(DBJob).order_by(DBJob.scraped_at.desc()))
+        query = select(DBJob)
+        if source and source != "all":
+            if source == "naukri":
+                from sqlalchemy import or_
+                query = query.where(or_(DBJob.source == "naukri", DBJob.source.is_(None)))
+            else:
+                query = query.where(DBJob.source == source)
+        result = await session.execute(query.order_by(DBJob.scraped_at.desc()))
         db_jobs = result.scalars().all()
 
         apps_result = await session.execute(select(DBApplication))

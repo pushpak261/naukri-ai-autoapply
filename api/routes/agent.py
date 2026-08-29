@@ -29,8 +29,8 @@ def _broadcast_line(line: str) -> None:
     cleaned = _strip_ansi(line)
     with state.agent_output_lock:
         state.agent_output_buffer.append(cleaned)
-        if len(state.agent_output_buffer) > 2000:
-            state.agent_output_buffer[:1000] = []
+        if len(state.agent_output_buffer) > 60000:
+            state.agent_output_buffer[:10000] = []
         for q in state.agent_sse_clients:
             with contextlib.suppress(asyncio.QueueFull):
                 q.put_nowait(cleaned)
@@ -147,7 +147,10 @@ async def agent_status():
     if running and not platform and state.agent_process:
         try:
             args = getattr(state.agent_process, "args", [])
-            platform = "linkedin" if any("linked_agent" in str(arg) for arg in args) else "naukri"
+            if any("linked_agent" in str(arg) for arg in args):
+                platform = "linkedin"
+            else:
+                platform = "naukri"
         except Exception:
             platform = "naukri"
 
@@ -165,7 +168,7 @@ async def agent_status():
 
 
 @router.get("/api/agent/output")
-async def agent_output(lines: int = 50):
+async def agent_output(lines: int = 50000):
     running = state.agent_process is not None and state.agent_process.poll() is None
 
     with state.agent_output_lock:
@@ -180,9 +183,9 @@ async def agent_output(lines: int = 50):
 
 
 @router.get("/api/agent/output/stream")
-async def agent_output_stream(request: Request, history: int = 50):
+async def agent_output_stream(request: Request, history: int = 50000):
     """SSE endpoint that streams agent output in real-time."""
-    queue: asyncio.Queue = asyncio.Queue(maxsize=500)
+    queue: asyncio.Queue = asyncio.Queue(maxsize=60000)
 
     with state.agent_output_lock:
         state.agent_sse_clients.append(queue)

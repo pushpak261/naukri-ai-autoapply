@@ -9,11 +9,11 @@ ai:
   use_gemini: true
 application:
   answer_questions_with_pdf: true
-  daily_cap: 50
+  daily_cap: 200
   delay_between_actions_max: 3.0
   delay_between_actions_min: 1.0
-  delay_between_applies_max: 90
-  delay_between_applies_min: 30
+  delay_between_applies_max: 45
+  delay_between_applies_min: 15
   dry_run: false
   email_notifications_enabled: false
   enable_project_indexer: true
@@ -25,6 +25,7 @@ application:
   notify_on_scam: true
   rate_limit_capacity: 15.0
   rate_limit_refill_rate: 1.0
+  reapply_after_days: 30
   skip_external_apply: true
 exclusions:
   companies:
@@ -111,9 +112,6 @@ exclusions:
   - banking
   - auditor
   - tax
-  - consultancy
-  - consultant
-  - consultants
   - placement
   - staffing
   - recruitment services
@@ -148,12 +146,6 @@ exclusions:
   - visa assistance
   - career guidance
   - job guidance
-  - spot offer
-  - walk-in
-  - walkin
-  - trainee
-  - diploma trainee
-  - training
   - animator
   - physiotherapist
   - therapist
@@ -161,42 +153,53 @@ exclusions:
   - clinical research
   - care engineer
   - payroll
-  - design engineer
-  - test automation
-  - qa
-  - manual tester
-  - software tester
-  - automation tester
-  - tester
-  - data analyst
-  - data engineer
-  - business analyst
-  - support engineer
 logging:
   level: INFO
   log_dir: data/logs
   log_to_file: true
 naukri:
-  email: testpushpak@test.com
-  password: Test@123456
+  email: ***REDACTED_EMAIL***
+  password: ***REDACTED***
 profile:
   current_ctc: 4.5 LPA
   current_location: Pune
+  date_of_birth: 02/06/2001
   expected_ctc: 6 LPA
+  github_url: https://github.com/pushpak261
+  languages:
+  - English
+  - Hindi
+  - Marathi
+  linkedin_url: https://www.linkedin.com/in/pushpak-pandharpatte
+  marital_status: Single
   notice_period: Immediate
   preferred_locations:
   - Pune
+  preferred_work_mode: Hybrid
+  reason_for_change: Seeking challenging role with growth opportunities in a product-based
+    company
   total_experience: 1 years
+  willing_to_relocate: true
 resume:
-  path: data/resumes/resume_20260707_164525.pdf
+  path: data/resumes/pushpak_pandharpatte_9921626877.pdf
 search:
   enable_heuristics: true
   experience_max: 2
   experience_min: 0
-  freshness: 3
+  freshness: 10
   keywords:
-  - Full Stack Developer
-  - Software Engineer
+  - Java Developer
+  - Java Engineer
+  - Spring Boot Developer
+  - Java Backend Developer
+  - Java
+  - Java Full Stack Developer
+  - Backend Developer
+  - Java Software Engineer
+  - J2EE Developer
+  - Java Microservices Developer
+  - Fresher Java Developer
+  - Graduate Engineer Trainee Java
   locations:
   - Pune
   - Mumbai

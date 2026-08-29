@@ -118,7 +118,10 @@ class DependencyFactory:
                     "`await setup_database_manager(settings.db_path)` and pass the result "
                     "to `DependencyFactory(settings, db_manager=...)`."
                 )
-            self._repository = SQLAlchemyRepository(self._db_manager)
+            self._repository = SQLAlchemyRepository(
+                self._db_manager,
+                reapply_after_days=self._settings.application.reapply_after_days,
+            )
         return self._repository
 
     def get_llm_provider(self) -> ILLMProvider:

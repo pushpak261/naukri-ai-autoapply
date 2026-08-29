@@ -90,34 +90,53 @@ class SQLAlchemyRepository(IRepository):
         await repo.save_job(naukri_job_id="...", title="...", ...)
     """
 
-    def __init__(self, db_manager: DatabaseManager) -> None:
+    def __init__(
+        self, db_manager: DatabaseManager, reapply_after_days: int = 30
+    ) -> None:
         self._db_manager = db_manager
-        self._applied_jobs_cache: set[str] = set()
-        self._applied_composite_cache: set[tuple[str, str]] = set()
+        self._reapply_after_days = reapply_after_days
+        # Maps job id / (title, company) -> the date it was last applied/skipped.
+        # Used for dedup with a re-application cooldown so listings can be
+        # re-processed once the cooldown elapses (postings get refreshed/reposted).
+        self._applied_jobs_cache: dict[str, datetime] = {}
+        self._applied_composite_cache: dict[tuple[str, str], datetime] = {}
 
     @with_failover
     async def initialize(self) -> None:
-        """Load all applied job IDs and (title, company) combinations into O(1) hash sets for fast deduplication."""
+        """Load applied job IDs and (title, company) combinations with their dates for cooldown-aware dedup."""
         session_factory = await self._db_manager.get_session_factory()
         try:
             async with session_factory() as session:
                 result = await session.execute(
-                    select(DBJob.naukri_job_id, DBJob.title, DBJob.company).join(
-                        DBApplication, DBApplication.job_id == DBJob.id
-                    )
+                    select(
+                        DBJob.naukri_job_id,
+                        DBJob.title,
+                        DBJob.company,
+                        DBApplication.applied_at,
+                    ).join(DBApplication, DBApplication.job_id == DBJob.id)
                 )
                 rows = result.all()
-                for naukri_job_id, title, company in rows:
+                now = datetime.now(UTC)
+                for naukri_job_id, title, company, applied_at in rows:
+                    applied_at = self._normalize_date(applied_at, now)
                     if naukri_job_id:
-                        self._applied_jobs_cache.add(naukri_job_id)
+                        self._applied_jobs_cache[naukri_job_id] = applied_at
                     if title and company:
-                        self._applied_composite_cache.add(
+                        self._applied_composite_cache[
                             (title.lower().strip(), company.lower().strip())
-                        )
+                        ] = applied_at
         except SQLAlchemyError as e:
             import logging
 
             logging.getLogger(__name__).warning(f"Failed to load cache: {e}")
+
+    @staticmethod
+    def _normalize_date(value: datetime | None, fallback: datetime) -> datetime:
+        if not value:
+            return fallback
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
     # -----------------------------------------------------------------------
     # Job operations
@@ -192,14 +211,26 @@ class SQLAlchemyRepository(IRepository):
             )
 
     def is_already_applied(self, naukri_job_id: str) -> bool:
-        """Check if we've already applied to this job (any status) using O(1) cache."""
-        return naukri_job_id in self._applied_jobs_cache
+        """Check if we've applied to this job within the re-application cooldown."""
+        applied_at = self._applied_jobs_cache.get(naukri_job_id)
+        if applied_at is None:
+            return False
+        if self._reapply_after_days <= 0:
+            return True
+        return (datetime.now(UTC) - applied_at).days < self._reapply_after_days
 
     def is_already_applied_composite(self, title: str, company: str) -> bool:
-        """Check if we've already applied to this job title & company combination (O(1))."""
+        """Check if we've applied to this title+company within the cooldown (O(1))."""
         if not title or not company:
             return False
-        return (title.lower().strip(), company.lower().strip()) in self._applied_composite_cache
+        applied_at = self._applied_composite_cache.get(
+            (title.lower().strip(), company.lower().strip())
+        )
+        if applied_at is None:
+            return False
+        if self._reapply_after_days <= 0:
+            return True
+        return (datetime.now(UTC) - applied_at).days < self._reapply_after_days
 
     # -----------------------------------------------------------------------
     # Application operations
@@ -235,12 +266,13 @@ class SQLAlchemyRepository(IRepository):
             job_result = await session.execute(select(DBJob).filter(DBJob.id == job_id))
             job = job_result.scalar_one_or_none()
             if job:
+                applied_at = self._normalize_date(app.applied_at, datetime.now(UTC))
                 if job.naukri_job_id:
-                    self._applied_jobs_cache.add(job.naukri_job_id)
+                    self._applied_jobs_cache[job.naukri_job_id] = applied_at
                 if job.title and job.company:
-                    self._applied_composite_cache.add(
+                    self._applied_composite_cache[
                         (job.title.lower().strip(), job.company.lower().strip())
-                    )
+                    ] = applied_at
 
             return JobApplication(
                 id=app.id,

@@ -9,6 +9,7 @@ job pages to extract full descriptions.
 from __future__ import annotations
 
 import contextlib
+from collections.abc import Callable
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -48,8 +49,14 @@ class JobSearcher:
         self._detail_page = detail_page
         self._engine = engine
         self._settings = settings
+        # Running count of unique jobs discovered so far. Exposed so the
+        # orchestrator can report an accurate total even when the search is
+        # interrupted mid-way (e.g. by a shutdown signal).
+        self.total_found: int = 0
 
-    async def search_all(self) -> list[Job]:
+    async def search_all(
+        self, should_stop: Callable[[], bool] | None = None
+    ) -> list[Job]:
         """
         Search for jobs across all configured keywords and locations.
 
@@ -58,8 +65,14 @@ class JobSearcher:
         Stops early once enough jobs are collected (2x daily_cap)
         to avoid excessive search time before applying.
 
+        Args:
+            should_stop: Optional callable evaluated before each search step.
+                When it returns True (e.g. a shutdown signal was received),
+                the search stops gracefully and returns the jobs collected so
+                far instead of raising or retrying against a dead browser.
+
         Returns:
-            List of job domain entities.
+            List of job domain entities (partial on interruption).
         """
         all_jobs: dict[str, Job] = {}
 
@@ -76,6 +89,10 @@ class JobSearcher:
                 await queue.put((keyword, location))
 
         while not queue.empty():
+            if should_stop and should_stop():
+                log_info("Shutdown requested — stopping search early.")
+                break
+
             keyword, location = await queue.get()
 
             if len(all_jobs) >= stop_at:
@@ -94,18 +111,26 @@ class JobSearcher:
 
             log_info(f"Searching: '{keyword}' in '{location}'...")
 
-            jobs = await self._search_keyword_location(
-                keyword=keyword,
-                location=location,
-                max_pages=search_config.max_pages,
-                seen_ids=all_jobs,
-            )
+            try:
+                jobs = await self._search_keyword_location(
+                    keyword=keyword,
+                    location=location,
+                    max_pages=search_config.max_pages,
+                    seen_ids=all_jobs,
+                    should_stop=should_stop,
+                )
+            except Exception as e:
+                logger.error(f"Search for '{keyword}' in '{location}' failed: {e}")
+                log_warning("Search interrupted by an error — returning partial results.")
+                break
 
             # Deduplicate
             for job in jobs:
                 job_id = job.naukri_job_id
                 if job_id and job_id not in all_jobs:
                     all_jobs[job_id] = job
+
+            self.total_found = len(all_jobs)
 
             log_success(
                 f"Found {len(jobs)} jobs for '{keyword}' in '{location}' "
@@ -145,6 +170,7 @@ class JobSearcher:
         location: str,
         max_pages: int,
         seen_ids: set | dict | None = None,
+        should_stop: Callable[[], bool] | None = None,
     ) -> list[Job]:
         """Search for a specific keyword+location and paginate through results."""
         all_jobs: list[Job] = []
@@ -153,6 +179,10 @@ class JobSearcher:
         query_seen_ids = set()
         safe_max_pages = max(1, min(100, max_pages))
         for page_num in range(1, safe_max_pages + 1):
+            if should_stop and should_stop():
+                log_info("Shutdown requested — stopping pagination early.")
+                break
+
             search_url = build_search_url(
                 keywords=keyword,
                 location=location,

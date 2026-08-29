@@ -65,7 +65,7 @@ class TestQuestionAnswerer:
         assert len(answers) == 3
         assert answers[0]["answer"] == "10 LPA"
         assert answers[1]["answer"] == "15 LPA"
-        assert answers[2]["answer"] == "3 years"
+        assert answers[2]["answer"] == "1 year"
 
         # Verify LLM was not called
         mock_llm.generate_content.assert_not_called()
@@ -185,18 +185,9 @@ class TestQuestionAnswerer:
         assert answers[0]["answer"] == "Great career opportunity."
 
     @pytest.mark.asyncio
-    async def test_skill_experience_question_not_hijacked_by_direct_answer(self, mock_settings, sample_resume):
-        """Skill-specific questions like HTML/CSS experience should go to Gemini, not hijacked by direct total experience patterns."""
+    async def test_skill_experience_question_hijacked_by_direct_answer(self, mock_settings, sample_resume):
+        """Skill-specific questions like HTML/CSS experience should be hijacked by direct total experience patterns and answered directly."""
         mock_llm = AsyncMock()
-        mock_llm.generate_content.return_value = json.dumps([
-            {
-                "id": "q_html",
-                "question": "How many years of experience do you have in HTML?",
-                "answer": "1",
-                "confidence": "high",
-            }
-        ])
-
         answerer = QuestionAnswerer(mock_llm, mock_settings, sample_resume)
         questions = [
             {
@@ -216,8 +207,8 @@ class TestQuestionAnswerer:
 
         assert len(answers) == 1
         assert answers[0]["answer"] == "1"
-        # Verify LLM WAS called (not intercepted by direct answer pattern)
-        mock_llm.generate_content.assert_called_once()
+        # Verify LLM was NOT called
+        mock_llm.generate_content.assert_not_called()
 
     def test_cache_validation_rejects_dom_element_ids(self, mock_settings):
         """QACache.set should reject element IDs, DOM selectors, and generic placeholders."""

@@ -318,6 +318,18 @@ export interface AgentStatus {
   platform?: 'naukri' | 'linkedin' | null;
 }
 
+export interface MultiAgentPlatformStatus {
+  running: boolean;
+  pid: number | null;
+  started_at: string | null;
+  uptime_seconds: number | null;
+  last_run?: RunLog | null;
+}
+
+export interface MultiAgentStatus {
+  agents: Record<'naukri' | 'linkedin', MultiAgentPlatformStatus>;
+}
+
 export interface MatchCacheEntry {
   key: string;
   resume_hash: string;
@@ -579,13 +591,15 @@ export const api = {
     perPage = 50,
     search = '',
     statusView = 'all',
-    filterToggles?: Record<string, boolean>
+    filterToggles?: Record<string, boolean>,
+    source = 'all'
   ): Promise<InspectorResponse> => {
     const params = new URLSearchParams({
       page: String(page),
       per_page: String(perPage),
       search,
       status_view: statusView,
+      source,
     });
     if (filterToggles) {
       Object.entries(filterToggles).forEach(([k, v]) => {
@@ -634,8 +648,26 @@ export const api = {
       fetchJSON<{ status: string; message: string; pid?: number; command?: string }>(`/agent/start?platform=${platform}`, { method: 'POST' }),
     stop: () => fetchJSON<{ status: string; message: string }>('/agent/stop', { method: 'POST' }),
     status: () => fetchJSON<AgentStatus>('/agent/status'),
-    output: (lines = 50) => fetchText(`/agent/output?lines=${lines}`),
-    outputStreamUrl: (history = 50) => `${SSE_BASE}/agent/output/stream?history=${history}`,
+    output: (lines = 50000) => fetchText(`/agent/output?lines=${lines}`),
+    outputStreamUrl: (history = 50000) => `${SSE_BASE}/agent/output/stream?history=${history}`,
+  },
+
+  multi: {
+    start: (platforms?: string[]) =>
+      fetchJSON<{ status: string; agents: Record<string, { status: string; pid?: number; command?: string; message?: string }> }>(
+        `/multi/start${platforms && platforms.length ? `?platforms=${platforms.join('&platforms=')}` : ''}`,
+        { method: 'POST' },
+      ),
+    stop: (platform?: string) =>
+      fetchJSON<{ status: string; agents: Record<string, { status: string }> }>(
+        `/multi/stop${platform ? `?platform=${platform}` : ''}`,
+        { method: 'POST' },
+      ),
+    status: () => fetchJSON<MultiAgentStatus>('/multi/status'),
+    output: (platform: string, lines = 50000) =>
+      fetchText(`/multi/output?platform=${platform}&lines=${lines}`),
+    outputStreamUrl: (platform: string, history = 50000) =>
+      `${SSE_BASE}/multi/output/stream?platform=${platform}&history=${history}`,
   },
 
   cache: {
@@ -829,3 +861,4 @@ export interface LinkedInConfig {
     dry_run: boolean;
   };
 }
+

@@ -5,7 +5,7 @@ import {
   Wifi, WifiOff, Radio, Globe,
 } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
-import { api, type AgentStatus, type MetricsResponse } from '../lib/api';
+import { api, type AgentStatus, type MetricsResponse, type MultiAgentStatus } from '../lib/api';
 
 type Notification = { type: 'success' | 'error' | 'info'; message: string };
 type ActionType = 'start' | 'stop' | 'restart' | null;
@@ -47,7 +47,7 @@ function mergeLogs(oldLog: string, newLog: string): string {
   if (oldLines.length === 0) return newLog;
   if (newLines.length === 0) return oldLog;
 
-  const maxSearch = Math.min(oldLines.length, newLines.length, 200);
+  const maxSearch = Math.min(oldLines.length, newLines.length, 1000);
   let mergedLines = newLines;
 
   for (let i = maxSearch; i > 0; i--) {
@@ -64,9 +64,9 @@ function mergeLogs(oldLog: string, newLog: string): string {
     }
   }
 
-  // Cap the merged lines to a reasonable number to prevent memory issues, e.g. 5000 lines
-  if (mergedLines.length > 5000) {
-    mergedLines = mergedLines.slice(-3000);
+  // Cap the merged lines to 60,000 to maintain at least 50,000 lines in memory
+  if (mergedLines.length > 60000) {
+    mergedLines = mergedLines.slice(-50000);
   }
 
   return mergedLines.join('\n') + '\n';
@@ -85,6 +85,14 @@ export default function AgentControl() {
   const [autoScroll, setAutoScroll] = useState(true);
   const [useSSE, setUseSSE] = useState(true);
   const [platform, setPlatform] = useState<'naukri' | 'linkedin'>('naukri');
+  const [parallelMode, setParallelMode] = useState(false);
+  const [multiStatus, setMultiStatus] = useState<MultiAgentStatus | null>(null);
+  const [logPlatform, setLogPlatform] = useState<'naukri' | 'linkedin'>('naukri');
+  const [multiUptime, setMultiUptime] = useState<{ naukri: number | null; linkedin: number | null }>({
+    naukri: null,
+    linkedin: null,
+  });
+  const multiSseRef = useRef<EventSource | null>(null);
   const outputRef = useRef<HTMLPreElement>(null);
   const isAutoScrollRef = useRef(true);
   const intervalRef = useRef<ReturnType<typeof setInterval>>(undefined);
@@ -168,7 +176,7 @@ export default function AgentControl() {
 
   const fetchOutput = useCallback(async () => {
     try {
-      const text = await api.agent.output(2000);
+      const text = await api.agent.output(50000);
       if (text && text !== 'Waiting for logs...\n') {
         setOutput(prev => mergeLogs(prev, text));
       }
@@ -189,8 +197,11 @@ export default function AgentControl() {
       if (event.data) {
         setOutput(prev => {
           const next = prev ? prev + event.data + '\n' : event.data + '\n';
-          if (next.length > 1000000) {
-            return next.slice(-500000);
+          if (next.length > 10000000) {
+            const lines = next.split('\n');
+            if (lines.length > 60000) {
+              return lines.slice(-50000).join('\n');
+            }
           }
           return next;
         });
@@ -218,26 +229,92 @@ export default function AgentControl() {
     await fetchMetrics();
   }, [fetchStatus, fetchOutput, fetchMetrics, useSSE, connectSSE]);
 
+  const fetchMultiStatus = useCallback(async () => {
+    try {
+      const s = await api.multi.status();
+      setMultiStatus(s);
+      return s;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const fetchMultiOutput = useCallback(async () => {
+    try {
+      const text = await api.multi.output(logPlatform, 50000);
+      if (text && text !== 'Waiting for logs...\n') {
+        setOutput(prev => mergeLogs(prev, text));
+      }
+    } catch {
+      // 404 is expected when that platform isn't running
+    }
+  }, [logPlatform]);
+
+  const connectMultiSSE = useCallback(() => {
+    if (multiSseRef.current) multiSseRef.current.close();
+    const es = new EventSource(api.multi.outputStreamUrl(logPlatform, 0));
+    multiSseRef.current = es;
+
+    fetchMultiOutput();
+
+    es.onmessage = (event) => {
+      if (event.data) {
+        setOutput(prev => {
+          const next = prev ? prev + event.data + '\n' : event.data + '\n';
+          if (next.length > 10000000) {
+            const lines = next.split('\n');
+            if (lines.length > 60000) {
+              return lines.slice(-50000).join('\n');
+            }
+          }
+          return next;
+        });
+      }
+    };
+
+    es.onerror = () => {
+      es.close();
+      multiSseRef.current = null;
+      if (useSSE) {
+        setTimeout(connectMultiSSE, 3000);
+      }
+    };
+  }, [useSSE, fetchMultiOutput, logPlatform]);
+
   // Initial load
   useEffect(() => {
     let mounted = true;
     checkHealth();
     fetchMetrics();
-    fetchStatus().then(s => {
-      if (!mounted) return;
-      setLoading(false);
-      if (s?.running) {
-        if (useSSE) {
-          connectSSE();
-        } else {
-          fetchOutput();
+    if (parallelMode) {
+      fetchMultiStatus().then(s => {
+        if (!mounted) return;
+        setLoading(false);
+        if (s && useSSE) connectMultiSSE();
+        else if (s) fetchMultiOutput();
+      });
+    } else {
+      fetchStatus().then(s => {
+        if (!mounted) return;
+        setLoading(false);
+        if (s?.running) {
+          if (useSSE) {
+            connectSSE();
+          } else {
+            fetchOutput();
+          }
         }
-      }
-    });
+      });
+    }
 
     intervalRef.current = setInterval(async () => {
-      const s = await fetchStatus();
-      if (s?.running && !useSSE) await fetchOutput();
+      if (parallelMode) {
+        await fetchMultiStatus();
+        if (!useSSE) await fetchMultiOutput();
+      } else {
+        const s = await fetchStatus();
+        if (s?.running && !useSSE) await fetchOutput();
+      }
     }, useSSE ? 10000 : 3000);
 
     healthIntervalRef.current = setInterval(checkHealth, 15000);
@@ -247,8 +324,9 @@ export default function AgentControl() {
       if (intervalRef.current) clearInterval(intervalRef.current);
       if (healthIntervalRef.current) clearInterval(healthIntervalRef.current);
       if (sseRef.current) sseRef.current.close();
+      if (multiSseRef.current) multiSseRef.current.close();
     };
-  }, [fetchStatus, fetchOutput, checkHealth, fetchMetrics, useSSE, connectSSE]);
+  }, [fetchStatus, fetchOutput, checkHealth, fetchMetrics, useSSE, connectSSE, parallelMode, fetchMultiStatus, connectMultiSSE, fetchMultiOutput]);
 
   // Auto-scroll to bottom when new output arrives and autoScroll is active
   useEffect(() => {
@@ -264,14 +342,53 @@ export default function AgentControl() {
     return () => clearInterval(t);
   }, [status?.running]);
 
+  // Per-platform uptime counters for parallel mode
+  useEffect(() => {
+    if (!parallelMode) return;
+    const naukriRunning = multiStatus?.agents.naukri.running ?? false;
+    const linkedinRunning = multiStatus?.agents.linkedin.running ?? false;
+    if (!naukriRunning && !linkedinRunning) {
+      setMultiUptime({ naukri: null, linkedin: null });
+      return;
+    }
+    const t = setInterval(() => {
+      setMultiUptime(prev => ({
+        naukri: naukriRunning ? (prev.naukri ?? 0) + 1 : null,
+        linkedin: linkedinRunning ? (prev.linkedin ?? 0) + 1 : null,
+      }));
+    }, 1000);
+    return () => clearInterval(t);
+  }, [parallelMode, multiStatus?.agents.naukri.running, multiStatus?.agents.linkedin.running]);
+
+  // Reconnect the parallel log stream when the viewed platform changes
+  useEffect(() => {
+    if (!parallelMode || !useSSE) return;
+    if (multiSseRef.current) multiSseRef.current.close();
+    setOutput('');
+    connectMultiSSE();
+    return () => {
+      if (multiSseRef.current) multiSseRef.current.close();
+    };
+  }, [logPlatform, parallelMode, useSSE, connectMultiSSE]);
+
   const handleStart = async () => {
     setActionLoading('start');
     setNotification(null);
     try {
-      const result = await api.agent.start(platform);
-      notify('success', result.message || 'Agent started');
-      setOutput('');
-      await refreshAll();
+      if (parallelMode) {
+        const result = await api.multi.start();
+        const started = Object.values(result.agents).filter(a => a.status === 'started').length;
+        notify('success', `Started ${started} agent(s) in parallel`);
+        setOutput('');
+        await fetchMultiStatus();
+        if (useSSE) connectMultiSSE();
+        else await fetchMultiOutput();
+      } else {
+        const result = await api.agent.start(platform);
+        notify('success', result.message || 'Agent started');
+        setOutput('');
+        await refreshAll();
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       notify('error', `Failed to start agent: ${msg}`);
@@ -285,11 +402,28 @@ export default function AgentControl() {
     setActionLoading('stop');
     setNotification(null);
     try {
-      const result = await api.agent.stop();
-      notify('info', result.message || 'Agent stopped');
-      if (sseRef.current) sseRef.current.close();
-      setStatus(prev => prev ? { ...prev, running: false, pid: null, uptime_seconds: null } : null);
-      setUptime(null);
+      if (parallelMode) {
+        await api.multi.stop();
+        notify('info', 'Stopped parallel agents');
+        if (multiSseRef.current) multiSseRef.current.close();
+        setMultiStatus(prev =>
+          prev
+            ? {
+                agents: {
+                  naukri: { ...prev.agents.naukri, running: false, pid: null, uptime_seconds: null },
+                  linkedin: { ...prev.agents.linkedin, running: false, pid: null, uptime_seconds: null },
+                },
+              }
+            : null,
+        );
+        setMultiUptime({ naukri: null, linkedin: null });
+      } else {
+        const result = await api.agent.stop();
+        notify('info', result.message || 'Agent stopped');
+        if (sseRef.current) sseRef.current.close();
+        setStatus(prev => prev ? { ...prev, running: false, pid: null, uptime_seconds: null } : null);
+        setUptime(null);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       notify('error', `Failed to stop agent: ${msg}`);
@@ -302,15 +436,29 @@ export default function AgentControl() {
     setActionLoading('restart');
     setNotification(null);
     try {
-      if (status?.running) {
-        if (sseRef.current) sseRef.current.close();
-        await api.agent.stop();
-        await new Promise(r => setTimeout(r, 500));
+      if (parallelMode) {
+        if (multiAnyRunning) {
+          if (multiSseRef.current) multiSseRef.current.close();
+          await api.multi.stop();
+          await new Promise(r => setTimeout(r, 500));
+        }
+        await api.multi.start();
+        notify('success', 'Restarted parallel agents');
+        setOutput('');
+        await fetchMultiStatus();
+        if (useSSE) connectMultiSSE();
+        else await fetchMultiOutput();
+      } else {
+        if (status?.running) {
+          if (sseRef.current) sseRef.current.close();
+          await api.agent.stop();
+          await new Promise(r => setTimeout(r, 500));
+        }
+        const result = await api.agent.start(platform);
+        notify('success', result.message || 'Agent restarted');
+        setOutput('');
+        await refreshAll();
       }
-      const result = await api.agent.start(platform);
-      notify('success', result.message || 'Agent restarted');
-      setOutput('');
-      await refreshAll();
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       notify('error', `Failed to restart agent: ${msg}`);
@@ -321,7 +469,13 @@ export default function AgentControl() {
 
   const handleRefresh = async () => {
     setLoading(true);
-    await refreshAll();
+    if (parallelMode) {
+      await fetchMultiStatus();
+      if (useSSE) connectMultiSSE();
+      else await fetchMultiOutput();
+    } else {
+      await refreshAll();
+    }
     setLoading(false);
   };
 
@@ -336,6 +490,23 @@ export default function AgentControl() {
   const successRate = metrics && (metrics.jobs_applied + metrics.jobs_failed) > 0
     ? Math.round((metrics.jobs_applied / (metrics.jobs_applied + metrics.jobs_failed)) * 100)
     : null;
+
+  const multiAnyRunning =
+    !!multiStatus && (multiStatus.agents.naukri.running || multiStatus.agents.linkedin.running);
+  const bothRunning =
+    !!multiStatus && multiStatus.agents.naukri.running && multiStatus.agents.linkedin.running;
+
+  const handleModeChange = (mode: boolean) => {
+    if (mode === parallelMode) return;
+    if (sseRef.current) sseRef.current.close();
+    if (multiSseRef.current) multiSseRef.current.close();
+    setParallelMode(mode);
+    setOutput('');
+    setStatus(null);
+    setMultiStatus(null);
+    setUptime(null);
+    setMultiUptime({ naukri: null, linkedin: null });
+  };
 
   return (
     <div className="space-y-6">
@@ -408,17 +579,40 @@ export default function AgentControl() {
             <Activity className="w-3.5 h-3.5" />
             Agent Status
           </h2>
-          <div className="flex items-center gap-2 mb-3">
-            <div className={`w-2.5 h-2.5 rounded-full ${status?.running ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
-            <span className="text-base font-semibold" style={{ color: 'var(--color-text)' }}>{status?.running ? 'Running' : 'Stopped'}</span>
-            <StatusBadge status={status?.running ? 'running' : 'completed'} />
-          </div>
-          {status?.pid && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>PID: {status.pid}</p>}
-          {status?.started_at && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Started: {new Date(status.started_at).toLocaleString()}</p>}
-          {uptime != null && (
-            <p className="text-xs flex items-center gap-1 mt-1" style={{ color: 'var(--color-text-muted)' }}>
-              <Clock className="w-3 h-3" /> Uptime: {formatUptime(uptime)}
-            </p>
+          {parallelMode ? (
+            <div className="space-y-3">
+              {(['naukri', 'linkedin'] as const).map(p => {
+                const a = multiStatus?.agents[p];
+                return (
+                  <div key={p} className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2.5 h-2.5 rounded-full ${a?.running ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
+                      <span className="text-sm font-medium capitalize" style={{ color: 'var(--color-text)' }}>{p}</span>
+                      <StatusBadge status={a?.running ? 'running' : 'completed'} />
+                    </div>
+                    <div className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                      {a?.pid ? `PID ${a.pid}` : '—'}
+                      {multiUptime[p] != null && ` · ${formatUptime(multiUptime[p]!)}`}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 mb-3">
+                <div className={`w-2.5 h-2.5 rounded-full ${status?.running ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
+                <span className="text-base font-semibold" style={{ color: 'var(--color-text)' }}>{status?.running ? 'Running' : 'Stopped'}</span>
+                <StatusBadge status={status?.running ? 'running' : 'completed'} />
+              </div>
+              {status?.pid && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>PID: {status.pid}</p>}
+              {status?.started_at && <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Started: {new Date(status.started_at).toLocaleString()}</p>}
+              {uptime != null && (
+                <p className="text-xs flex items-center gap-1 mt-1" style={{ color: 'var(--color-text-muted)' }}>
+                  <Clock className="w-3 h-3" /> Uptime: {formatUptime(uptime)}
+                </p>
+              )}
+            </>
           )}
         </div>
 
@@ -466,46 +660,73 @@ export default function AgentControl() {
         <div className="rounded-xl border p-5 lg:col-span-2" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Actions</h2>
-            <div className="flex items-center gap-1 p-0.5 rounded-lg border" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}>
-              <button
-                onClick={() => setPlatform('naukri')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  platform === 'naukri'
-                    ? 'bg-[#38bdf8]/15 text-[#38bdf8]'
-                    : 'text-[#64748b] hover:text-[#94a3b8]'
-                }`}
-              >
-                Naukri
-              </button>
-              <button
-                onClick={() => setPlatform('linkedin')}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                  platform === 'linkedin'
-                    ? 'bg-[#0077b5]/15 text-[#0077b5]'
-                    : 'text-[#64748b] hover:text-[#94a3b8]'
-                }`}
-              >
-                <Globe className="w-3 h-3" />
-                LinkedIn
-              </button>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1 p-0.5 rounded-lg border" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}>
+                <button
+                  onClick={() => handleModeChange(false)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    !parallelMode
+                      ? 'bg-[#38bdf8]/15 text-[#38bdf8]'
+                      : 'text-[#64748b] hover:text-[#94a3b8]'
+                  }`}
+                >
+                  Single
+                </button>
+                <button
+                  onClick={() => handleModeChange(true)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                    parallelMode
+                      ? 'bg-[#a855f7]/15 text-[#a855f7]'
+                      : 'text-[#64748b] hover:text-[#94a3b8]'
+                  }`}
+                >
+                  <Globe className="w-3 h-3" />
+                  Parallel
+                </button>
+              </div>
+              {!parallelMode && (
+                <div className="flex items-center gap-1 p-0.5 rounded-lg border" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}>
+                  <button
+                    onClick={() => setPlatform('naukri')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      platform === 'naukri'
+                        ? 'bg-[#38bdf8]/15 text-[#38bdf8]'
+                        : 'text-[#64748b] hover:text-[#94a3b8]'
+                    }`}
+                  >
+                    Naukri
+                  </button>
+                  <button
+                    onClick={() => setPlatform('linkedin')}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      platform === 'linkedin'
+                        ? 'bg-[#0077b5]/15 text-[#0077b5]'
+                        : 'text-[#64748b] hover:text-[#94a3b8]'
+                    }`}
+                  >
+                    <Globe className="w-3 h-3" />
+                    LinkedIn
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <button
               onClick={handleStart}
-              disabled={status?.running || actionLoading !== null}
+              disabled={(parallelMode ? bothRunning : status?.running) || actionLoading !== null}
               className="flex items-center justify-center gap-2 px-3 py-2.5 bg-green-600 hover:bg-green-700 active:bg-green-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
             >
               {actionLoading === 'start' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-              {actionLoading === 'start' ? 'Starting...' : 'Start'}
+              {actionLoading === 'start' ? 'Starting...' : parallelMode ? 'Start Both' : 'Start'}
             </button>
             <button
               onClick={() => setShowStopConfirm(true)}
-              disabled={!status?.running || actionLoading !== null}
+              disabled={(parallelMode ? !multiAnyRunning : !status?.running) || actionLoading !== null}
               className="flex items-center justify-center gap-2 px-3 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
             >
               {actionLoading === 'stop' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Square className="w-4 h-4" />}
-              {actionLoading === 'stop' ? 'Stopping...' : 'Stop'}
+              {actionLoading === 'stop' ? 'Stopping...' : parallelMode ? 'Stop Both' : 'Stop'}
             </button>
             <button
               onClick={handleRestart}
@@ -513,7 +734,7 @@ export default function AgentControl() {
               className="flex items-center justify-center gap-2 px-3 py-2.5 bg-yellow-600 hover:bg-yellow-700 active:bg-yellow-800 disabled:bg-gray-700 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
             >
               {actionLoading === 'restart' ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RotateCcw className="w-4 h-4" />}
-              {actionLoading === 'restart' ? 'Restarting...' : 'Restart'}
+              {actionLoading === 'restart' ? 'Restarting...' : parallelMode ? 'Restart Both' : 'Restart'}
             </button>
             <button
               onClick={handleRefresh}
@@ -533,7 +754,7 @@ export default function AgentControl() {
           <h2 className="text-lg font-semibold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
             <Terminal className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
             Live Output
-            {useSSE && status?.running && (
+            {useSSE && (parallelMode ? multiAnyRunning : status?.running) && (
               <span className="flex items-center gap-1.5 text-xs text-green-400 font-normal">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                 SSE
@@ -541,6 +762,27 @@ export default function AgentControl() {
             )}
           </h2>
           <div className="flex items-center gap-2 flex-wrap">
+            {parallelMode && (
+              <div className="flex items-center gap-1 p-0.5 rounded-lg border" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}>
+                {(['naukri', 'linkedin'] as const).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setLogPlatform(p)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium capitalize transition-colors ${
+                      logPlatform === p
+                        ? 'bg-[#a855f7]/15 text-[#a855f7]'
+                        : 'text-[#64748b] hover:text-[#94a3b8]'
+                    }`}
+                  >
+                    {p}
+                    {multiStatus?.agents[p].running && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="flex items-center gap-1.5 rounded-lg border px-2 py-1" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}>
               <Search className="w-3.5 h-3.5 shrink-0" style={{ color: 'var(--color-text-muted)' }} />
               <input
@@ -576,7 +818,7 @@ export default function AgentControl() {
               </button>
             )}
 
-            {status?.running && (
+            {(parallelMode ? multiAnyRunning : status?.running) && (
               <span className="flex items-center gap-1.5 text-xs text-green-400">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
                 Streaming
@@ -591,7 +833,7 @@ export default function AgentControl() {
               ? `${filteredLines.length} of ${outputLines.length} lines match`
               : `${outputLines.length} lines`}
           </span>
-          <span>{status?.running ? (useSSE ? 'Real-time SSE' : 'Refreshing every 3s') : 'Agent stopped'}</span>
+          <span>{(parallelMode ? multiAnyRunning : status?.running) ? (useSSE ? 'Real-time SSE' : 'Refreshing every 3s') : 'Agent stopped'}</span>
         </div>
 
         <pre
@@ -608,7 +850,7 @@ export default function AgentControl() {
             ? (logSearch ? filteredLines : outputLines).map((line, i) => (
                 <span key={i} style={{ color: lineColor(line), display: 'block' }}>{line}</span>
               ))
-            : status?.running
+            : (parallelMode ? multiAnyRunning : status?.running)
               ? 'Waiting for logs...'
               : 'No output yet. Start the agent to see live logs.'}
         </pre>
