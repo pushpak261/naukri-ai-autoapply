@@ -158,8 +158,8 @@ logging:
   log_dir: data/logs
   log_to_file: true
 naukri:
-  email: ***REDACTED_EMAIL***
-  password: ***REDACTED***
+  email: your-naukri-email@example.com
+  password: YOUR_NAUKRI_PASSWORD
 profile:
   current_ctc: 4.5 LPA
   current_location: Pune

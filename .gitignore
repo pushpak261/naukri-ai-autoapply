@@ -68,6 +68,10 @@ data/dashboard_session.enc
 
 # Secrets and local configurations
 linkedin_config.yaml
+config.yaml
+config.yaml.local
+data/.jwt_secret
+data/dashboard_session.enc
 
 # Local database folders and screenshots
 data/linkedin/
