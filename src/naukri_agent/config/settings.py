@@ -77,7 +77,8 @@ class AISettings(BaseModel):
 class ResumeSettings(BaseModel):
     """Resume file settings."""
 
-    path: str = ""
+    path: str = "data/resumes/pushpak_pandharpatte_9921626877.pdf"
+
 
 
 class SearchSettings(BaseModel):
