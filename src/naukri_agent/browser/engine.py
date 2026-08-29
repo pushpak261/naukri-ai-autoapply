@@ -20,8 +20,10 @@ from playwright.async_api import (
 import base64
 import hashlib
 import json
+import os
 
 from cryptography.fernet import Fernet
+
 
 from src.naukri_agent.config.constants import (
     DEFAULT_LOCALE,
