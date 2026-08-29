@@ -291,7 +291,7 @@ export default function JobInspector() {
                 setStatusView(e.target.value);
                 setPage(1);
               }}
-              className="bg-[#1e293b] border border-[#334155] rounded-xl px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8]"
+              className="w-full sm:w-auto bg-[#1e293b] border border-[#334155] rounded-xl px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8]"
             >
               <option value="all">All Jobs</option>
               <option value="passed">Passed Filters Only</option>
@@ -304,7 +304,7 @@ export default function JobInspector() {
                 setSourceFilter(e.target.value);
                 setPage(1);
               }}
-              className="bg-[#1e293b] border border-[#334155] rounded-xl px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8]"
+              className="w-full sm:w-auto bg-[#1e293b] border border-[#334155] rounded-xl px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8]"
             >
               <option value="all">All Sources</option>
               <option value="naukri">Naukri</option>

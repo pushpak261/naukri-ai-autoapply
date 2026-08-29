@@ -98,10 +98,10 @@ export default function LogViewer() {
         </div>
 
         <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5 lg:col-span-2">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-medium text-[#94a3b8] flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              {selectedFile ? selectedFile.name : 'Select a file to view'}
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 className="text-sm font-medium text-[#94a3b8] flex items-center gap-2 min-w-0">
+              <FileText className="w-4 h-4 shrink-0" />
+              <span className="truncate">{selectedFile ? selectedFile.name : 'Select a file to view'}</span>
             </h2>
             {logContent && (
               <div className="flex items-center gap-2">
@@ -129,7 +129,7 @@ export default function LogViewer() {
               <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#38bdf8]" />
             </div>
           ) : filteredContent ? (
-            <pre className="bg-[#0f172a] border border-[#334155] rounded-lg p-4 text-xs font-mono text-[#94a3b8] overflow-auto max-h-[700px] whitespace-pre-wrap leading-relaxed">
+            <pre className="bg-[#0f172a] border border-[#334155] rounded-lg p-4 text-xs font-mono text-[#94a3b8] overflow-auto max-h-[700px] whitespace-pre-wrap break-words leading-relaxed">
               {filteredContent}
             </pre>
           ) : (

@@ -196,11 +196,11 @@ export default function LinkedIn() {
                 {config?.ai.enable_matching ? 'Enabled' : 'Disabled'}
               </span>
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-[#0f172a] border border-[#334155]">
-              <span className="text-sm" style={{ color: 'var(--color-text)' }}>Resume</span>
-              <span className={`flex items-center gap-1.5 text-xs ${config?.resume.exists ? 'text-green-400' : 'text-yellow-400'}`}>
-                {config?.resume.exists ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
-                {config?.resume.exists ? config.resume.path : 'Not found'}
+            <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-[#0f172a] border border-[#334155] min-w-0">
+              <span className="text-sm shrink-0" style={{ color: 'var(--color-text)' }}>Resume</span>
+              <span className={`flex items-center gap-1.5 text-xs min-w-0 ${config?.resume.exists ? 'text-green-400' : 'text-yellow-400'}`}>
+                {config?.resume.exists ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
+                <span className="truncate">{config?.resume.exists ? config.resume.path : 'Not found'}</span>
               </span>
             </div>
           </div>

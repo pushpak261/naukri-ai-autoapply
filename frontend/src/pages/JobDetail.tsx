@@ -31,10 +31,10 @@ export default function JobDetail() {
       </Link>
 
       <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-xl font-bold text-white">{job.title}</h1>
-            <div className="flex items-center gap-3 mt-2 text-sm text-[#94a3b8]">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <h1 className="text-xl font-bold text-white break-words">{job.title}</h1>
+            <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-[#94a3b8]">
               <span className="flex items-center gap-1">
                 <Building2 className="w-4 h-4" />
                 {job.company}
@@ -46,18 +46,18 @@ export default function JobDetail() {
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-4 mt-2 text-xs text-[#64748b]">
+            <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-[#64748b]">
               {job.experience && <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{job.experience}</span>}
               {job.salary && <span className="flex items-center gap-1"><DollarSign className="w-3.5 h-3.5" />{job.salary}</span>}
               {job.posted_date && <span>Posted: {job.posted_date}</span>}
             </div>
           </div>
-          <a
-            href={job.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-4 py-2 bg-[#38bdf8]/10 text-[#38bdf8] rounded-lg text-sm font-medium hover:bg-[#38bdf8]/20 transition-colors"
-          >
+            <a
+              href={job.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[#38bdf8]/10 text-[#38bdf8] rounded-lg text-sm font-medium hover:bg-[#38bdf8]/20 transition-colors w-full sm:w-auto"
+            >
             <ExternalLink className="w-4 h-4" />
             View on Naukri
           </a>

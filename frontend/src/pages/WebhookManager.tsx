@@ -89,7 +89,7 @@ export default function WebhookManager() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <Webhook className="w-6 h-6 text-[#38bdf8]" />
@@ -99,7 +99,7 @@ export default function WebhookManager() {
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
-          className="flex items-center gap-1.5 px-4 py-2 bg-[#38bdf8] text-[#0f172a] rounded-lg text-sm font-medium hover:bg-[#7dd3fc] transition-colors"
+          className="flex items-center justify-center gap-1.5 px-4 py-2 bg-[#38bdf8] text-[#0f172a] rounded-lg text-sm font-medium hover:bg-[#7dd3fc] transition-colors w-full sm:w-auto"
         >
           <Plus className="w-4 h-4" />
           Add Webhook
@@ -130,7 +130,7 @@ export default function WebhookManager() {
             </div>
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
-          <div className="flex gap-2 justify-end">
+          <div className="flex flex-wrap gap-2 justify-end">
             <button type="button" onClick={() => setShowForm(false)}
               className="px-3 py-2 text-sm text-[#94a3b8] border border-[#334155] rounded-lg hover:bg-[#334155]">Cancel</button>
             <button type="submit" disabled={saving}
@@ -145,8 +145,8 @@ export default function WebhookManager() {
       <div className="grid gap-4">
         {webhooks.map(wh => (
           <div key={wh.id} className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <div className={`p-2 rounded-lg ${wh.is_active ? 'bg-[#38bdf8]/10' : 'bg-[#334155]'}`}>
                   <Webhook className={`w-5 h-5 ${wh.is_active ? 'text-[#38bdf8]' : 'text-[#64748b]'}`} />
                 </div>

@@ -108,7 +108,7 @@ export default function SkillsGap() {
   if (!summary.has_resume || skillsData.length === 0) {
     return (
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-2xl font-bold text-white flex items-center gap-2">
               <RadarIcon className="w-6 h-6 text-[#38bdf8]" />
@@ -137,7 +137,7 @@ export default function SkillsGap() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <RadarIcon className="w-6 h-6 text-[#38bdf8]" />
@@ -268,7 +268,7 @@ export default function SkillsGap() {
           </h2>
           <p className="text-xs mb-4 text-[#64748b]">Keywords appearing frequently in job listings but under-represented in your resume</p>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="text-[#94a3b8] border-b border-[#334155]">
                   <th className="text-left py-2 px-3">Keyword</th>
@@ -310,7 +310,7 @@ export default function SkillsGap() {
         <h2 className="text-lg font-semibold text-white mb-4">Top Skills Breakdown</h2>
         {skillsData.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="text-[#94a3b8] border-b border-[#334155]">
                   <th className="text-left py-2 px-3">Skill</th>

@@ -51,7 +51,7 @@ export default function Jobs() {
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8] transition-colors"
+          className="w-full sm:w-auto bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8] transition-colors"
         >
           <option value="">All Status</option>
           <option value="applied">Applied</option>
@@ -61,7 +61,7 @@ export default function Jobs() {
         <select
           value={sourceFilter}
           onChange={(e) => setSourceFilter(e.target.value)}
-          className="bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8] transition-colors"
+          className="w-full sm:w-auto bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8] transition-colors"
         >
           <option value="">All Platforms</option>
           <option value="naukri">Naukri</option>

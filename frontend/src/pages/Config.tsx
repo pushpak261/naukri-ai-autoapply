@@ -163,7 +163,7 @@ export default function Config() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Configuration</h1>
           <p className="text-[#94a3b8] mt-1">Manage agent settings</p>

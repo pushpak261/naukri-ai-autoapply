@@ -347,12 +347,12 @@ export default function Resume() {
 
   return (
     <div className="space-y-6 max-w-4xl">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Resume Profile</h1>
           <p className="text-[#94a3b8] mt-1">Parsed resume information</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {editMode ? (
             <>
               <button
@@ -581,8 +581,8 @@ export default function Resume() {
           <SectionCard title={`Work Experience (${workExperience.length})`} icon={<Briefcase className="w-4 h-4 text-[#38bdf8]" />}>
             {workExperience.map((exp, i) => (
               <div key={i} className="p-3 bg-[#0f172a] rounded-lg mb-2 space-y-2">
-                <div className="grid grid-cols-3 gap-2">
-                  <input className="col-span-2 px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={exp.title} onChange={e => {
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <input className="col-span-2 sm:col-span-2 px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={exp.title} onChange={e => {
                     const next = [...workExperience];
                     next[i] = { ...next[i], title: e.target.value };
                     update('work_experience', next);
@@ -612,7 +612,7 @@ export default function Resume() {
 
           <SectionCard title={`Education (${education.length})`} icon={<GraduationCap className="w-4 h-4 text-[#38bdf8]" />}>
             {education.map((edu, i) => (
-              <div key={i} className="p-3 bg-[#0f172a] rounded-lg mb-2 grid grid-cols-3 gap-2">
+              <div key={i} className="p-3 bg-[#0f172a] rounded-lg mb-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                 <input className="px-2 py-1 text-sm bg-[#1e293b] border border-[#334155] rounded text-white placeholder-[#64748b] outline-none focus:border-[#38bdf8]" value={edu.degree} onChange={e => {
                   const next = [...education];
                   next[i] = { ...next[i], degree: e.target.value };

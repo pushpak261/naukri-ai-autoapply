@@ -59,7 +59,7 @@ export default function CacheExplorer() {
       </div>
 
       {stats && (
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-4 text-center">
             <p className="text-2xl font-bold text-white">{stats.total_entries}</p>
             <p className="text-xs text-[#94a3b8] mt-1">Total Entries</p>
@@ -97,8 +97,8 @@ export default function CacheExplorer() {
       )}
 
       <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
-          <div className="flex items-center gap-3 bg-[#0f172a] border border-[#334155] rounded-lg px-4 py-2 flex-1 max-w-md">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-3 bg-[#0f172a] border border-[#334155] rounded-lg px-4 py-2 flex-1 max-w-md w-full">
             <Search className="w-5 h-5 text-[#64748b]" />
             <input
               type="text"
@@ -108,7 +108,7 @@ export default function CacheExplorer() {
               className="bg-transparent border-none outline-none text-white placeholder-[#64748b] w-full text-sm"
             />
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
             <button onClick={fetchData} className="flex items-center gap-1.5 px-3 py-2 bg-[#334155] hover:bg-[#475569] text-white rounded-lg text-sm transition-colors">
               <RefreshCw className="w-4 h-4" />
               Refresh
@@ -122,7 +122,7 @@ export default function CacheExplorer() {
 
         {entries.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="text-[#94a3b8] border-b border-[#334155]">
                   <th className="text-left py-2 px-3">Key</th>

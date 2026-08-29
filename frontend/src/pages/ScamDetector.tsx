@@ -99,7 +99,7 @@ export default function ScamDetector() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white flex items-center gap-2">
             <ShieldAlert className="w-6 h-6 text-[#38bdf8]" />
@@ -171,7 +171,7 @@ export default function ScamDetector() {
         <h2 className="text-lg font-semibold text-white mb-4">Highest Risk Listings</h2>
         {data.highest_risk.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="text-[#94a3b8] border-b border-[#334155]">
                   <th className="text-left py-2 px-3">Job Title</th>

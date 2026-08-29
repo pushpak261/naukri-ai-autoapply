@@ -106,12 +106,12 @@ export default function Applications() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-white">Applications</h1>
           <p className="text-[#94a3b8] mt-1">All application attempts ({total} total)</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={handleSync} disabled={busy.sync}
             className="flex items-center gap-1.5 px-3 py-2 bg-[#334155] hover:bg-[#475569] text-white rounded-lg text-sm transition-colors disabled:opacity-50">
             {busy.sync ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
@@ -210,9 +210,9 @@ export default function Applications() {
               <div key={app.id} className="p-4 hover:bg-[#0f172a]/50 transition-colors">
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
-                    <Link to={`/jobs/${app.job_id}`} className="text-sm font-semibold text-white hover:text-[#38bdf8] transition-colors">
-                      {app.job_title}
-                    </Link>
+                    <Link to={`/jobs/${app.job_id}`} className="block truncate text-sm font-semibold text-white hover:text-[#38bdf8] transition-colors">
+                       {app.job_title}
+                     </Link>
                     <p className="text-xs text-[#94a3b8] mt-0.5">{app.company}{app.location ? ` — ${app.location}` : ''}</p>
                     <div className="flex items-center gap-2 mt-2">
                       <span className={`text-xs font-semibold ${
@@ -282,7 +282,7 @@ export default function Applications() {
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-[#64748b]">
             Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total}
           </p>

@@ -122,7 +122,7 @@ export default function Backups() {
         </div>
       )}
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5 text-center">
           <p className="text-2xl font-bold text-white">{backups.length}</p>
           <p className="text-xs text-[#94a3b8] mt-1">Total Backups</p>
@@ -138,12 +138,12 @@ export default function Backups() {
       </div>
 
       <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
           <h2 className="text-lg font-semibold text-white flex items-center gap-2">
             <Database className="w-5 h-5 text-[#38bdf8]" />
             Backup Files
           </h2>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
             <button onClick={handleFullExport} disabled={exporting}
               className="flex items-center gap-1.5 px-3 py-2 bg-[#334155] hover:bg-[#475569] text-white rounded-lg text-sm transition-colors disabled:opacity-50">
               <Download className="w-4 h-4" />
@@ -167,7 +167,7 @@ export default function Backups() {
 
         {backups.length > 0 ? (
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm min-w-[640px]">
               <thead>
                 <tr className="text-[#94a3b8] border-b border-[#334155]">
                   <th className="text-left py-2 px-3">Name</th>

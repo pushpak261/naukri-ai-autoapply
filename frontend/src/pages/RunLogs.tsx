@@ -29,7 +29,7 @@ export default function RunLogs() {
           <div className="divide-y divide-[#334155]">
             {logs.map((log) => (
               <div key={log.id} className="p-5 hover:bg-[#0f172a]/50 transition-colors">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       {log.status === 'running' ? (
@@ -53,7 +53,7 @@ export default function RunLogs() {
                       Keywords: {log.keywords}
                     </p>
                   </div>
-                  <div className="grid grid-cols-3 gap-4 text-center shrink-0">
+                  <div className="grid grid-cols-3 gap-4 text-center sm:shrink-0">
                     <div>
                       <p className="text-lg font-bold text-[#38bdf8]">{log.found}</p>
                       <p className="text-[10px] text-[#64748b]">Found</p>

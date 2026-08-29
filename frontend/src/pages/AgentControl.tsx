@@ -510,7 +510,7 @@ export default function AgentControl() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
             <Bot className="w-6 h-6" style={{ color: 'var(--color-primary)' }} />
@@ -518,7 +518,7 @@ export default function AgentControl() {
           </h1>
           <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Start, stop, and monitor the job application agent in real-time</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setUseSSE(p => !p)}
             className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border transition-colors ${
@@ -561,7 +561,7 @@ export default function AgentControl() {
       )}
 
       {showStopConfirm && (
-        <div className="bg-[#1e293b] border border-red-500/30 rounded-xl p-5 flex items-center justify-between">
+        <div className="bg-[#1e293b] border border-red-500/30 rounded-xl p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <AlertCircle className="w-5 h-5 text-red-400" />
             <span className="text-sm text-white">Are you sure you want to stop the agent?</span>
@@ -573,7 +573,7 @@ export default function AgentControl() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <h2 className="text-xs font-medium mb-3 flex items-center gap-1.5" style={{ color: 'var(--color-text-secondary)' }}>
             <Activity className="w-3.5 h-3.5" />
@@ -658,9 +658,9 @@ export default function AgentControl() {
         </div>
 
         <div className="rounded-xl border p-5 lg:col-span-2" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
             <h2 className="text-sm font-medium" style={{ color: 'var(--color-text-secondary)' }}>Actions</h2>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <div className="flex items-center gap-1 p-0.5 rounded-lg border" style={{ backgroundColor: 'var(--color-bg)', borderColor: 'var(--color-border)' }}>
                 <button
                   onClick={() => handleModeChange(false)}

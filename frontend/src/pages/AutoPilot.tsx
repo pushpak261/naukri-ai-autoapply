@@ -112,7 +112,7 @@ export default function AutoPilot() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Strategic Auto-Pilot</h1>
           <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Schedule runs, set priority rules, and manage company preferences</p>
@@ -145,7 +145,7 @@ export default function AutoPilot() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <h2 className="text-sm font-semibold mb-3 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
             <Clock className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
@@ -313,7 +313,7 @@ export default function AutoPilot() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
