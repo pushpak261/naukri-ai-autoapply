@@ -1,4 +1,5 @@
-const BASE_URL = '/api';
+const rawBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+const BASE_URL = rawBase ? `${rawBase}/api` : '/api';
 
 // ---------------------------------------------------------------------------
 // JWT access token management
