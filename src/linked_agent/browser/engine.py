@@ -12,6 +12,7 @@ import base64
 import hashlib
 import json
 import os
+import sys
 from pathlib import Path
 
 
@@ -117,7 +118,13 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
         try:
             self._playwright = await async_playwright().start()
 
-            is_headless = os.environ.get("HEADLESS", "").lower() in ("true", "1", "yes") or not os.environ.get("DISPLAY")
+            headless_env = os.environ.get("HEADLESS", "").lower()
+            if headless_env in ("true", "1", "yes"):
+                is_headless = True
+            elif headless_env in ("false", "0", "no"):
+                is_headless = False
+            else:
+                is_headless = not os.environ.get("DISPLAY") and sys.platform != "win32"
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
