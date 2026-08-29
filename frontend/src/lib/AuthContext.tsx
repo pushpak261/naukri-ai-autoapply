@@ -15,18 +15,40 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+const USER_KEY = 'naukri_auth_user';
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState<User | null>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(USER_KEY);
+      if (saved) {
+        try {
+          return JSON.parse(saved);
+        } catch {
+          return null;
+        }
+      }
+    }
+    return null;
+  });
+  const [loading, setLoading] = useState(!user);
 
   // Restore session on mount
   useEffect(() => {
     (async () => {
       try {
         const me = await api.auth.me();
-        setUser({ email: me.email, naukriConfigured: me.naukri_configured });
+        const userData = { email: me.email, naukriConfigured: me.naukri_configured };
+        setUser(userData);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(USER_KEY, JSON.stringify(userData));
+        }
       } catch {
         setUser(null);
+        if (typeof window !== 'undefined') {
+          localStorage.removeItem(USER_KEY);
+        }
+        setAuthToken(null);
       } finally {
         setLoading(false);
       }
@@ -36,7 +58,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const res = await api.auth.login(email, password);
     setAuthToken(res.access_token);
-    setUser({ email: res.email, naukriConfigured: true });
+    const userData = { email: res.email, naukriConfigured: true };
+    setUser(userData);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(USER_KEY, JSON.stringify(userData));
+    }
   }, []);
 
   const logout = useCallback(async () => {
@@ -47,7 +73,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setAuthToken(null);
     setUser(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(USER_KEY);
+    }
   }, []);
+
 
   return (
     <AuthContext.Provider value={{ user, loading, login, logout }}>

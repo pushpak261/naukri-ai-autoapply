@@ -4,17 +4,29 @@ const BASE_URL = rawBase ? `${rawBase}/api` : '/api';
 // ---------------------------------------------------------------------------
 // JWT access token management
 // ---------------------------------------------------------------------------
-let accessToken: string | null = null;
+const TOKEN_KEY = 'naukri_access_token';
+let accessToken: string | null = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
 let refreshPromise: Promise<string | null> | null = null;
 let refreshWaiters: Array<() => void> = [];
 
 export function setAuthToken(token: string | null) {
   accessToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_KEY);
+    }
+  }
 }
 
 export function getAuthToken(): string | null {
+  if (!accessToken && typeof window !== 'undefined') {
+    accessToken = localStorage.getItem(TOKEN_KEY);
+  }
   return accessToken;
 }
+
 
 /** Wait for any in-flight token refresh to complete, then return the token. */
 async function waitForRefresh(): Promise<string | null> {

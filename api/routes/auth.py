@@ -90,11 +90,12 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
         key=REFRESH_COOKIE_NAME,
         value=token,
         httponly=True,
-        secure=False,  # Set True in production with HTTPS
-        samesite="lax",
+        secure=True,
+        samesite="none",
         max_age=7 * 24 * 3600,
         path="/api/auth",
     )
+
 
 
 def _clear_refresh_cookie(response: Response) -> None:
