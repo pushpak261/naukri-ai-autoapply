@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
+import { api, setAuthToken } from '../lib/api';
 import { Activity } from 'lucide-react';
 
 export default function Register() {
@@ -29,7 +30,6 @@ export default function Register() {
     setError('');
     setSubmitting(true);
     try {
-      const { api, setAuthToken } = await import('../lib/api');
       const res = await api.auth.register(email.trim(), password);
       setAuthToken(res.access_token);
       await login(email.trim(), password);

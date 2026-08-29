@@ -46,4 +46,22 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    target: 'es2022',
+    cssCodeSplit: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('node_modules')) {
+            if (id.includes('recharts') || id.includes('d3-')) return 'charts';
+            if (id.includes('@xyflow')) return 'flow';
+            if (id.includes('@tanstack')) return 'react-query';
+            if (id.includes('@reduxjs') || id.includes('react-redux')) return 'redux';
+            if (id.includes('lucide-react')) return 'icons';
+            if (id.includes('react-router')) return 'router';
+          }
+        },
+      },
+    },
+  },
 })

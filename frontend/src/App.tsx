@@ -1,30 +1,32 @@
+import { lazy } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './lib/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
-import Dashboard from './pages/Dashboard';
-import Jobs from './pages/Jobs';
-import JobDetail from './pages/JobDetail';
-import Applications from './pages/Applications';
-import RunLogs from './pages/RunLogs';
-import Config from './pages/Config';
-import Resume from './pages/Resume';
-import Analytics from './pages/Analytics';
-import SkillsGap from './pages/SkillsGap';
-import ScamDetector from './pages/ScamDetector';
-import AgentControl from './pages/AgentControl';
-import CacheExplorer from './pages/CacheExplorer';
-import LogViewer from './pages/LogViewer';
-import Backups from './pages/Backups';
-import MarketIntelligence from './pages/MarketIntelligence';
-import AutoPilot from './pages/AutoPilot';
-import Accounts from './pages/Accounts';
-import WebhookManager from './pages/WebhookManager';
-import LinkedIn from './pages/LinkedIn';
-import ClearData from './pages/ClearData';
-import JobInspector from './pages/JobInspector';
+
+const Dashboard = lazy(() => import('./pages/Dashboard'));
+const MarketIntel = lazy(() => import('./pages/MarketIntelligence'));
+const Analytics = lazy(() => import('./pages/Analytics'));
+const SkillsGap = lazy(() => import('./pages/SkillsGap'));
+const AutoPilot = lazy(() => import('./pages/AutoPilot'));
+const ScamDetector = lazy(() => import('./pages/ScamDetector'));
+const JobInspector = lazy(() => import('./pages/JobInspector'));
+const AgentControl = lazy(() => import('./pages/AgentControl'));
+const LinkedIn = lazy(() => import('./pages/LinkedIn'));
+const Jobs = lazy(() => import('./pages/Jobs'));
+const JobDetail = lazy(() => import('./pages/JobDetail'));
+const Applications = lazy(() => import('./pages/Applications'));
+const RunLogs = lazy(() => import('./pages/RunLogs'));
+const CacheExplorer = lazy(() => import('./pages/CacheExplorer'));
+const LogViewer = lazy(() => import('./pages/LogViewer'));
+const Backups = lazy(() => import('./pages/Backups'));
+const Config = lazy(() => import('./pages/Config'));
+const Resume = lazy(() => import('./pages/Resume'));
+const Accounts = lazy(() => import('./pages/Accounts'));
+const WebhookManager = lazy(() => import('./pages/WebhookManager'));
+const ClearData = lazy(() => import('./pages/ClearData'));
 
 export default function App() {
   return (
@@ -35,7 +37,7 @@ export default function App() {
           <Route path="/register" element={<Register />} />
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Dashboard />} />
-            <Route path="/market-intelligence" element={<MarketIntelligence />} />
+            <Route path="/market-intelligence" element={<MarketIntel />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/skills-gap" element={<SkillsGap />} />
             <Route path="/autopilot" element={<AutoPilot />} />

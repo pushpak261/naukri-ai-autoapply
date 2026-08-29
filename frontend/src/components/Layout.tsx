@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Suspense } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Briefcase, FileCheck, History, Settings, User,
@@ -206,7 +206,15 @@ export default function Layout() {
 
         <main className="flex-1 overflow-auto" style={{ backgroundColor: 'var(--color-bg)' }}>
           <div className="max-w-7xl mx-auto p-3.5 sm:p-6">
-            <Outlet />
+            <Suspense
+              fallback={
+                <div className="flex min-h-[200px] w-full items-center justify-center">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-sky-400" />
+                </div>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>
