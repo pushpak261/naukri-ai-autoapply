@@ -306,6 +306,7 @@ def _apply_env_overrides(config: dict) -> dict:
                 config[section] = {}
             if (section, key) in _bool_keys:
                 config[section][key] = env_val.strip().lower() in ("true", "1", "yes")
+            else:
                 config[section][key] = env_val
 
     # Auto-enable use_gemini if GEMINI_API_KEY is set and USE_GEMINI wasn't explicitly disabled
