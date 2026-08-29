@@ -61,6 +61,7 @@ def main() -> int:
     parser.add_argument(
         "--only", help="Comma-separated service names to run (default: all)"
     )
+    parser.add_argument("--no-gateway", action="store_true", help="Skip the gateway")
     parser.add_argument(
         "--reload",
         action="store_true",
