@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI):
     deps.repo = SQLAlchemyRepository(deps.db_manager)
     await deps.repo.initialize()
 
-    # Resolve and set the active account email on startup
+    # Resolve and set the active account email on startup, auto-seeding if empty
     try:
         session_factory = await deps.db_manager.get_session_factory()
         async with session_factory() as session:
@@ -61,10 +61,22 @@ async def lifespan(app: FastAPI):
                 select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
             )
             active = result.scalar_one_or_none()
+            if not active and deps.settings and deps.settings.naukri and deps.settings.naukri.email:
+                active = NaukriAccount(
+                    email=deps.settings.naukri.email.strip(),
+                    password=deps.settings.naukri.password,
+                    name=deps.settings.naukri.name or deps.settings.naukri.email.split("@")[0],
+                    is_active=True,
+                    is_primary=True,
+                )
+                session.add(active)
+                await session.commit()
+                await session.refresh(active)
             if active:
                 deps.active_account_email = active.email
     except Exception:
         pass
+
 
     yield
     _cleanup_agent()

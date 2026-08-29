@@ -33,6 +33,20 @@ async def list_accounts():
             select(NaukriAccount).order_by(NaukriAccount.created_at.desc())
         )
         accounts = result.scalars().all()
+        if not accounts and state.settings and state.settings.naukri and state.settings.naukri.email:
+            env_account = NaukriAccount(
+                email=state.settings.naukri.email.strip(),
+                password=state.settings.naukri.password,
+                name=state.settings.naukri.name or state.settings.naukri.email.split("@")[0],
+                is_active=True,
+                is_primary=True,
+            )
+            session.add(env_account)
+            await session.commit()
+            await session.refresh(env_account)
+            accounts = [env_account]
+            state.active_account_email = env_account.email
+
         return {
             "items": [
                 {
@@ -48,6 +62,7 @@ async def list_accounts():
                 for a in accounts
             ]
         }
+
 
 
 @router.post("/api/accounts")
