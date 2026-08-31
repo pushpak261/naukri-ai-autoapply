@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Search, ExternalLink, Building2, MapPin, DollarSign, ChevronLeft, ChevronRight } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
 import { api, type JobItem } from '../lib/api';
 
 export default function Jobs() {
+  const navigate = useNavigate();
   const [jobs, setJobs] = useState<JobItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -79,10 +80,10 @@ export default function Jobs() {
         ) : (
           <div className="divide-y divide-[#334155]">
             {jobs.map((job) => (
-              <Link
+              <div
                 key={job.id}
-                to={`/jobs/${job.id}`}
-                className="flex items-start gap-4 p-4 hover:bg-[#0f172a]/50 transition-colors group"
+                onClick={() => navigate(`/jobs/${job.id}`)}
+                className="flex items-start gap-4 p-4 hover:bg-[#0f172a]/50 transition-colors group cursor-pointer"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -156,7 +157,7 @@ export default function Jobs() {
                     <ExternalLink className="w-4 h-4 text-[#64748b]" />
                   </a>
                 </div>
-              </Link>
+              </div>
             ))}
           </div>
         )}

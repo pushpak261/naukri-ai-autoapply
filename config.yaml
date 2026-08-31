@@ -19,8 +19,8 @@ application:
   rate_limit_refill_rate: 1.0
   skip_external_apply: true
 naukri:
-  email: ${NAUKRI_EMAIL:-}
-  password: ${NAUKRI_PASSWORD:-}
+  email: pushpakawsunofficial@gmail.com
+  password: enc:gAAAAABqlbSeFTEwOTW9nRR7hvc-v_YcWw7cgF-aqUevJVuvo72vlZt73La3n-Jl7zHxm4KGFeex7TENykiZ87AV45A14JDe6g==
 profile:
   current_ctc: ''
   current_location: ''
