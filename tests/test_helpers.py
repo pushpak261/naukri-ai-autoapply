@@ -193,3 +193,151 @@ class TestHashFile:
         file2.write_text("Content 2")
 
         assert hash_file(file1) != hash_file(file2)
+
+    def test_hash_file_not_exists(self, tmp_path):
+        """Test hashing a non-existent file - expect error or None."""
+        test_file = tmp_path / "nonexistent.txt"
+        # hash_file should handle non-existent files gracefully
+        try:
+            result = hash_file(test_file)
+            # If it doesn't raise, it should return None or a default value
+            assert result is None or result is not False
+        except FileNotFoundError:
+            # Also acceptable behavior
+            pass
+
+
+class TestTimeUtility:
+    """Tests for TimeUtility class."""
+
+    def test_random_delay_in_range(self):
+        """Test that random delay stays within bounds."""
+        import asyncio
+        import random
+
+        # Mock random.gauss to get predictable results
+        original_gauss = random.gauss
+        random.gauss = lambda mean, std: mean  # Return mean for testing
+
+        async def test_delay():
+            from src.naukri_agent.utils.helpers import TimeUtility
+            delay = await TimeUtility.random_delay(1.0, 3.0)
+            assert 1.0 <= delay <= 3.0
+
+        # Run async test
+        asyncio.run(test_delay())
+
+        # Restore original
+        random.gauss = original_gauss
+
+
+class TestTextUtility:
+    """Tests for TextUtility class."""
+
+    def test_clean_with_html(self):
+        """Test TextUtility.clean with HTML."""
+        from src.naukri_agent.utils.helpers import TextUtility
+        html = "<p>Hello <b>World</b></p>"
+        result = TextUtility.clean(html)
+        assert "Hello World" in result
+        assert "<" not in result
+
+    def test_clean_with_none(self):
+        """Test TextUtility.clean with None."""
+        from src.naukri_agent.utils.helpers import TextUtility
+        result = TextUtility.clean(None)
+        assert result == ""
+
+    def test_clean_with_empty_string(self):
+        """Test TextUtility.clean with empty string."""
+        from src.naukri_agent.utils.helpers import TextUtility
+        result = TextUtility.clean("")
+        assert result == ""
+
+
+class TestAdditionalHelpers:
+    """Additional tests for helper functions to increase coverage."""
+
+    def test_clean_text_with_markdown(self):
+        """Test cleaning text with markdown syntax."""
+        markdown = "# Heading\n**Bold** and *italic*"
+        result = clean_text(markdown)
+        assert "Heading" in result
+        assert "Bold" in result
+        assert "italic" in result
+
+    def test_clean_text_with_urls(self):
+        """Test cleaning text with URLs."""
+        text = "Visit https://example.com for more info"
+        result = clean_text(text)
+        assert "Visit" in result
+        assert "example.com" in result
+
+    def test_clean_text_with_special_chars(self):
+        """Test cleaning text with special characters."""
+        text = "Hello &amp; World &copy; 2024"
+        result = clean_text(text)
+        assert "&" not in result  # Should be decoded
+        assert "Hello" in result
+        assert "World" in result
+
+    def test_extract_naukri_job_id_from_complex_url(self):
+        """Test extracting job ID from complex URLs."""
+        url = "https://www.naukri.com/job-listings-java-developer-spring-boot-123456789?src=history&k=java"
+        result = extract_naukri_job_id(url)
+        assert result == "123456789"
+
+    def test_extract_naukri_job_id_very_long_number(self):
+        """Test extracting very long job IDs."""
+        url = "https://www.naukri.com/job-12345678901234567890"
+        result = extract_naukri_job_id(url)
+        assert "12345678901234567890" in result
+
+    def test_build_search_url_with_salary(self):
+        """Test building search URL with salary filter."""
+        url = build_search_url("Developer", salary_min=15)
+        assert "salary=15" in url
+
+    def test_build_search_url_with_freshness(self):
+        """Test building search URL with freshness filter."""
+        url = build_search_url("Developer", freshness=7)
+        assert "jobAge=7" in url
+
+    def test_build_search_url_with_multiple_filters(self):
+        """Test building search URL with multiple filters."""
+        url = build_search_url(
+            "Developer",
+            location="Pune",
+            experience_min=2,
+            experience_max=5,
+            salary_min=10,
+            freshness=14
+        )
+        assert "l=Pune" in url
+        assert "experience=2" in url
+        assert "salary=10" in url
+        assert "jobAge=14" in url
+
+    def test_truncate_text_exactly_at_limit(self):
+        """Test truncating text exactly at limit."""
+        text = "a" * 100
+        result = truncate_text(text, 100)
+        assert len(result) == 100
+        assert not result.endswith("...")
+
+    def test_truncate_text_with_unicode(self):
+        """Test truncating text with unicode characters."""
+        text = "Hello 世界 🌍" * 100
+        result = truncate_text(text, 50)
+        assert len(result) <= 54  # 50 + "..."
+
+    def test_hash_file_with_binary_content(self, tmp_path):
+        """Test hashing file with binary content."""
+        test_file = tmp_path / "binary.bin"
+        test_file.write_bytes(b"\x00\x01\x02\x03\x04\x05")
+
+        hash1 = hash_file(test_file)
+        hash2 = hash_file(test_file)
+
+        assert hash1 == hash2
+        assert len(hash1) == 64

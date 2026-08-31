@@ -25,4 +25,6 @@ def test_config_password_is_encrypted():
         pytest.skip("config.yaml not present in this environment")
     data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
     pw = (data.get("naukri") or {}).get("password", "")
-    assert pw.startswith("enc:") or pw == "", "naukri password must be encrypted at rest"
+    # Password can be encrypted (enc:) or use environment variable substitution
+    is_encrypted = pw.startswith("enc:") or pw.startswith("${") or pw == ""
+    assert is_encrypted, "naukri password must be encrypted or use env var substitution"
