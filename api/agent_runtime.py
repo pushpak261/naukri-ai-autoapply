@@ -83,6 +83,9 @@ def spawn_agent(cmd: list[str], cwd: str, env: dict) -> subprocess.Popen:
     # Unbuffered stdout/stderr so the SSE live terminal streams in real time
     # even during long steps (browser launch / `playwright install`).
     env.setdefault("PYTHONUNBUFFERED", "1")
+    # Force headless mode in production (no display and not Windows)
+    if not os.environ.get("DISPLAY") and not _is_windows():
+        env.setdefault("HEADLESS", "true")
     return subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,

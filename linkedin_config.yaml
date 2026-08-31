@@ -1,0 +1,170 @@
+ai:
+  abort_on_quota: false
+  enable_matching: true
+  fallback_model: gemini-3.1-flash-lite
+  gemini_api_key: ${GEMINI_API_KEY:-}
+  max_output_tokens: 4096
+  model: gemini-3.1-flash-lite
+  temperature: 0.3
+  use_gemini: true
+application:
+  answer_questions_with_pdf: true
+  collect_external_jobs: true
+  daily_cap: 150
+  delay_between_actions_max: 5.0
+  delay_between_actions_min: 2.0
+  delay_between_applies_max: 60
+  delay_between_applies_min: 25
+  dry_run: false
+  easy_apply_only: true
+  email_notifications_enabled: true
+  email_recipient: ${LINKEDIN_EMAIL_RECIPIENT:-}
+  match_score_threshold: 40
+  max_retries: 3
+  notify_on_apply: true
+  notify_on_failure: true
+  notify_on_match: false
+  notify_on_scam: true
+  rate_limit_capacity: 8.0
+  rate_limit_refill_rate: 1.0
+  skip_external_apply: false
+  unfollow_after_apply: true
+exclusions:
+  companies: []
+  description_keywords:
+  - send your resume
+  - send your cv
+  - email your resume
+  - whatsapp your resume
+  - whatsapp your cv
+  - contact hr
+  - contact our hr
+  - career guidance consultant
+  - recruitment and career guidance
+  - placement consultant
+  - we are a recruitment
+  - we are a staffing
+  - immigration consultant
+  - visa assistance
+  - work in germany
+  - germany jobs
+  - jobs in germany
+  - abroad opportunities
+  - overseas placement
+  - paid training
+  - registration fee
+  - training charges
+  - refundable deposit
+  enable_scam_filter: true
+  fake_company_blocklist: []
+  max_openings_without_logo: 30
+  title_keywords:
+  - chat support
+  - sales
+  - marketing
+  - business development
+  - bdm
+  - inside sales
+  - field sales
+  - presales
+  - post sales
+  - bpo
+  - call center
+  - voice process
+  - non voice
+  - customer care
+  - telecaller
+  - telecalling
+  - hr
+  - human resource
+  - recruiter
+  - recruitment
+  - talent acquisition
+  - accountant
+  - accounts
+  - finance
+  - banking
+  - auditor
+  - tax
+  - data entry
+  - typing
+  - form filling
+  - captcha
+  - ad posting
+  - online work
+  - earn from home
+  - work from home typing
+  - part time
+  - house keeping
+  - civil
+  - mechanical
+  - electrical
+  - electronics
+  - automobile
+  - pharma
+  - chemist
+  - doctor
+  - nurse
+  - teacher
+  - faculty
+  - leading client
+  - germany jobs
+  - overseas jobs
+  - abroad jobs
+  - immigration
+  - visa assistance
+  - career guidance
+  - job guidance
+linkedin:
+  email: ${LINKEDIN_EMAIL:-}
+  password: ${LINKEDIN_PASSWORD:-}
+  two_factor_code: ${LINKEDIN_2FA_CODE:-}
+logging:
+  level: INFO
+  log_dir: data/logs
+  log_to_file: true
+profile:
+  current_ctc: '500000'
+  current_location: Pune
+  email: ${LINKEDIN_EMAIL:-}
+  expected_ctc: '700000'
+  first_name: Pushpak
+  last_name: Pandharpatte
+  notice_period: Immediate
+  phone: '9921626877'
+  preferred_locations:
+  - Pune
+  - Bangalore
+  - Mumbai
+  - Hyderabad
+  total_experience: '1'
+resume:
+  path: data/resumes/pushpak_pandharpatte_9921626877.pdf
+scheduler:
+  enabled: true
+  interval_minutes: 180
+  max_runs_per_day: 8
+  stop_when_cap_reached: true
+search:
+  company_sizes:
+  - '3'
+  - '4'
+  - '5'
+  - '6'
+  - '7'
+  - '8'
+  - '9'
+  enable_heuristics: true
+  experience_level:
+  - '1'
+  - '2'
+  freshness: past_24h
+  job_type: []
+  keywords:
+  - Java Developer
+  locations:
+  - Pune
+  max_pages: 5
+  required_title_keywords: []
+  sort_by: date
+  work_type: ''

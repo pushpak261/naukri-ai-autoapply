@@ -22,7 +22,9 @@ RUN useradd --create-home --shell /bin/bash agent \
     && chown -R agent:agent /app
 USER agent
 
-# Credentials, config, and resume are expected to be mounted/provided at
-# runtime — see README.md and .env.example. They are NOT baked into the image.
-ENTRYPOINT ["python", "-m", "src.main"]
-CMD ["run"]
+# Set default environment variables for production
+ENV HEADLESS=true
+ENV PYTHONUNBUFFERED=1
+
+# Serve the API with uvicorn instead of running the CLI agent
+ENTRYPOINT ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]

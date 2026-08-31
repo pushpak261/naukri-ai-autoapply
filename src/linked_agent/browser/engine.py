@@ -157,6 +157,14 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
                         headless=is_headless,
                         args=launch_args,
                     )
+                elif not is_headless:
+                    # If headed launch fails (e.g., no display), retry with headless
+                    logger.warning(f"Headed launch failed: {launch_err}. Retrying with headless mode...")
+                    is_headless = True
+                    self._browser = await self._playwright.chromium.launch(
+                        headless=True,
+                        args=launch_args,
+                    )
                 else:
                     raise launch_err
 

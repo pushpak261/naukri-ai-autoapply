@@ -1,0 +1,62 @@
+ai:
+  enable_matching: true
+  model: gemini-3.5-flash
+  use_gemini: true
+application:
+  answer_questions_with_pdf: true
+  daily_cap: 25
+  delay_between_applies_max: 90
+  delay_between_applies_min: 30
+  dry_run: false
+  email_notifications_enabled: false
+  match_score_threshold: 70
+  max_retries: 3
+  notify_on_apply: true
+  notify_on_failure: true
+  notify_on_match: false
+  notify_on_scam: true
+  rate_limit_capacity: 10.0
+  rate_limit_refill_rate: 1.0
+  skip_external_apply: true
+naukri:
+  email: ${NAUKRI_EMAIL:-}
+  password: ${NAUKRI_PASSWORD:-}
+profile:
+  current_ctc: ''
+  current_location: ''
+  expected_ctc: ''
+  notice_period: ''
+  preferred_locations: []
+  total_experience: ''
+search:
+  enable_heuristics: true
+  experience_max: 2
+  experience_min: 0
+  freshness: 7
+  keywords:
+  - Java Developer
+  - Java Engineer
+  - Java Backend Developer
+  - Spring Boot Developer
+  - Java Software Engineer
+  - Java Full Stack Developer
+  - Backend Developer Java
+  - Microservices Developer Java
+  - Software Engineer Java
+  - Software Engineer
+  - Software Developer
+  - Full Stack Developer
+  - Backend Engineer
+  - Application Developer
+  - Associate Software Engineer
+  - Junior Developer
+  - REST API Developer
+  locations:
+  - Pune
+  - Mumbai
+  - Bangalore
+  - India
+  - Remote
+  max_pages: 3
+  salary_min: 4
+  sort_by: relevance

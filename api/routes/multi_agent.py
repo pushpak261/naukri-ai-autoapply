@@ -135,6 +135,9 @@ async def start_agents(
 
         cmd = list(_PLATFORM_CMDS[platform])
         env = os.environ.copy()
+        # Force headless mode in production (no display and not Windows)
+        if not os.environ.get("DISPLAY") and sys.platform != "win32":
+            env.setdefault("HEADLESS", "true")
         if platform == "naukri" and state.active_account_email:
             env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
         try:

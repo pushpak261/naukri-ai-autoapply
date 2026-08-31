@@ -88,6 +88,9 @@ async def start_agent(platform: str = Query("naukri", max_length=20)):
     # so a long/hung step (e.g. `playwright install` during browser launch)
     # would otherwise make the live terminal look frozen until the buffer flushes.
     env["PYTHONUNBUFFERED"] = "1"
+    # Force headless mode in production (no display and not Windows)
+    if not os.environ.get("DISPLAY") and sys.platform != "win32":
+        env.setdefault("HEADLESS", "true")
     if state.active_account_email:
         env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
     try:
