@@ -38,13 +38,13 @@ class GeminiProvider(ILLMProvider):
 
         client = genai.Client(api_key=self._api_key)
 
-        config: dict = {
-            "temperature": temperature,
-            "max_output_tokens": max_output_tokens,
-        }
+        from google.genai import types
 
-        if response_mime_type and response_mime_type != "text/plain":
-            config["response_mime_type"] = response_mime_type
+        config = types.GenerateContentConfig(
+            temperature=temperature,
+            max_output_tokens=max_output_tokens,
+            response_mime_type=response_mime_type if response_mime_type and response_mime_type != "text/plain" else None,
+        )
 
         models_to_try = [self._model_name]
         for fallback in ["gemini-3.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
