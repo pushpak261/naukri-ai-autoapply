@@ -25,6 +25,10 @@ USER agent
 # Set default environment variables for production
 ENV HEADLESS=true
 ENV PYTHONUNBUFFERED=1
+# Add performance optimizations
+ENV PYTHONOPTIMIZE=2
+ENV PYTHONDONTWRITEBYTECODE=1
 
 # Serve the API with uvicorn instead of running the CLI agent
-ENTRYPOINT ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Add performance flags: workers for concurrency, limit for memory
+ENTRYPOINT ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--limit-concurrency", "100", "--timeout-keep-alive", "30"]

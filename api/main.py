@@ -50,7 +50,33 @@ async def lifespan(app: FastAPI):
     deps.repo = SQLAlchemyRepository(deps.db_manager)
     await deps.repo.initialize()
 
-    # Resolve and set the active account email on startup, auto-seeding if empty
+    # Defer account resolution to first request to speed up startup
+    deps.active_account_email = None
+
+    yield
+    _cleanup_agent()
+    multi_agent_router.cleanup_multi_agents()
+
+
+def _cleanup_agent() -> None:
+    proc = deps.agent_process
+    if proc and proc.poll() is None:
+        proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+
+
+async def get_active_account_email() -> str | None:
+    """Lazily resolve and cache the active account email."""
+    if deps.active_account_email is not None:
+        return deps.active_account_email
+    
+    from sqlalchemy import select
+    from src.naukri_agent.models.db_schema import NaukriAccount
+    
     try:
         session_factory = await deps.db_manager.get_session_factory()
         async with session_factory() as session:
@@ -71,24 +97,10 @@ async def lifespan(app: FastAPI):
                 await session.refresh(active)
             if active:
                 deps.active_account_email = active.email
+                return active.email
     except Exception:
         pass
-
-
-    yield
-    _cleanup_agent()
-    multi_agent_router.cleanup_multi_agents()
-
-
-def _cleanup_agent() -> None:
-    proc = deps.agent_process
-    if proc and proc.poll() is None:
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            proc.wait()
+    return None
 
 
 app = FastAPI(
@@ -142,29 +154,24 @@ async def api_key_auth(request: Request, call_next):
     api_key = deps.settings.dashboard_api_key if deps.settings else None
     if not api_key:
         response = await call_next(request)
-        if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
+        # Enable caching for GET requests to improve performance
+        if request.url.path.startswith("/api/") and request.method == "GET":
+            response.headers["Cache-Control"] = "public, max-age=30"
         return response
 
     if request.url.path in PUBLIC_PATHS or any(
         request.url.path.startswith(p) for p in PUBLIC_PREFIXES
     ):
         response = await call_next(request)
-        if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
+        if request.url.path.startswith("/api/") and request.method == "GET":
+            response.headers["Cache-Control"] = "public, max-age=30"
         return response
 
     auth_header = request.headers.get("Authorization", "")
     if auth_header.startswith("Bearer ") and auth_header.removeprefix("Bearer ").strip() == api_key:
         response = await call_next(request)
-        if request.url.path.startswith("/api/"):
-            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
-            response.headers["Pragma"] = "no-cache"
-            response.headers["Expires"] = "0"
+        if request.url.path.startswith("/api/") and request.method == "GET":
+            response.headers["Cache-Control"] = "public, max-age=30"
         return response
 
     return PlainTextResponse(

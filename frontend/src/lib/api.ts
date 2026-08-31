@@ -4,7 +4,8 @@ const BASE_URL = rawBase ? `${rawBase}/api` : '/api';
 // Hard timeout so a slow/unreachable backend fails fast instead of hanging the
 // dashboard (e.g. a disabled Koyeb deployment would otherwise make the app spin
 // indefinitely and surface as a vague CORS error in the console).
-const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS) || 12000;
+// Increased from 12s to 30s to handle cold starts better
+const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS) || 30000;
 
 function withTimeout(options?: RequestInit): RequestInit {
   if (options?.signal) return options;

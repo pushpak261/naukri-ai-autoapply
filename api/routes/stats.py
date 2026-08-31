@@ -14,10 +14,15 @@ router = APIRouter(tags=["stats"])
 async def get_stats(days: int = Query(7, ge=1, le=365), source: str = Query("", max_length=20)):
     s = state.settings
     r = state.repo
-    stats = await r.get_application_stats(days=days)
-    today_count = await r.get_today_application_count()
-    run_logs = await r.get_run_stats(limit=10)
-    recent = await r.get_recent_applications(limit=5)
+    
+    # Run independent queries in parallel for better performance
+    import asyncio
+    stats, today_count, run_logs, recent = await asyncio.gather(
+        r.get_application_stats(days=days),
+        r.get_today_application_count(),
+        r.get_run_stats(limit=10),
+        r.get_recent_applications(limit=5),
+    )
 
     total_jobs_found = sum(rw.get("found", 0) for rw in run_logs)
 

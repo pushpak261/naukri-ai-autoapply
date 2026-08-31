@@ -17,7 +17,8 @@ export function BackendBanner() {
   useEffect(() => {
     let active = true;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 5000);
+    // Increased timeout from 5s to 15s to handle cold starts better
+    const timer = setTimeout(() => ctrl.abort(), 15000);
     fetch(HEALTH_URL, { signal: ctrl.signal, cache: 'no-store' })
       .then((res) => {
         if (active) setDown(!res.ok);

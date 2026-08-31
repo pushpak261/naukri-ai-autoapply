@@ -49,19 +49,37 @@ export default defineConfig({
   build: {
     target: 'es2022',
     cssCodeSplit: true,
+    // Enable minification and optimize chunk sizes
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true, // Remove console.log in production
+        drop_debugger: true,
+      },
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
+            // Better chunk splitting for improved caching
             if (id.includes('recharts') || id.includes('d3-')) return 'charts';
             if (id.includes('@xyflow')) return 'flow';
             if (id.includes('@tanstack')) return 'react-query';
             if (id.includes('@reduxjs') || id.includes('react-redux')) return 'redux';
             if (id.includes('lucide-react')) return 'icons';
             if (id.includes('react-router')) return 'router';
+            // Core React libraries
+            if (id.includes('react') && !id.includes('react-dom')) return 'react-core';
+            if (id.includes('react-dom')) return 'react-dom';
           }
         },
+        // Improve chunk naming for better caching
+        chunkFileNames: 'assets/[name]-[hash].js',
+        entryFileNames: 'assets/[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash].[ext]',
       },
     },
+    // Optimize chunk size threshold
+    chunkSizeWarningLimit: 1000,
   },
 })

@@ -56,11 +56,22 @@ The application now uses Docker deployment instead of buildpack:
    - Serves the API with uvicorn instead of CLI agent
    - Sets `HEADLESS=true` as default environment variable
    - Copies config files and resume into the image
+   - Added performance optimizations (workers, concurrency limits, Python optimizations)
 
 5. **Dockerignore Updates** - `.dockerignore` now:
    - Allows `data/resumes/` to include resume PDF
    - Allows `config.yaml` and `linkedin_config.yaml`
    - Excludes sensitive runtime artifacts (sessions, logs, databases)
+
+6. **Performance Optimizations** (Latest Update):
+   - **Backend Startup**: Deferred account resolution to first request (faster cold starts)
+   - **API Caching**: Enabled 30s cache for GET requests (reduces duplicate API calls)
+   - **Frontend Timeouts**: Increased API timeout from 12s to 30s (handles cold starts better)
+   - **Dashboard Polling**: Reduced refetch intervals (stats: 60s, session: 60s, metrics: 120s)
+   - **Health Check**: Increased health check timeout from 5s to 15s
+   - **Build Optimization**: Enhanced Vite config with better chunk splitting and minification
+   - **Database Queries**: Parallel execution of independent queries in stats endpoint
+   - **Uvicorn Config**: Added concurrency limits and keep-alive timeout for better performance
 
 ### Verification Steps
 
@@ -71,6 +82,14 @@ After deployment:
 3. Check `/api/multi/output?platform=naukri` for logs
 4. Verify browser launches in headless mode (no display crash)
 5. Monitor Koyeb logs for OOM kills or crash messages
+6. Test dashboard load time - should load within 5-10 seconds on cold start
+
+### Performance Monitoring
+
+- Dashboard should load within 5-10 seconds on cold start
+- Subsequent page loads should be <2 seconds with caching
+- API response times should be <500ms for cached endpoints
+- Monitor Koyeb logs for memory usage and startup times
 
 ### Resource Constraints
 
