@@ -82,7 +82,6 @@ class LinkedInJobSearcher:
 
         keywords = self._settings.search.keywords
         locations = self._settings.search.locations
-        len(keywords) * len(locations)
 
         for combo_idx, keyword in enumerate(keywords):
             for location in locations:
