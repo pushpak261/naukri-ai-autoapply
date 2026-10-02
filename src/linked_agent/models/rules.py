@@ -282,11 +282,11 @@ _SOLUTIONS_COMPANY_RE = re.compile(
 )
 
 _WHATSAPP_RE = re.compile(
-    r"(?i)whatsapp[\s\-]*?(?:\+91|91|0)?[6-9]\d{7,9}"
+    r"(?i)whatsapp[\s\-]*(?:\+91|91|0)?[6-9]\d{7,9}"
 )
 
 _RESUME_REQUEST_RE = re.compile(
-    r"(?i)(send|share|forward|email|whatsapp)\s*(your|the|ur)?\s*(resume|cv)"
+    r"(?i)(send|share|forward|email|whatsapp)\s+(your|the|ur)?\s*(resume|cv)"
 )
 
 _CONTACT_HR_RE = re.compile(

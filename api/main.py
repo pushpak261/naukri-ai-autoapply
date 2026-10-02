@@ -109,28 +109,8 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# A single CORS middleware handles both preflight (OPTIONS) and response
-# headers for any origin. The previous hand-rolled `dynamic_cors_middleware`
-# duplicated this work on every request and set conflicting/over-broad headers.
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=r"^https?://.*$",
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
-    allow_headers=[
-        "Authorization",
-        "Content-Type",
-        "Accept",
-        "Origin",
-        "X-Requested-With",
-        "Range",
-        "Cache-Control",
-    ],
-)
-
-
-
-
+# ---------------------------------------------------------------------------
+# API Key Authentication Middleware (added first - innermost)
 # ---------------------------------------------------------------------------
 # API Key Authentication Middleware
 # ---------------------------------------------------------------------------
@@ -179,6 +159,25 @@ async def api_key_auth(request: Request, call_next):
         status_code=401,
         headers={"Content-Type": "application/json", "WWW-Authenticate": "Bearer"},
     )
+
+
+# CORSMiddleware should be the LAST middleware added (outermost) to handle
+# CORS headers on all responses including error responses from inner middleware.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origin_regex=r"^https?://.*$",
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+        "Range",
+        "Cache-Control",
+    ],
+)
 
 
 # Include routers

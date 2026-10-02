@@ -57,7 +57,8 @@ class LinkedInPasswordLoginStrategy(ILoginStrategy):
             )
             return False
 
-        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        # Use a simpler, non-backtracking email validation pattern
+        if not re.fullmatch(r"[^@\s]{1,64}@[^@\s]{1,255}\.[^@\s]{2,}", email):
             log_error(f"LinkedIn email {email!r} is not a valid address - check LINKEDIN_EMAIL in .env")
             return False
 

@@ -899,7 +899,8 @@ class NaukriAgent:
                 "jul", "aug", "sep", "oct", "nov", "dec",
             ]
             if not any(m in exp_text for m in months):
-                range_match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)", exp_text)
+                # Use a simpler pattern with explicit alternation to avoid backtracking
+                range_match = re.search(r"(\d+)\s*(?:[-–]|\bto\b)\s*(\d+)", exp_text)
                 single_match = re.search(r"(\d+)", exp_text)
                 min_req = 0
                 max_req = 0

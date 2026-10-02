@@ -83,7 +83,7 @@ class JobFilter:
             return True
 
         # Try to match range format first: "X-Y" or "X to Y"
-        range_match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)", exp_text)
+        range_match = re.search(r"(\d+)\s*(?:[-–]|\bto\b)\s*(\d+)", exp_text)
         if range_match:
             min_req = int(range_match.group(1))
             max_req = int(range_match.group(2))

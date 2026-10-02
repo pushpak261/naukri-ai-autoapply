@@ -173,9 +173,9 @@ _TECH_SKILLS_RE = re.compile(
     r")\b"
 )
 
-# G4: Salary indicator in description
+# G4: Salary indicator in description - simplified to avoid backtracking
 _SALARY_RE = re.compile(
-    r"(?i)(?:salary|ctc|pay|package|stipend|compensation)\s*(?::|is|:–)?\s*(?:\d[\d,.-]*(?:\s*(?:lpa|lakh|k|per annum|pa|monthly|pm))?)"
+    r"(?i)(?:salary|ctc|pay|package|stipend|compensation)\s*(?::|is|:–)?\s*\d[\d,.-]*\s*(?:lpa|lakh|k|per annum|pa|monthly|pm)?"
 )
 
 # ------------------------------------------------------------------
@@ -224,9 +224,9 @@ _OVERSEAS_RECRUITER_RE = re.compile(
 # Phase 3 — High-Risk Scam Signal Patterns
 # ------------------------------------------------------------------
 
-# S2: WhatsApp number
+# S2: WhatsApp number - simplified to avoid backtracking
 _WHATSAPP_RE = re.compile(
-    r"(?i)whatsapp[\s\-]*?(?:\+91|91|0)?[\s\-]*?[6-9]\d{7,9}"
+    r"(?i)whatsapp[\s\-]*(?:\+91|91|0)?[\s\-]*[6-9]\d{7,9}"
 )
 
 # S10: Phone number in title or company
@@ -287,9 +287,9 @@ _SOCIAL_MEDIA_RE = re.compile(
 # Phase 4 — Medium-Risk Scam Signal Patterns
 # ------------------------------------------------------------------
 
-# S3: Resume request
+# S3: Resume request - simplified to avoid backtracking with optional groups
 _RESUME_REQUEST_RE = re.compile(
-    r"(?i)(send|share|forward|email|whatsapp)\s*(your|the|ur)?\s*(resume|cv)"
+    r"(?i)(send|share|forward|email|whatsapp)\s+(your|the|ur)?\s*(resume|cv)"
 )
 
 # S4: Contact HR / recruiter directly
@@ -1017,7 +1017,7 @@ def evaluate_job_all_filters(
     if exp_text:
         months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
         if not any(m in exp_text for m in months):
-            range_match = re.search(r"(\d+)\s*[-–to]+\s*(\d+)", exp_text)
+            range_match = re.search(r"(\d+)\s*(?:[-–]|\bto\b)\s*(\d+)", exp_text)
             single_match = re.search(r"(\d+)", exp_text)
             min_req = 0
             max_req = 0

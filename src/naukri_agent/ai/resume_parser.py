@@ -614,8 +614,9 @@ class ResumeParser(IResumeParser):
         email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", resume_text)
         email = email_match.group(0) if email_match else ""
 
+        # Simplified phone pattern to avoid catastrophic backtracking
         phone_match = re.search(
-            r"\+?\d{2,3}[-\s]?\d{10}|\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}", resume_text
+            r"\+?\d{2,3}[-\s]?\d{10}|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}", resume_text
         )
         phone = phone_match.group(0) if phone_match else ""
 
