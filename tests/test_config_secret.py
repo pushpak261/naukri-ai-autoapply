@@ -25,7 +25,7 @@ def _known_secrets() -> list[str]:
     return [
         value
         for name in ("NAUKRI_PASSWORD", "LINKEDIN_PASSWORD", "GMAIL_APP_PASSWORD", "GEMINI_API_KEY")
-        if len((value := os.environ.get(name, "").strip())) >= 4
+        if len(value := os.environ.get(name, "").strip()) >= 4
     ]
 
 
