@@ -9,9 +9,10 @@ and interactions are more deliberately human-like.
 from __future__ import annotations
 
 import asyncio
-import random
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
+
+from src.naukri_agent.utils.humanize import jitter_choice, jitter_int, jitter_uniform
 
 from src.linked_agent.config.constants import (
     DEFAULT_TIMEOUT,
@@ -56,9 +57,9 @@ class LinkedInHumanInteractions(IBrowserInteractions):
         if clear_first:
             await locator.first.click(force=True)
             await page.keyboard.press("Control+a")
-            await asyncio.sleep(random.uniform(0.1, 0.3))
+            await asyncio.sleep(jitter_uniform(0.1, 0.3))
             await page.keyboard.press("Backspace")
-            await asyncio.sleep(random.uniform(0.3, 0.5))
+            await asyncio.sleep(jitter_uniform(0.3, 0.5))
 
         # Use fill() for reliable value setting, then dispatch input event
         await locator.first.fill(text)
@@ -81,7 +82,7 @@ class LinkedInHumanInteractions(IBrowserInteractions):
     ) -> bool:
         """Click an element safely with human-like pre-click delay."""
         try:
-            await asyncio.sleep(random.uniform(0.5, 1.2))
+            await asyncio.sleep(jitter_uniform(0.5, 1.2))
 
             element = await self._engine.page.wait_for_selector(
                 selector, timeout=timeout, state="visible"
@@ -90,7 +91,7 @@ class LinkedInHumanInteractions(IBrowserInteractions):
                 return False
 
             await element.scroll_into_view_if_needed()
-            await asyncio.sleep(random.uniform(0.3, 0.8))
+            await asyncio.sleep(jitter_uniform(0.3, 0.8))
 
             if force:
                 await element.click(force=True)
@@ -105,13 +106,13 @@ class LinkedInHumanInteractions(IBrowserInteractions):
     async def random_scroll(self, scroll_count: int = 3) -> None:
         """Scroll the page randomly to simulate human reading behavior."""
         for _ in range(scroll_count):
-            direction = random.choice(["down", "down", "up"])
-            distance = random.randint(100, 400)
+            direction = jitter_choice(["down", "down", "up"])
+            distance = jitter_int(100, 400)
             if direction == "up":
                 distance = -distance
 
             await self._engine.page.evaluate(f"window.scrollBy(0, {distance})")
-            await asyncio.sleep(random.uniform(0.8, 2.0))
+            await asyncio.sleep(jitter_uniform(0.8, 2.0))
 
     async def close_popups(self) -> None:
         """Attempt to close any visible popups or modals on LinkedIn."""

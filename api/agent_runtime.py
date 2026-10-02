@@ -98,12 +98,22 @@ def spawn_agent(cmd: list[str], cwd: str, env: dict) -> subprocess.Popen:
 
 
 def stop_agent_process(proc: subprocess.Popen | None, graceful_timeout: float = 10.0) -> None:
-    """Terminate a process tree gracefully (SIGINT on POSIX) then forcibly."""
+    """Terminate a process tree gracefully then forcibly, without ever blocking.
+
+    Orphaned Chromium processes inherit the agent's stdout/stderr pipe handles,
+    so a bare ``terminate()`` leaves the browser running *and* keeps those pipes
+    open - ``wait()`` then blocks until the orphan exits, stalling the whole API.
+    Killing the tree and bounding every wait avoids both problems.
+    """
     if proc is None or proc.poll() is not None:
         return
     if _is_windows():
         # taskkill /T/F removes the whole tree (python + browser children).
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(proc.pid)], capture_output=True)
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+            capture_output=True,
+            timeout=graceful_timeout,
+        )
         with contextlib.suppress(Exception):
             proc.wait(timeout=5)
         return

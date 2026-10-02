@@ -197,28 +197,18 @@ class JobSearcher:
             logger.info(f"Searching page {page_num}: {search_url}")
 
             try:
-                if page_num == 1:
-                    # Navigate via SearchPage PO
-                    await self._search_page.navigate_to_search(search_url)
-                    await self._search_page.close_popups()
+                # Navigate via SearchPage PO. URL navigation is also the reliable
+                # fallback for pagination, because the SearchPage page object does
+                # not implement click_next_page.
+                await self._search_page.navigate_to_search(search_url)
+                await self._search_page.close_popups()
 
-                    # Enforce the visual UI slider to fix Naukri's frontend bug
-                    await self._search_page.enforce_visual_slider(
-                        min_exp=self._settings.search.experience_min,
-                        max_exp=self._settings.search.experience_max,
-                    )
-                else:
-                    # Pagination for subsequent pages.
-                    # Current SearchPage Page Object does not implement UI click_next_page.
-                    # Use URL navigation as the reliable fallback.
-                    await self._search_page.navigate_to_search(search_url)
-                    await self._search_page.close_popups()
-
-                    # Slider enforcement can help when UI refresh resets it
-                    await self._search_page.enforce_visual_slider(
-                        min_exp=self._settings.search.experience_min,
-                        max_exp=self._settings.search.experience_max,
-                    )
+                # Enforce the visual UI slider to fix Naukri's frontend bug, which
+                # ignores `experiencemax` and can reset the slider on refresh.
+                await self._search_page.enforce_visual_slider(
+                    min_exp=self._settings.search.experience_min,
+                    max_exp=self._settings.search.experience_max,
+                )
 
                 # Check if the page redirected and stripped our search/filter parameters
                 current_url = self._engine.page.url

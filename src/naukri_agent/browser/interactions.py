@@ -6,7 +6,6 @@ Separates interaction logic from core browser lifecycle management.
 from __future__ import annotations
 
 import asyncio
-import random
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -14,6 +13,7 @@ from src.naukri_agent.config.constants import DEFAULT_TIMEOUT, ELEMENT_TIMEOUT
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.bot.interfaces import IBrowserEngine, IBrowserInteractions
 from src.naukri_agent.utils.helpers import random_delay
+from src.naukri_agent.utils.humanize import jitter_choice, jitter_chance, jitter_int, jitter_uniform
 from src.naukri_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -42,14 +42,14 @@ class HumanInteractions(IBrowserInteractions):
         if clear_first:
             await element.click(force=True)
             await self._engine.page.keyboard.press("Control+a")
-            await asyncio.sleep(random.uniform(0.1, 0.3))
+            await asyncio.sleep(jitter_uniform(0.1, 0.3))
             await self._engine.page.keyboard.press("Backspace")
-            await asyncio.sleep(random.uniform(0.2, 0.5))
+            await asyncio.sleep(jitter_uniform(0.2, 0.5))
 
         for char in text:
-            await element.type(char, delay=random.randint(50, 150))
-            if random.random() < 0.05:
-                await asyncio.sleep(random.uniform(0.3, 0.8))
+            await element.type(char, delay=jitter_int(50, 150))
+            if jitter_chance(0.05):
+                await asyncio.sleep(jitter_uniform(0.3, 0.8))
 
     async def safe_click(
         self,
@@ -59,7 +59,7 @@ class HumanInteractions(IBrowserInteractions):
     ) -> bool:
         """Click an element safely with human-like pre-click delay."""
         try:
-            await asyncio.sleep(random.uniform(0.3, 0.8))
+            await asyncio.sleep(jitter_uniform(0.3, 0.8))
 
             element = await self._engine.page.wait_for_selector(
                 selector, timeout=timeout, state="visible"
@@ -68,7 +68,7 @@ class HumanInteractions(IBrowserInteractions):
                 return False
 
             await element.scroll_into_view_if_needed()
-            await asyncio.sleep(random.uniform(0.2, 0.5))
+            await asyncio.sleep(jitter_uniform(0.2, 0.5))
 
             if force:
                 await element.click(force=True)
@@ -83,13 +83,13 @@ class HumanInteractions(IBrowserInteractions):
     async def random_scroll(self, scroll_count: int = 3) -> None:
         """Scroll the page randomly to simulate human reading behavior."""
         for _ in range(scroll_count):
-            direction = random.choice(["down", "down", "up"])
-            distance = random.randint(100, 500)
+            direction = jitter_choice(["down", "down", "up"])
+            distance = jitter_int(100, 500)
             if direction == "up":
                 distance = -distance
 
             await self._engine.page.evaluate(f"window.scrollBy(0, {distance})")
-            await asyncio.sleep(random.uniform(0.5, 1.5))
+            await asyncio.sleep(jitter_uniform(0.5, 1.5))
 
     async def close_popups(self) -> None:
         """Attempt to close any visible popups or modals."""

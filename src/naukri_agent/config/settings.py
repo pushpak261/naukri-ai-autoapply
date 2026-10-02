@@ -260,8 +260,15 @@ class Settings(BaseModel):
                     import json
                     data = json.loads(profile_json.read_text(encoding="utf-8"))
                     up = data.get("uploaded_file_path")
-                    if up and Path(up).exists():
-                        self.resume.path = up
+                    # uploaded_file_path originates from the dashboard API body,
+                    # so it must be confined to the resumes directory.
+                    # Imported lazily: utils.helpers pulls in the Rich logger,
+                    # which we do not want to initialise at settings-import time.
+                    from src.naukri_agent.utils.helpers import resolve_path_within
+
+                    safe_up = resolve_path_within(up, self.resumes_dir)
+                    if safe_up is not None and safe_up.exists():
+                        self.resume.path = str(safe_up)
                         found = True
                 except Exception:
                     pass

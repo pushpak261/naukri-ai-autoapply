@@ -131,7 +131,7 @@ class LinkedInURLUtility:
     def extract_job_id(url: str) -> str:
         """Extract the LinkedIn job ID from a job URL."""
         if not url:
-            return hashlib.md5(b"unknown").hexdigest()[:16]
+            return hashlib.md5(b"unknown", usedforsecurity=False).hexdigest()[:16]
 
         # LinkedIn job IDs are typically numeric in the URL path
         # Pattern: /jobs/view/1234567890
@@ -151,8 +151,9 @@ class LinkedInURLUtility:
 
         # Fallback: hash the URL path
         from urllib.parse import urlparse
+
         parsed = urlparse(url)
-        return hashlib.md5(parsed.path.encode()).hexdigest()[:16]
+        return hashlib.md5(parsed.path.encode(), usedforsecurity=False).hexdigest()[:16]
 
     @staticmethod
     def extract_company_from_url(url: str) -> str:

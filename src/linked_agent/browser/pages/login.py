@@ -225,52 +225,71 @@ class LinkedInLoginPage(BasePage):
         return False
 
     async def _find_input_by_js(self, page, input_type: str) -> str | None:
-        """Use JavaScript to find an input element by type/attributes. Returns a unique CSS selector."""
-        js_code = """(inputType) => {
-            const inputs = Array.from(document.querySelectorAll('input'));
-            // Filter to visible, non-hidden inputs
-            const visible = inputs.filter(el => {
+        """Find the genuinely rendered login field and return a unique CSS selector.
+
+        LinkedIn renders the sign-in form as a React component with generated ids
+        (``_R_77vvcj...``) and keeps a hidden duplicate of every input mounted
+        behind it. Playwright's ``:visible`` accepts those duplicates when they
+        are only faded out, so visibility is computed strictly here and the
+        element is then paired with its password counterpart.
+        """
+        js_code = r"""(inputType) => {
+            const isRendered = (el) => {
+                if (!el || el.offsetParent === null) return false;
                 const rect = el.getBoundingClientRect();
+                if (rect.width <= 1 || rect.height <= 1) return false;
                 const style = window.getComputedStyle(el);
-                return rect.width > 0 && rect.height > 0
-                    && style.display !== 'none'
-                    && style.visibility !== 'hidden'
-                    && el.offsetParent !== null;
-            });
-            if (inputType === 'email') {
-                // Look for text/email/tel inputs that aren't password
-                const candidates = visible.filter(el =>
-                    el.type !== 'password' && el.type !== 'hidden' && el.type !== 'submit'
-                    && el.type !== 'checkbox' && el.type !== 'radio'
-                );
-                // Prefer by name/aria-label/placeholder containing email/user/login
-                const preferred = candidates.filter(el => {
-                    const attrs = [el.name, el.id, el.getAttribute('aria-label'), el.placeholder, el.autocomplete].join(' ').toLowerCase();
-                    return attrs.includes('email') || attrs.includes('user') || attrs.includes('login') || attrs.includes('phone') || attrs.includes('session');
-                });
-                const pool = preferred.length > 0 ? preferred : candidates;
-                if (pool.length === 0) return null;
-                const el = pool[0];
-                // Build a selector
-                if (el.id) return '#' + CSS.escape(el.id);
-                if (el.name) return 'input[name="' + CSS.escape(el.name) + '"]';
-                if (el.getAttribute('aria-label')) return 'input[aria-label="' + CSS.escape(el.getAttribute('aria-label')) + '"]';
-                // Use nth
-                const idx = visible.indexOf(el);
-                return 'input:visible >> nth=' + idx;
+                if (style.display === 'none' || style.visibility !== 'visible') return false;
+                if (parseFloat(style.opacity || '1') < 0.05) return false;
+                if (rect.bottom <= 0 || rect.right <= 0) return false;
+                if (rect.top >= window.innerHeight || rect.left >= window.innerWidth) return false;
+                return true;
+            };
+            const all = Array.from(document.querySelectorAll('input')).filter(isRendered);
+            const passwords = all.filter(el => el.type === 'password');
+            const identifier = all.filter(el =>
+                el.type !== 'password' && el.type !== 'hidden' && el.type !== 'submit'
+                && el.type !== 'checkbox' && el.type !== 'radio' && el.type !== 'file'
+            );
+
+            let pool;
+            if (inputType === 'password') {
+                pool = passwords;
             } else {
-                // password
-                const pwds = visible.filter(el => el.type === 'password');
-                if (pwds.length === 0) return null;
-                const el = pwds[0];
-                if (el.id) return '#' + CSS.escape(el.id);
-                if (el.name) return 'input[name="' + CSS.escape(el.name) + '"]';
-                return 'input[type="password"]';
+                const isSearch = (el) => {
+                    const attrs = [el.name, el.id, el.getAttribute('aria-label'),
+                                   el.placeholder, el.autocomplete, el.className]
+                        .filter(Boolean).join(' ').toLowerCase();
+                    return attrs.includes('search') || attrs.includes('nav');
+                };
+                const usable = identifier.filter(el => !isSearch(el));
+                // Prefer inputs whose companion password field is also rendered,
+                // which identifies the active form when duplicates are mounted.
+                const paired = usable.filter(el => passwords.some(pw => {
+                    const container = el.closest('form, div, section');
+                    return container && container.contains(pw);
+                }));
+                const named = usable.filter(el => {
+                    const attrs = [el.name, el.id, el.getAttribute('aria-label'),
+                                   el.placeholder, el.autocomplete].join(' ').toLowerCase();
+                    return attrs.includes('email') || attrs.includes('user')
+                        || attrs.includes('login') || attrs.includes('session');
+                });
+                if (named.length > 0) pool = named;
+                else if (paired.length > 0) pool = paired;
+                else pool = usable.length > 0 ? usable : identifier;
             }
+
+            if (pool.length === 0) return null;
+            // When several render, the last one is the foreground (active) copy.
+            const el = pool[pool.length - 1];
+            if (el.id) return '#' + CSS.escape(el.id);
+            if (el.name) return 'input[name="' + CSS.escape(el.name) + '"]';
+            if (inputType === 'password') return 'input[type="password"]';
+            return 'input[type="email"]';
         }"""
         try:
-            result = await page.evaluate(js_code, input_type)
-            return result
+            return await page.evaluate(js_code, input_type)
         except Exception:
             return None
 
@@ -304,155 +323,188 @@ class LinkedInLoginPage(BasePage):
         except Exception as e:
             logger.debug(f"Could not dump page inputs: {e}")
 
+    @staticmethod
+    def _mask(value: str) -> str:
+        """Mask a secret for logging while keeping it recognisable."""
+        if not value:
+            return "<empty>"
+        if len(value) <= 4:
+            return "*" * len(value)
+        return f"{value[:2]}{'*' * (len(value) - 4)}{value[-2:]}"
+
+    @staticmethod
+    def _matches(actual: str, expected: str) -> bool:
+        """Compare a field value against what we tried to enter.
+
+        LinkedIn trims/rewrites some fields client-side, so an exact string
+        compare rejects correct fills. Case-insensitive for identifiers like
+        email, exact for secrets like passwords.
+        """
+        if actual is None:
+            return False
+        if expected == "":
+            return actual == ""
+        return actual.strip().casefold() == expected.strip().casefold()
+
+    async def _fill_into(self, page, selector: str, value: str, *, identifier: bool) -> str | None:
+        """Fill ``value`` into the element matched by ``selector``.
+
+        Returns the selector when the element was found, filled and its value
+        actually matches afterwards, otherwise ``None``.
+        """
+        try:
+            loc = page.locator(selector).first
+            if not await loc.is_visible(timeout=2000):
+                return None
+            await loc.click(force=True)
+            await asyncio.sleep(0.3)
+            await loc.fill("")
+            await loc.fill(value)
+            await asyncio.sleep(0.5)
+            actual = await loc.input_value()
+            if self._matches(actual, value):
+                return selector
+            logger.warning(
+                f"{identifier} filled via '{selector}' but value did not match "
+                f"(got {self._mask(actual)}, expected {self._mask(value)}) - wrong element, trying next"
+            )
+        except Exception as exc:
+            logger.debug(f"Selector '{selector}' failed for {identifier}: {exc}")
+        return None
+
+    async def _verify_field(self, page, value: str, *, identifier: bool, selector: str | None = None) -> bool:
+        """Re-read the live field and confirm it holds ``value``.
+
+        ``selector`` is the one that worked during the fill; without it the
+        field is rediscovered, which fails on LinkedIn's generated ids.
+        """
+        candidates: list[str] = []
+        if selector:
+            candidates.append(selector)
+        if identifier:
+            js_selector = await self._find_input_by_js(page, "email")
+        else:
+            js_selector = await self._find_input_by_js(page, "password")
+        if js_selector and js_selector not in candidates:
+            candidates.append(js_selector)
+
+        for candidate in candidates:
+            try:
+                loc = page.locator(candidate).first
+                if not await loc.is_visible(timeout=1500):
+                    continue
+                return self._matches(await loc.input_value(), value)
+            except Exception:
+                continue
+        return False
+
+    async def _fill_field(self, page, value: str, *, identifier: bool) -> str | None:
+        """Populate one login field, returning the selector that worked.
+
+        Strategies run cheapest-first: hardcoded selectors, then strict
+        visibility detection (LinkedIn's React ids defeat hardcoded ones), then
+        a native value injection as a last resort.
+        """
+        static = LoginSelectors.EMAIL_INPUT if identifier else LoginSelectors.PASSWORD_INPUT
+        label = "Email" if identifier else "Password"
+
+        # Detection runs first: LinkedIn serves generated ids and mounts a hidden
+        # duplicate of every input, so a bare type selector can hit the copy that
+        # is never submitted.
+        js_selector = await self._find_input_by_js(page, "email" if identifier else "password")
+        if js_selector:
+            used = await self._fill_into(page, js_selector, value, identifier=identifier)
+            if used:
+                logger.info(f"{label} filled via rendered-field detection: {used}")
+                return used
+
+        for selector in static:
+            used = await self._fill_into(page, selector, value, identifier=identifier)
+            if used:
+                logger.info(f"{label} filled via selector: {used}")
+                return used
+
+        if await self._inject_value(page, value, identifier=identifier) and await self._verify_field(
+            page, value, identifier=identifier, selector=js_selector
+        ):
+            logger.info(f"{label} filled via JS value injection")
+            return js_selector or ""
+
+        return None
+
+    async def _inject_value(self, page, value: str, *, identifier: bool) -> bool:
+        """Last resort: write the value straight into the rendered field.
+
+        React tracks the last value it rendered, so a bare ``value`` assignment
+        is discarded. Resetting the tracker before dispatching ``input`` makes
+        the controlled component accept it.
+        """
+        kind = "password" if not identifier else "identifier"
+        js_code = """([value, kind]) => {
+            const isRendered = (el) => {
+                if (!el || el.offsetParent === null) return false;
+                const rect = el.getBoundingClientRect();
+                if (rect.width <= 1 || rect.height <= 1) return false;
+                const style = window.getComputedStyle(el);
+                return style.display !== 'none' && style.visibility === 'visible'
+                    && parseFloat(style.opacity || '1') >= 0.05;
+            };
+            const targets = Array.from(document.querySelectorAll('input')).filter(el => {
+                if (!isRendered(el)) return false;
+                if (kind === 'password') return el.type === 'password';
+                return el.type === 'email' || (el.type === 'text' && !el.disabled);
+            });
+            if (targets.length === 0) return false;
+            const el = targets[targets.length - 1];
+            const setter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'value'
+            ).set;
+            setter.call(el, '');
+            if (el._valueTracker) el._valueTracker.setValue('');
+            setter.call(el, value);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+            el.blur();
+            return true;
+        }"""
+        try:
+            return bool(await page.evaluate(js_code, [value, kind]))
+        except Exception as exc:
+            logger.debug(f"{'Email' if identifier else 'Password'} JS injection failed: {exc}")
+            return False
+
     async def fill_credentials(self, email: str, password: str) -> None:
         """Fill in email and password fields with multiple fallback strategies."""
         page = self._engine.page
+
+        email = (email or "").strip()
+        password = password or ""
 
         # Wait for page to be ready
         with contextlib.suppress(Exception):
             await page.wait_for_load_state("domcontentloaded", timeout=15_000)
         await asyncio.sleep(3)
 
-        # --- Email ---
-        email_filled = False
-        # Strategy 1: Try CSS selectors
-        for selector in LoginSelectors.EMAIL_INPUT.split(","):
-            selector = selector.strip()
-            try:
-                loc = page.locator(selector).first
-                if await loc.is_visible(timeout=2000):
-                    await loc.click(force=True)
-                    await asyncio.sleep(0.3)
-                    await loc.fill("")
-                    await loc.fill(email)
-                    await asyncio.sleep(0.5)
-                    val = await loc.input_value()
-                    if val == email:
-                        email_filled = True
-                        logger.info(f"Email filled via selector: {selector}")
-                        break
-            except Exception:
-                continue
-
-        # Strategy 2: JavaScript-based detection
-        if not email_filled:
-            js_selector = await self._find_input_by_js(page, "email")
-            if js_selector:
-                try:
-                    loc = page.locator(js_selector).first
-                    if await loc.is_visible(timeout=3000):
-                        await loc.click(force=True)
-                        await asyncio.sleep(0.3)
-                        await loc.fill(email)
-                        await asyncio.sleep(0.5)
-                        val = await loc.input_value()
-                        if val == email:
-                            email_filled = True
-                            logger.info(f"Email filled via JS selector: {js_selector}")
-                except Exception:
-                    pass
-
-        # Strategy 3: Direct JS value injection
-        if not email_filled:
-            try:
-                await page.evaluate(
-                    """(email) => {
-                    const inputs = Array.from(document.querySelectorAll('input'));
-                    for (const el of inputs) {
-                        if (el.type !== 'password' && el.type !== 'hidden' && el.type !== 'submit'
-                            && el.type !== 'checkbox' && el.type !== 'radio'
-                            && el.offsetParent !== null) {
-                            const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-                                window.HTMLInputElement.prototype, 'value'
-                            ).set;
-                            nativeInputValueSetter.call(el, email);
-                            el.dispatchEvent(new Event('input', { bubbles: true }));
-                            el.dispatchEvent(new Event('change', { bubbles: true }));
-                            return true;
-                        }
-                    }
-                    return false;
-                }""",
-                    email,
-                )
-                email_filled = True
-                logger.info("Email filled via JS value injection")
-            except Exception:
-                pass
-
-        if not email_filled:
+        email_selector = await self._fill_field(page, email, identifier=True)
+        if not email_selector:
             await self._dump_page_inputs(page)
             raise RuntimeError("Could not find or fill email field on LinkedIn login page")
 
         await self._interactions.action_delay()
 
-        # --- Password ---
-        password_filled = False
-        # Strategy 1: CSS selectors
-        for selector in LoginSelectors.PASSWORD_INPUT.split(","):
-            selector = selector.strip()
-            try:
-                loc = page.locator(selector).first
-                if await loc.is_visible(timeout=2000):
-                    await loc.click(force=True)
-                    await asyncio.sleep(0.3)
-                    await loc.fill("")
-                    await loc.fill(password)
-                    await asyncio.sleep(0.5)
-                    val = await loc.input_value()
-                    if val == password:
-                        password_filled = True
-                        logger.info(f"Password filled via selector: {selector}")
-                        break
-            except Exception:
-                continue
-
-        # Strategy 2: JS detection
-        if not password_filled:
-            js_selector = await self._find_input_by_js(page, "password")
-            if js_selector:
-                try:
-                    loc = page.locator(js_selector).first
-                    if await loc.is_visible(timeout=3000):
-                        await loc.click(force=True)
-                        await asyncio.sleep(0.3)
-                        await loc.fill(password)
-                        await asyncio.sleep(0.5)
-                        val = await loc.input_value()
-                        if val == password:
-                            password_filled = True
-                            logger.info(f"Password filled via JS selector: {js_selector}")
-                except Exception:
-                    pass
-
-        # Strategy 3: Direct JS injection
-        if not password_filled:
-            try:
-                await page.evaluate(
-                    """(password) => {
-                    const el = document.querySelector('input[type="password"]');
-                    if (el && el.offsetParent !== null) {
-                        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
-                            window.HTMLInputElement.prototype, 'value'
-                        ).set;
-                        nativeInputValueSetter.call(el, password);
-                        el.dispatchEvent(new Event('input', { bubbles: true }));
-                        el.dispatchEvent(new Event('change', { bubbles: true }));
-                        return true;
-                    }
-                    return false;
-                }""",
-                    password,
-                )
-                password_filled = True
-                logger.info("Password filled via JS value injection")
-            except Exception:
-                pass
-
-        if not password_filled:
+        password_selector = await self._fill_field(page, password, identifier=False)
+        if not password_selector:
             await self._dump_page_inputs(page)
             raise RuntimeError("Could not find or fill password field on LinkedIn login page")
 
+        if not await self._verify_field(page, email, identifier=True, selector=email_selector):
+            await self._dump_page_inputs(page)
+            raise RuntimeError(
+                "Email field no longer holds the configured address before submit - "
+                "LinkedIn would reject the form as 'invalid email'"
+            )
+
+        logger.info(f"Credentials staged for {self._mask(email)} - submitting")
         await self._interactions.action_delay()
 
     async def submit_login(self) -> None:

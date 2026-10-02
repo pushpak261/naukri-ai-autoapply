@@ -13,6 +13,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import select
 
 from api.deps import state
+from api.agent_runtime import spawn_agent, stop_agent_process
 from src.naukri_agent.models.db_schema import NaukriAccount
 import contextlib
 
@@ -94,13 +95,14 @@ async def start_agent(platform: str = Query("naukri", max_length=20)):
     if state.active_account_email:
         env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
     try:
-        state.agent_process = subprocess.Popen(
+        # spawn_agent puts the agent in its own process group so stop/crash can
+        # kill the whole browser tree. Run it in a thread so Popen does not block
+        # the event loop.
+        state.agent_process = await asyncio.to_thread(
+            spawn_agent,
             cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            bufsize=1,
-            cwd=str(state.settings.project_root),
-            env=env,
+            str(state.settings.project_root),
+            env,
         )
     except FileNotFoundError:
         raise HTTPException(
@@ -127,12 +129,9 @@ async def stop_agent():
     if not state.agent_process or state.agent_process.poll() is not None:
         return {"status": "not_running", "message": "No agent process is running"}
 
-    state.agent_process.terminate()
-    try:
-        await asyncio.to_thread(state.agent_process.wait, timeout=10)
-    except subprocess.TimeoutExpired:
-        state.agent_process.kill()
-        await asyncio.to_thread(state.agent_process.wait)
+    # Kill the whole tree so orphaned Chromium processes cannot keep the agent's
+    # output pipes open and stall the event loop.
+    await asyncio.to_thread(stop_agent_process, state.agent_process)
     state.agent_process = None
     state.agent_started_at = None
     state.agent_platform = None

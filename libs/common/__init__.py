@@ -55,7 +55,7 @@ from libs.common.resilience import (  # noqa: E402
     RequestSizeLimit,
     async_retry,
 )
-from libs.common.service import make_service_app  # noqa: E402
+from libs.common.service import make_service_app, resolve_bind_host, serve  # noqa: E402
 
 __all__ = [
     "SERVICE_PORTS",
@@ -66,6 +66,8 @@ __all__ = [
     "ServiceClient",
     "AuthClient",
     "make_service_app",
+    "resolve_bind_host",
+    "serve",
     "resolve_jwt_secret",
     "resolve_service_token",
     "verify_access_token",

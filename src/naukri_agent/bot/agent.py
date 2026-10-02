@@ -60,7 +60,7 @@ from src.naukri_agent.bot.interfaces import (
     IResumeParser,
 )
 from src.naukri_agent.bot.factory import DependencyFactory
-from src.naukri_agent.utils.helpers import TimeUtility
+from src.naukri_agent.utils.helpers import TimeUtility, resolve_path_within
 from src.naukri_agent.utils.logger import (
     console,
     get_logger,
@@ -405,9 +405,12 @@ class NaukriAgent:
 
                 existing = _json.loads(profile_json_path.read_text(encoding="utf-8"))
                 uploaded = existing.get("uploaded_file_path")
-                if uploaded and Path(uploaded).exists():
-                    uploaded_file_path = uploaded
-                    log_info(f"Using uploaded resume file: {uploaded}")
+                # uploaded_file_path originates from the dashboard API body, so it
+                # must be confined to the resumes directory before it is opened.
+                safe_uploaded = resolve_path_within(uploaded, self._settings.resumes_dir)
+                if safe_uploaded is not None and safe_uploaded.exists():
+                    uploaded_file_path = str(safe_uploaded)
+                    log_info(f"Using uploaded resume file: {uploaded_file_path}")
             except Exception:
                 pass
 
@@ -1084,7 +1087,11 @@ class NaukriAgent:
         result = await matcher.match(self._resume_profile, job)
 
         result_dict = dataclasses.asdict(result)
-        console.print_json(json.dumps(result_dict, indent=2, ensure_ascii=False))
+        # `default=str` keeps datetime fields (e.g. applied_at) serialisable;
+        # without it json.dumps raises TypeError on every result.
+        console.print_json(
+            json.dumps(result_dict, indent=2, ensure_ascii=False, default=str)
+        )
 
         await self._engine.close()
         return result

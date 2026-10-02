@@ -17,6 +17,10 @@ It also installs production-grade middleware on every service:
     is configured),
   * configurable CORS,
   * a real DB-aware ``/api/health`` (plus ``/api/ready`` and ``/api/live``).
+
+``serve`` is the companion entrypoint used by each service's ``__main__`` block.
+Container deployments invoke ``uvicorn`` directly from the image/command, so
+``serve`` is only for running a service straight from a checkout.
 """
 
 from __future__ import annotations
@@ -61,6 +65,25 @@ def _cors_origins() -> list[str]:
     if env:
         return [o.strip() for o in env.split(",") if o.strip()]
     return ["http://localhost:5173", "http://localhost:3000"]
+
+
+def resolve_bind_host() -> str:
+    """Interface uvicorn should bind to when a service is run from a checkout.
+
+    Defaults to the loopback interface so that running a service directly during
+    development does not expose it on every network interface. Deployments that
+    need the port reachable from outside the host/container set ``HOST``
+    explicitly (the container images bind via the ``uvicorn`` CLI, which is
+    configured by the Dockerfile / compose command rather than by this value).
+    """
+    return os.environ.get("HOST") or "127.0.0.1"
+
+
+def serve(app: Any, *, port: int, **uvicorn_kwargs: Any) -> None:
+    """Run ``app`` with uvicorn, binding to ``resolve_bind_host()``."""
+    import uvicorn
+
+    uvicorn.run(app, host=resolve_bind_host(), port=port, **uvicorn_kwargs)
 
 
 def _service_token_valid(header_value: str | None, token: str) -> bool:

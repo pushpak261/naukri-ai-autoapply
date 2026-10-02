@@ -14,12 +14,14 @@ Usage:
 from __future__ import annotations
 
 import asyncio
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import click
 
 from src.naukri_agent.config.settings import get_settings
+from src.naukri_agent.utils.helpers import resolve_path_within
 from src.naukri_agent.utils.logger import console
 
 if TYPE_CHECKING:
@@ -96,8 +98,11 @@ def _patch_resume_path_from_uploaded(settings) -> None:
 
             data = json.loads(profile_json_path.read_text(encoding="utf-8"))
             uploaded = data.get("uploaded_file_path")
-            if uploaded and Path(uploaded).exists():
-                settings.resume.path = uploaded
+            # uploaded_file_path originates from the dashboard API body, so it
+            # must be confined to the resumes directory before it is opened.
+            safe_uploaded = resolve_path_within(uploaded, settings.resumes_dir)
+            if safe_uploaded is not None and safe_uploaded.exists():
+                settings.resume.path = str(safe_uploaded)
                 return
         except Exception:
             pass
@@ -182,11 +187,12 @@ async def _run(
     if settings.application.enable_project_indexer:
         try:
             import subprocess
-            import sys
 
             script_path = settings.project_root / "scripts" / "vibe_context.py"
             if script_path.exists():
-                subprocess.Popen(
+                # Fire-and-forget: off the event loop so startup is not blocked.
+                await asyncio.to_thread(
+                    subprocess.Popen,
                     [sys.executable, str(script_path), "--watch"],
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,

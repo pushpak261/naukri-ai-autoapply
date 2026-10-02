@@ -160,7 +160,8 @@ Return ONLY the JSON object, no other text."""
     def _cache_key(self, resume: ResumeProfile, job: Job) -> str:
         """Generate a cache key from resume hash + job ID."""
         resume_hash = hashlib.md5(
-            f"{resume.name}{resume.current_title}{','.join(resume.skills)}".encode()
+            f"{resume.name}{resume.current_title}{','.join(resume.skills)}".encode(),
+            usedforsecurity=False,
         ).hexdigest()[:16]
         return f"{resume_hash}_{job.linkedin_job_id}"
 

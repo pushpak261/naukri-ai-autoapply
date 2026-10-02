@@ -139,33 +139,53 @@ def get_logger(name: str) -> logging.Logger:
 # ---------------------------------------------------------------------------
 # Convenience emoji-prefixed log methods for the console
 # ---------------------------------------------------------------------------
+_CONTROL_CHARS = re.compile(r"[\r\n\x00-\x1f\x7f]")
+
+
+def sanitize_log_message(message: object) -> str:
+    """Flatten control characters out of a log message.
+
+    Log messages routinely interpolate job titles, selectors and URLs that
+    ultimately come from the sites we scrape. A newline (or any other control
+    character) in that data lets a caller forge extra log lines, i.e. log
+    injection (CWE-117). Replacing them with a single space keeps the message
+    readable while guaranteeing one record per call.
+    """
+    text = message if isinstance(message, str) else str(message)
+    return _CONTROL_CHARS.sub(" ", text)
+
+
 def log_info(message: str) -> None:
     """Log an info message with a ℹ️ prefix."""
-    logging.getLogger().info(message)
-    console.print(f"  ℹ️  {message}", style="info")
+    safe = sanitize_log_message(message)
+    logging.getLogger().info(safe)
+    console.print(f"  ℹ️  {safe}", style="info")
 
 
 def log_success(message: str) -> None:
     """Log a success message with a ✅ prefix."""
-    logging.getLogger().info(message)
-    console.print(f"  ✅ {message}", style="success")
+    safe = sanitize_log_message(message)
+    logging.getLogger().info(safe)
+    console.print(f"  ✅ {safe}", style="success")
 
 
 def log_warning(message: str) -> None:
     """Log a warning message with a ⚠️ prefix."""
-    logging.getLogger().warning(message)
-    console.print(f"  ⚠️  {message}", style="warning")
+    safe = sanitize_log_message(message)
+    logging.getLogger().warning(safe)
+    console.print(f"  ⚠️  {safe}", style="warning")
 
 
 def log_error(message: str) -> None:
     """Log an error message with a ❌ prefix."""
-    logging.getLogger().error(message)
-    console.print(f"  ❌ {message}", style="error")
+    safe = sanitize_log_message(message)
+    logging.getLogger().error(safe)
+    console.print(f"  ❌ {safe}", style="error")
 
 
 def log_step(step_num: int, total: int, message: str) -> None:
     """Log a progress step like '  [3/10] Applying to job...'."""
-    console.print(f"  [{step_num}/{total}] {message}", style="highlight")
+    console.print(f"  [{step_num}/{total}] {sanitize_log_message(message)}", style="highlight")
 
 
 def log_match(

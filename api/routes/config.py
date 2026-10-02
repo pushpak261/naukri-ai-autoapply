@@ -405,15 +405,13 @@ async def update_linkedin_config(update: LinkedInConfigUpdate):
         encoding="utf-8",
     )
 
-    return {"status": "ok", "message": "LinkedIn configuration updated"}
+    # Drop the cached settings and refresh the shared runtime state so the new
+    # values take effect immediately instead of on the next restart.
+    from src.naukri_agent.config.settings import get_settings
 
-# ---------------------------------------------------------------------------
-
-    from src.naukri_agent.config.settings import get_settings as get_naukri_settings
-
-    get_naukri_settings.cache_clear()
+    get_settings.cache_clear()
     import api.deps
 
-    api.deps.state.settings = get_naukri_settings()
+    api.deps.state.settings = get_settings()
 
-    return {"status": "ok", "message": "Configuration updated"}
+    return {"status": "ok", "message": "LinkedIn configuration updated"}

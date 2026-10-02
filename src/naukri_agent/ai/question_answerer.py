@@ -8,6 +8,7 @@ and Gemini AI to generate contextually appropriate answers.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from pathlib import Path
@@ -618,7 +619,10 @@ class QuestionAnswerer(IQuestionAnswerer):
                                 if orig_q and orig_q.get("options"):
                                     opts = ", ".join([o.get("text", "") for o in orig_q["options"]])
                                     print(f"   Available Options: [{opts}]")
-                                user_ans = input("   Enter answer: ").strip()
+                                # input() blocks the event loop; run it on a worker thread.
+                                user_ans = (
+                                    await asyncio.to_thread(input, "   Enter answer: ")
+                                ).strip()
                                 if user_ans:
                                     ans["answer"] = user_ans
                                     ans["confidence"] = "high"

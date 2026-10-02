@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import asyncio
 from pathlib import Path
 
 from src.linked_agent.bot.interfaces import ILLMProvider, IRepository
@@ -40,19 +41,21 @@ class LinkedInResumeParser:
         if profile_json_path.exists():
             try:
                 logger.info("Loading resume profile from shared resume_profile.json")
-                with open(profile_json_path, encoding="utf-8") as f:
-                    cached_data = json.load(f)
-                    profile = self._profile_from_json(json.dumps(cached_data))
-                    profile.file_hash = file_hash
-                    # Save to SQLite database cache if it's not already there
-                    cached = await self._repo.get_cached_profile(file_hash)
-                    if not cached:
-                        await self._repo.save_resume_profile(
-                            file_hash=file_hash,
-                            file_path=str(path),
-                            parsed_json=json.dumps(cached_data),
-                        )
-                    return profile
+                cached_text = await asyncio.to_thread(
+                    profile_json_path.read_text, encoding="utf-8"
+                )
+                cached_data = json.loads(cached_text)
+                profile = self._profile_from_json(json.dumps(cached_data))
+                profile.file_hash = file_hash
+                # Save to SQLite database cache if it's not already there
+                cached = await self._repo.get_cached_profile(file_hash)
+                if not cached:
+                    await self._repo.save_resume_profile(
+                        file_hash=file_hash,
+                        file_path=str(path),
+                        parsed_json=json.dumps(cached_data),
+                    )
+                return profile
             except Exception as e:
                 logger.warning(f"Failed to read local resume_profile.json: {e}")
 

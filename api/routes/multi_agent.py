@@ -25,6 +25,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import select
 
 from api.deps import state
+from api.agent_runtime import spawn_agent, stop_agent_process
 from src.naukri_agent.models.db_schema import NaukriAccount
 
 router = APIRouter(prefix="/api/multi", tags=["multi-agent"])
@@ -141,12 +142,14 @@ async def start_agents(
         if platform == "naukri" and state.active_account_email:
             env["NAUKRI_ACTIVE_ACCOUNT"] = state.active_account_email
         try:
-            proc = subprocess.Popen(
+            # spawn_agent puts each platform in its own process group so stop /
+            # crash can kill the whole browser tree. Popen runs in a thread so the
+            # event loop is not blocked.
+            proc = await asyncio.to_thread(
+                spawn_agent,
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                cwd=str(state.settings.project_root),
-                env=env,
+                str(state.settings.project_root),
+                env,
             )
         except FileNotFoundError:
             raise HTTPException(
@@ -178,12 +181,10 @@ async def stop_agents(
             state.agent_processes[plat] = None
             state.agent_started_at_map[plat] = None
             continue
-        proc.terminate()
-        try:
-            await asyncio.to_thread(proc.wait, timeout=10)
-        except subprocess.TimeoutExpired:
-            proc.kill()
-            await asyncio.to_thread(proc.wait)
+        # Kill the whole tree: a bare terminate() leaves Chromium running, and the
+        # orphan holds the agent's inherited stdout/stderr pipes open so wait()
+        # would block (this runs in a thread to keep the event loop free).
+        await asyncio.to_thread(stop_agent_process, proc)
         state.agent_processes[plat] = None
         state.agent_started_at_map[plat] = None
         with state.agent_output_locks[plat]:

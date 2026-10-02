@@ -1,4 +1,4 @@
-"""Resume & Profile Service — resume upload/parse, profile, optimization."""
+"""Resume & Profile Service â€” resume upload/parse, profile, optimization."""
 
 from __future__ import annotations
 
@@ -12,6 +12,6 @@ app = make_service_app(
 )
 
 if __name__ == "__main__":
-    import uvicorn
+    from libs.common import serve
 
-    uvicorn.run(app, host="0.0.0.0", port=8104)
+    serve(app, port=8104)

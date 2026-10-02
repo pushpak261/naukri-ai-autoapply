@@ -87,6 +87,56 @@ class CryptographicUtility:
 F = TypeVar("F", bound=Callable[..., Any])
 
 
+class PathSecurityUtility:
+    """Namespace for validating untrusted filesystem paths.
+
+    ``uploaded_file_path`` reaches the API as request-body data and is later
+    opened by the agent/parser. Without containment checks a caller could point
+    it at any file the process can read (path traversal). Everything that
+    consumes such a value must go through :meth:`resolve_within`.
+    """
+
+    @staticmethod
+    def resolve_within(raw: str | Path | None, allowed_roots: Path | list[Path]) -> Path | None:
+        """Resolve ``raw`` and return it only if it sits inside ``allowed_roots``.
+
+        Returns ``None`` when the value is empty, not a string-like path, cannot
+        be resolved, or escapes every allowed root (including via ``..``, an
+        absolute path, or a symlink pointing outside).
+        """
+        if raw is None:
+            return None
+        text = str(raw).strip()
+        if not text:
+            return None
+
+        roots = [allowed_roots] if isinstance(allowed_roots, Path) else list(allowed_roots)
+        if not roots:
+            return None
+
+        try:
+            candidate = Path(text).expanduser()
+            # ``strict=False`` semantics: we want the containment decision even
+            # when the file does not exist yet.
+            resolved = candidate.resolve()
+        except (OSError, RuntimeError, ValueError):
+            return None
+
+        for root in roots:
+            try:
+                root_resolved = root.expanduser().resolve()
+            except (OSError, RuntimeError, ValueError):
+                continue
+            if resolved == root_resolved or root_resolved in resolved.parents:
+                return resolved
+        return None
+
+    @staticmethod
+    def is_within(raw: str | Path | None, allowed_roots: Path | list[Path]) -> bool:
+        """``True`` when :meth:`resolve_within` would accept ``raw``."""
+        return PathSecurityUtility.resolve_within(raw, allowed_roots) is not None
+
+
 class RetryUtility:
     """Namespace for retry policies and execution wrapper decorators."""
 
@@ -133,7 +183,8 @@ class NaukriURLUtility:
     def extract_job_id(url: str) -> str:
         """Extract the Naukri job ID from a job URL."""
         if not url:
-            return hashlib.md5(b"unknown").hexdigest()[:16]
+            return hashlib.md5(b"unknown", usedforsecurity=False).hexdigest()[:16]
+
         match = re.search(r"-(\d{8,})(?:\?|$|&)", url)
         if match:
             return match.group(1)
@@ -143,7 +194,7 @@ class NaukriURLUtility:
         from urllib.parse import urlparse
 
         parsed = urlparse(url)
-        return hashlib.md5(parsed.path.encode()).hexdigest()[:16]
+        return hashlib.md5(parsed.path.encode(), usedforsecurity=False).hexdigest()[:16]
 
     @staticmethod
     def build_search_url(
@@ -297,6 +348,10 @@ def truncate_text(text: str | None, max_length: int = 4000) -> str | None:
 
 def hash_file(file_path: str | Path) -> str:
     return CryptographicUtility.hash_file(file_path)
+
+
+def resolve_path_within(raw: str | Path | None, allowed_roots: Path | list[Path]) -> Path | None:
+    return PathSecurityUtility.resolve_within(raw, allowed_roots)
 
 
 def async_retry(

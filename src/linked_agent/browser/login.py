@@ -12,6 +12,7 @@ Manages the complete login lifecycle:
 from __future__ import annotations
 
 import asyncio
+import re
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -48,6 +49,19 @@ class LinkedInPasswordLoginStrategy(ILoginStrategy):
         if not password:
             log_error("LinkedIn password not configured. Set LINKEDIN_PASSWORD in .env or linkedin.password in config")
             return False
+
+        if "${" in email or email.startswith("$"):
+            log_error(
+                f"LinkedIn email is an unexpanded placeholder ({email!r}). "
+                f"Set a real value in .env as LINKEDIN_EMAIL."
+            )
+            return False
+
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            log_error(f"LinkedIn email {email!r} is not a valid address - check LINKEDIN_EMAIL in .env")
+            return False
+
+        log_info(f"Using LinkedIn account {email[:2]}***@{email.split('@')[-1]}")
 
         await login_page.fill_credentials(email, password)
         await login_page.submit_login()

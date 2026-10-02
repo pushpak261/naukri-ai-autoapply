@@ -1,4 +1,4 @@
-"""Application & Analytics Service — applications, run logs, stats, analytics."""
+"""Application & Analytics Service â€” applications, run logs, stats, analytics."""
 
 from __future__ import annotations
 
@@ -13,6 +13,6 @@ app = make_service_app(
 )
 
 if __name__ == "__main__":
-    import uvicorn
+    from libs.common import serve
 
-    uvicorn.run(app, host="0.0.0.0", port=8105)
+    serve(app, port=8105)

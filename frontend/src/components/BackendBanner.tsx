@@ -42,8 +42,10 @@ export function BackendBanner() {
       className="fixed inset-x-0 top-0 z-[100] bg-red-600 px-4 py-2 text-center text-sm font-medium text-white shadow-lg"
     >
       Backend API unreachable{rawBase ? ` at ${rawBase}` : ' (same-origin /api)'}. The
-      dashboard cannot load data — make sure the backend is running and that its CORS
-      policy allows this origin.
+      dashboard cannot load data. This also appears when the backend is running but its
+      event loop is stalled (e.g. an agent stop left browser processes behind) — a
+      <code>curl /api/health</code> that hangs instead of erroring means restart it, so
+      check that before suspecting the CORS policy.
     </div>
   );
 }

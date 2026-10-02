@@ -201,11 +201,10 @@ app.include_router(multi_agent_router.router)
 
 
 if __name__ == "__main__":
-    import uvicorn
+    from libs.common import serve
 
-    uvicorn.run(
+    serve(
         "api.main:app",
-        host="0.0.0.0",
         port=8005,
         reload=True,
         reload_dirs=["api", "src"],

@@ -116,8 +116,25 @@ class LoginSelectors:
     """Selectors for the LinkedIn login page."""
 
     # Login form inputs — ordered by reliability (id > name > aria-label > type)
-    EMAIL_INPUT = 'input[type="email"]:visible, #username, input[name="session_key"], input[id="username"], input[aria-label*="Email" i], input[aria-label*="username" i], input[placeholder*="Email" i], input[placeholder*="username" i], input[type="text"]'
-    PASSWORD_INPUT = 'input[type="password"]:visible, #password, input[name="session_password"], input[id="password"]'
+    EMAIL_INPUT = (
+        '#username',
+        'input[name="session_key"]',
+        'input[autocomplete="username"]',
+        'input[type="email"]:visible',
+        'input[type="text"]:visible:not([aria-label*="search" i])'
+        ':not([name*="search" i]):not([id*="search" i]):not([placeholder*="search" i])',
+        'input[aria-label*="username" i]',
+        'input[aria-label*="email" i]',
+        'input[placeholder*="username" i]',
+        'input[placeholder*="email" i]',
+    )
+    PASSWORD_INPUT = (
+        '#password',
+        'input[name="session_password"]',
+        'input[autocomplete="current-password"]',
+        'input[type="password"]:visible',
+        'input[aria-label*="password" i]',
+    )
     LOGIN_BUTTON = 'button:has-text("Sign in"):not(:has-text("with")):visible, button:has-text("Log in"):not(:has-text("with")):visible, button[type="submit"]:visible, button[name="submit"]:visible, button[data-litms-control-urn="login-submit"]:visible'
 
     # 2FA / Verification

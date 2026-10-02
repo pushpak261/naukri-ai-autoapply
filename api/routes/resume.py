@@ -17,7 +17,7 @@ from fastapi.responses import JSONResponse
 from api.deps import state
 from src.naukri_agent.ai.llm_provider import GeminiProvider
 from src.naukri_agent.ai.resume_parser import ResumeParser
-from src.naukri_agent.utils.helpers import hash_file
+from src.naukri_agent.utils.helpers import hash_file, resolve_path_within
 
 router = APIRouter(tags=["resume"])
 
@@ -31,6 +31,36 @@ def _get_profile_json_path() -> Path:
     if PROFILE_JSON_PATH is None:
         PROFILE_JSON_PATH = state.settings.project_root / "resume_profile.json"
     return PROFILE_JSON_PATH
+
+
+def _allowed_resume_roots() -> list[Path]:
+    """Directories an ``uploaded_file_path`` is permitted to point at."""
+    roots = [state.settings.resumes_dir]
+    configured = state.settings.resume.path if state.settings.resume else ""
+    if configured:
+        roots.append(Path(configured).expanduser().parent)
+    return roots
+
+
+def _sanitize_uploaded_file_path(data: dict) -> None:
+    """Validate ``uploaded_file_path`` before it is persisted.
+
+    The value comes straight from the request body and is later opened by the
+    agent and the resume parser, so it must be confined to the resumes
+    directory. Rejecting it here also keeps the stored profile trustworthy.
+    """
+    raw = data.get("uploaded_file_path")
+    if raw is None:
+        data.pop("uploaded_file_path", None)
+        return
+
+    resolved = resolve_path_within(raw, _allowed_resume_roots())
+    if resolved is None:
+        raise HTTPException(
+            status_code=400,
+            detail="uploaded_file_path must reference a file inside the resumes directory",
+        )
+    data["uploaded_file_path"] = str(resolved)
 
 
 def _update_config_resume_path(new_rel_path: str) -> None:
@@ -209,6 +239,9 @@ async def save_resume_profile(data: dict):
                 data["uploaded_file_path"] = existing["uploaded_file_path"]
         except Exception:
             pass
+
+    # Drop/validate any path that would let a caller read outside the resumes dir.
+    _sanitize_uploaded_file_path(data)
 
     try:
         profile_json_path.write_text(

@@ -5,6 +5,7 @@ Agent Orchestrator service, which owns browser session lifecycle).
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
@@ -65,9 +66,9 @@ async def session_status(
         config_path = state.settings.project_root / "linkedin_config.yaml"
         if config_path.exists():
             try:
-                with open(config_path, encoding="utf-8") as f:
-                    config_data = yaml.safe_load(f) or {}
-                    linkedin_email = config_data.get("linkedin", {}).get("email", "")
+                config_text = await asyncio.to_thread(config_path.read_text, encoding="utf-8")
+                config_data = yaml.safe_load(config_text) or {}
+                linkedin_email = config_data.get("linkedin", {}).get("email", "")
             except Exception:
                 pass
 

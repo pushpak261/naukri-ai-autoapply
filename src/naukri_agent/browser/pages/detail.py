@@ -1644,7 +1644,18 @@ class JobDetailPage(BasePage):
                     if q_lower == label_lower or (len(q_lower) > 5 and q_lower in label_lower) or (len(label_lower) > 5 and label_lower in q_lower):
                         label_for = await label.get_attribute("for")
                         if label_for:
-                            input_elem = await page.query_selector(f"#{CSS.escape(label_for)}")
+                            # CSS.escape is a browser global, so the lookup has to
+                            # run in the page context rather than in Python.
+                            handle = await page.evaluate_handle(
+                                """(id) => {
+                                    const sel = (window.CSS && window.CSS.escape)
+                                        ? '#' + window.CSS.escape(id)
+                                        : '#' + id.replace(/([^a-zA-Z0-9_-])/g, '\\$1');
+                                    return document.querySelector(sel);
+                                }""",
+                                label_for,
+                            )
+                            input_elem = await handle.as_element()
                             if input_elem:
                                 return input_elem
                         # Check inside label

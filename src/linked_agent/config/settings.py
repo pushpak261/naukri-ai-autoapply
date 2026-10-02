@@ -8,6 +8,7 @@ overrides. Provides typed, validated access to all settings.
 from __future__ import annotations
 
 import os
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -31,6 +32,22 @@ class LinkedInCredentials(BaseModel):
     two_factor_code: str = ""  # For manual 2FA entry if needed
     gmail_otp_email: str = ""  # Gmail address for sending email notifications
     gmail_app_password: str = ""  # Gmail app password for SMTP
+
+    @field_validator("email", "gmail_otp_email", mode="before")
+    @classmethod
+    def _clean_email(cls, value: object) -> object:
+        """Trim whitespace so the form never receives a padded address."""
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("password", "gmail_app_password", "two_factor_code", mode="before")
+    @classmethod
+    def _clean_secret(cls, value: object) -> object:
+        """Strip surrounding whitespace only - inner characters are significant."""
+        if isinstance(value, str):
+            return value.strip()
+        return value
 
 
 class AISettings(BaseModel):
@@ -232,8 +249,15 @@ class Settings(BaseModel):
                     import json
                     data = json.loads(profile_json.read_text(encoding="utf-8"))
                     up = data.get("uploaded_file_path")
-                    if up and Path(up).exists():
-                        self.resume.path = up
+                    # uploaded_file_path originates from the dashboard API body,
+                    # so it must be confined to the resumes directory.
+                    # Imported lazily: utils.helpers pulls in the Rich logger,
+                    # which we do not want to initialise at settings-import time.
+                    from src.naukri_agent.utils.helpers import resolve_path_within
+
+                    safe_up = resolve_path_within(up, self.resumes_dir)
+                    if safe_up is not None and safe_up.exists():
+                        self.resume.path = str(safe_up)
                         found = True
                 except Exception:
                     pass
@@ -259,6 +283,37 @@ class Settings(BaseModel):
 
 
 
+_PLACEHOLDER_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
+
+
+def _expand_placeholders(value: str) -> str:
+    """Expand ``${VAR}`` and ``${VAR:-default}`` references in a config value.
+
+    ``yaml.safe_load`` does not do shell-style expansion, so without this the
+    placeholder text lands in the settings verbatim - e.g. a literal
+    ``${LINKEDIN_EMAIL:-}`` submitted as an email address.
+    """
+
+    def _replace(match: re.Match[str]) -> str:
+        env_val = os.environ.get(match.group(1))
+        if env_val:
+            return env_val
+        return match.group(2) or ""
+
+    return _PLACEHOLDER_RE.sub(_replace, value)
+
+
+def _expand_tree(node):
+    """Recursively expand placeholders in every string inside a parsed YAML tree."""
+    if isinstance(node, dict):
+        return {key: _expand_tree(val) for key, val in node.items()}
+    if isinstance(node, list):
+        return [_expand_tree(item) for item in node]
+    if isinstance(node, str):
+        return _expand_placeholders(node)
+    return node
+
+
 def _load_yaml_config() -> dict:
     """Load the linkedin_config.yaml file from the project root."""
     config_path = PROJECT_ROOT / "linkedin_config.yaml"
@@ -269,17 +324,26 @@ def _load_yaml_config() -> dict:
             return {}
     with open(config_path, encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    return data if isinstance(data, dict) else {}
+    if not isinstance(data, dict):
+        return {}
+    return _expand_tree(data)
+
+
+def _load_dotenv_file() -> None:
+    """Populate ``os.environ`` from the project ``.env`` file, if present."""
+    env_path = PROJECT_ROOT / ".env"
+    if not env_path.exists():
+        return
+    try:
+        from dotenv import load_dotenv
+
+        load_dotenv(env_path, override=False)
+    except ImportError:
+        pass
 
 
 def _apply_env_overrides(config: dict) -> dict:
     """Override specific config values with environment variables."""
-    env_path = PROJECT_ROOT / ".env"
-    if env_path.exists():
-        from dotenv import load_dotenv
-
-        load_dotenv(env_path, override=False)
-
     env_map = {
         ("linkedin", "email"): "LINKEDIN_EMAIL",
         ("linkedin", "password"): "LINKEDIN_PASSWORD",
@@ -327,6 +391,7 @@ def get_settings() -> Settings:
     Loads linkedin_config.yaml, applies environment variable overrides,
     validates with Pydantic, and ensures data directories exist.
     """
+    _load_dotenv_file()
     config = _load_yaml_config()
     config = _apply_env_overrides(config)
     settings = Settings(**config)

@@ -1,4 +1,4 @@
-"""Data & Ops Service — logs, metrics, backups, export/import, bulk clear."""
+"""Data & Ops Service â€” logs, metrics, backups, export/import, bulk clear."""
 
 from __future__ import annotations
 
@@ -11,6 +11,6 @@ app = make_service_app(
 )
 
 if __name__ == "__main__":
-    import uvicorn
+    from libs.common import serve
 
-    uvicorn.run(app, host="0.0.0.0", port=8108)
+    serve(app, port=8108)

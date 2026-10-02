@@ -162,9 +162,16 @@ class PlaywrightEngine(IBrowserEngine):
                 )
             except Exception as launch_err:
                 if "Executable doesn't exist" in str(launch_err) or "playwright install" in str(launch_err) or "EPIPE" in str(launch_err):
+                    import asyncio
                     import subprocess
+
                     logger.info("Installing Playwright Chromium dependencies...")
-                    subprocess.run([sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"], check=False)
+                    # Long-running; run in a worker thread so the event loop keeps serving.
+                    await asyncio.to_thread(
+                        subprocess.run,
+                        [sys.executable, "-m", "playwright", "install", "--with-deps", "chromium"],
+                        check=False,
+                    )
                     self._browser = await self._playwright.chromium.launch(
                         headless=is_headless,
                         args=launch_args,
