@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import PlainTextResponse
 
 from api.deps import state as deps
@@ -31,8 +32,7 @@ from api.routes import (
     webhooks as webhooks_router,
     multi_agent as multi_agent_router,
 )
-from src.naukri_agent.config.settings import Settings, get_settings
-from src.naukri_agent.database.manager import DatabaseManager
+from src.naukri_agent.config.settings import get_settings
 from src.naukri_agent.database.repository import SQLAlchemyRepository
 from src.naukri_agent.models.db_schema import setup_database_manager
 
@@ -42,8 +42,6 @@ from src.naukri_agent.models.db_schema import setup_database_manager
 # ---------------------------------------------------------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    from sqlalchemy import select
-    from src.naukri_agent.models.db_schema import NaukriAccount
 
     deps.settings = get_settings()
     deps.db_manager = await setup_database_manager(deps.settings.db_path)
@@ -73,15 +71,15 @@ async def get_active_account_email() -> str | None:
     """Lazily resolve and cache the active account email."""
     if deps.active_account_email is not None:
         return deps.active_account_email
-    
+
     from sqlalchemy import select
     from src.naukri_agent.models.db_schema import NaukriAccount
-    
+
     try:
         session_factory = await deps.db_manager.get_session_factory()
         async with session_factory() as session:
             result = await session.execute(
-                select(NaukriAccount).where(NaukriAccount.is_active == True).limit(1)
+                select(NaukriAccount).where(NaukriAccount.is_active).limit(1)
             )
             active = result.scalar_one_or_none()
             if not active and deps.settings and deps.settings.naukri and deps.settings.naukri.email:
@@ -161,8 +159,10 @@ async def api_key_auth(request: Request, call_next):
     )
 
 
-# CORSMiddleware should be the LAST middleware added (outermost) to handle
-# CORS headers on all responses including error responses from inner middleware.
+# GZipMiddleware first (inner) - compresses responses
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+# CORSMiddleware last (outermost) - handles CORS headers on all responses
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=r"^https?://.*$",
