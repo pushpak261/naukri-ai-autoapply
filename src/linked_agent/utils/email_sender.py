@@ -104,7 +104,7 @@ def _build_html_report(
           <tbody>
     """
 
-    for job, ext_url, status, error_msg in jobs_data:
+    for job, ext_url, status, _error_msg in jobs_data:
         apply_href = ext_url if ext_url else job.url
         title = _html.escape(job.title or "N/A")
         company = _html.escape(job.company or "N/A")

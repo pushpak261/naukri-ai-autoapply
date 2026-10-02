@@ -12,6 +12,7 @@ from src.linked_agent.bot.interfaces import ILLMProvider
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.models.entities import Job, ResumeProfile
 from src.linked_agent.utils.logger import get_logger
+import contextlib
 
 logger = get_logger(__name__)
 
@@ -117,10 +118,8 @@ class LinkedInQuestionAnswerer:
             numeric_opts = []
             for opt in real_options:
                 clean = opt.replace("+", "").replace("years", "").replace("yrs", "").strip()
-                try:
+                with contextlib.suppress(ValueError):
                     numeric_opts.append((float(clean), opt))
-                except ValueError:
-                    pass
             if numeric_opts:
                 # Pick the lowest option that covers our 1 year experience
                 numeric_opts.sort(key=lambda x: x[0])

@@ -9,6 +9,7 @@ and interactions are more deliberately human-like.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -51,8 +52,8 @@ class LinkedInHumanInteractions(IBrowserInteractions):
         # Wait for element to be visible
         try:
             await locator.first.wait_for(state="visible", timeout=ELEMENT_TIMEOUT)
-        except PlaywrightTimeoutError:
-            raise RuntimeError(f"Element not found or not visible: {selector}")
+        except PlaywrightTimeoutError as e:
+            raise RuntimeError(f"Element not found or not visible: {selector}") from e
 
         if clear_first:
             await locator.first.click(force=True)
@@ -155,15 +156,13 @@ class LinkedInHumanInteractions(IBrowserInteractions):
                 pass
 
         # 3. Remove overlay backdrops
-        try:
+        with contextlib.suppress(PlaywrightError):
             await page.evaluate("""() => {
                 const overlays = document.querySelectorAll('.artdeco-modal-overlay, .artdeco-toast-item, [data-test="modal-container"]');
                 overlays.forEach(el => el.remove());
                 document.body.style.overflow = 'auto';
                 document.documentElement.style.overflow = 'auto';
             }""")
-        except PlaywrightError:
-            pass
 
     async def wait_for_navigation_complete(self, timeout: int = DEFAULT_TIMEOUT) -> None:
         """Wait for the page to finish loading."""

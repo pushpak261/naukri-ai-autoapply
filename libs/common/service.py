@@ -207,7 +207,7 @@ def make_service_app(
     _install_request_id(app)
     _install_service_auth(app, resolve_service_token())
 
-    app.add_exception_handler(HTTPOverSize, http_over_size_handler)
+    app.add_exception_handler(HTTPOverSize, http_over_size_handler)  # type: ignore[arg-type]
 
     app.add_api_route("/metrics", metrics_response, methods=["GET"])
 
@@ -231,7 +231,7 @@ def make_service_app(
                 await session.execute(text("SELECT 1"))
             return {"status": "ok", "service": name, "database": "ready"}
         except Exception as exc:
-            return JSONResponse(
+            return JSONResponse(  # type: ignore[return-value]
                 status_code=503,
                 content={
                     "status": "unavailable",

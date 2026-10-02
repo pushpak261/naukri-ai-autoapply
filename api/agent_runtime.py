@@ -119,17 +119,29 @@ def stop_agent_process(proc: subprocess.Popen | None, graceful_timeout: float = 
         return
 
     # POSIX: SIGINT lets the agent run its graceful shutdown (_cleanup).
-    with contextlib.suppress(Exception):
-        os.killpg(os.getpgid(proc.pid), signal.SIGINT)
-    try:
-        proc.wait(timeout=graceful_timeout)
-    except subprocess.TimeoutExpired:
+    if not _is_windows():
         with contextlib.suppress(Exception):
-            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            os.killpg(os.getpgid(proc.pid), signal.SIGINT)  # type: ignore[attr-defined]
+        try:
+            proc.wait(timeout=graceful_timeout)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(Exception):
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)  # type: ignore[attr-defined]
+            with contextlib.suppress(Exception):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=5)
+    else:
+        # Windows: just terminate the process
         with contextlib.suppress(Exception):
-            proc.kill()
-        with contextlib.suppress(Exception):
-            proc.wait(timeout=5)
+            proc.terminate()
+        try:
+            proc.wait(timeout=graceful_timeout)
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(Exception):
+                proc.kill()
+            with contextlib.suppress(Exception):
+                proc.wait(timeout=5)
 
 
 async def recover_stuck_runs(repo: Any) -> None:

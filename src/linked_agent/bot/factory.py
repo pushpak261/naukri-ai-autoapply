@@ -60,17 +60,18 @@ class LinkedInDependencyFactory:
         return self._settings
 
     def get_repository(self) -> IRepository:
-        if not self._repository:
+        if self._repository is None:
             if self._db_manager is None:
                 raise RuntimeError(
                     "No database manager configured. Call "
                     "`await setup_database_manager(settings.db_path)` and pass the result "
                     "to `LinkedInDependencyFactory(settings, db_manager=...)`."
                 )
-            self._repository = SQLAlchemyRepository(
+            self._repository = SQLAlchemyRepository(  # type: ignore[assignment]
                 self._db_manager,
                 naukri_db_manager=self._naukri_db_manager,
             )
+        assert self._repository is not None
         return self._repository
 
     def get_llm_provider(self) -> ILLMProvider:

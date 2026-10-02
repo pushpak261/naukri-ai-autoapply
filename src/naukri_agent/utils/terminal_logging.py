@@ -68,9 +68,10 @@ def setup_terminal_logging() -> None:
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_file_path = output_dir / f"terminal_{timestamp}.log"
-
-    # Open file with utf-8 encoding and replace errors to be robust
-    log_file = open(log_file_path, "a", encoding="utf-8", errors="replace")
+# Open file with utf-8 encoding and replace errors to be robust
+    log_file = open(log_file_path, "a", encoding="utf-8", errors="replace")  # noqa: SIM115
+    import atexit
+    atexit.register(log_file.close)
 
     lock = threading.Lock()
 
@@ -86,6 +87,6 @@ def setup_terminal_logging() -> None:
     try:
         from src.naukri_agent.utils.logger import console
 
-        console._file = sys.stdout
+        console._file = sys.stdout  # type: ignore[assignment]
     except (ImportError, AttributeError):
         pass

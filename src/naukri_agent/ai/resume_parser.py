@@ -317,7 +317,7 @@ class ResumeParser(IResumeParser):
             logger.debug(f"Extracted {len(full_text)} characters from {path.name}")
             return full_text
         except Exception as e:
-            raise ValueError(f"Failed to extract text from DOCX file: {e}")
+            raise ValueError(f"Failed to extract text from DOCX file: {e}") from e
 
     def _extract_pdf_text(self, pdf_path: str | Path) -> str:
         """

@@ -163,6 +163,8 @@ class IBrowserInteractions(Protocol):
 
     async def random_scroll(self, scroll_count: int = 3) -> None: ...
 
+    async def scroll_to_bottom_gradually(self, max_scrolls: int = 15, scroll_step: int = 600) -> None: ...
+
     async def close_popups(self) -> None: ...
 
     async def wait_for_navigation_complete(self, timeout: int = 30000) -> None: ...
@@ -192,6 +194,7 @@ class IJobMatcher(Protocol):
 class IQuestionAnswerer(Protocol):
     """Interface for answering application screening questions."""
 
+    _profile: Any
     async def answer_questions(self, questions: list[dict[str, str]], job: Job) -> list[dict]: ...
 
 

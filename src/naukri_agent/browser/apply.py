@@ -26,6 +26,7 @@ from src.naukri_agent.utils.logger import (
     log_success,
     log_warning,
 )
+import contextlib
 
 logger = get_logger(__name__)
 
@@ -91,10 +92,8 @@ class JobApplier:
                     log_info(f"Attempting external apply: {job.title} @ {job.company}")
                     apply_clicked = await self._detail_page.click_external_apply_button()
                     if apply_clicked:
-                        try:
+                        with contextlib.suppress(Exception):
                             await self._detail_page._interactions.wait_for_navigation_complete(timeout=15000)
-                        except Exception:
-                            pass
                         await asyncio.sleep(3)
                         if await self._detail_page.is_external_apply_successful():
                             log_info(f"External apply assumed successful: {job.title}")
@@ -125,10 +124,8 @@ class JobApplier:
                 }
 
             # Wait for redirect/navigation (if any) or modal rendering
-            try:
+            with contextlib.suppress(Exception):
                 await self._detail_page._interactions.wait_for_navigation_complete(timeout=5000)
-            except Exception:
-                pass
             await asyncio.sleep(2)
 
             # Step 5: Handle the apply flow (questions, confirmation, etc.)

@@ -74,10 +74,16 @@ if _HAVE_PROM:
         "1 when the agent has paused due to an external block (captcha/OTP/IP-ban).",
     )
 else:  # pragma: no cover
-    REQUEST_COUNT = REQUEST_LATENCY = INFLIGHT = SERVER_ERRORS = None
-    CIRCUIT_BREAKER_OPEN = AGENT_LAST_RUN_TIMESTAMP = AGENT_LAST_APPLY_TIMESTAMP = AGENT_RUNNING = (
-        AGENT_BLOCKED
-    ) = None
+    from typing import Optional
+    REQUEST_COUNT: Optional[Counter] = None  # type: ignore[no-redef]
+    REQUEST_LATENCY: Optional[Histogram] = None  # type: ignore[no-redef]
+    INFLIGHT: Optional[Gauge] = None  # type: ignore[no-redef]
+    SERVER_ERRORS: Optional[Counter] = None  # type: ignore[no-redef]
+    CIRCUIT_BREAKER_OPEN: Optional[Gauge] = None  # type: ignore[no-redef]
+    AGENT_LAST_RUN_TIMESTAMP: Optional[Gauge] = None  # type: ignore[no-redef]
+    AGENT_LAST_APPLY_TIMESTAMP: Optional[Gauge] = None  # type: ignore[no-redef]
+    AGENT_RUNNING: Optional[Gauge] = None  # type: ignore[no-redef]
+    AGENT_BLOCKED: Optional[Gauge] = None  # type: ignore[no-redef]
 
 
 def _endpoint_label(path: str) -> str:

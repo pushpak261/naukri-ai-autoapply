@@ -109,7 +109,7 @@ class GeminiProvider(ILLMProvider):
             if fallback not in models_to_try:
                 models_to_try.append(fallback)
 
-        last_error = None
+        last_error: BaseException | None = None
         for current_model in models_to_try:
             try:
                 response = await self._get_client().aio.models.generate_content(

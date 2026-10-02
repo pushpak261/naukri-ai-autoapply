@@ -579,11 +579,11 @@ class LinkedInAgent:
                             # Both models exhausted — disable AI matching for rest of run
                             log_warning("Both AI models exhausted — falling back to local matching")
                             self._settings.ai.enable_matching = False
-                            match_result = matcher._local_match(resume_profile, job)
+                            match_result = await matcher.match(resume_profile, job)
                         except Exception:
                             log_error("Fallback model failed unexpectedly — falling back to local matching")
                             self._settings.ai.enable_matching = False
-                            match_result = matcher._local_match(resume_profile, job)
+                            match_result = await matcher.match(resume_profile, job)
                     else:
                         if isinstance(e, LLMQuotaExceededError) and e.is_daily_quota and self._settings.ai.abort_on_quota:
                             self._interrupted = True
@@ -591,7 +591,7 @@ class LinkedInAgent:
                         # AI model exhausted — fall back to local matching for rest of run
                         log_warning("AI model exhausted — falling back to local matching")
                         self._settings.ai.enable_matching = False
-                        match_result = matcher._local_match(resume_profile, job)
+                        match_result = await matcher.match(resume_profile, job)
                 except Exception as e:
                     logger.error(f"AI Match failed: {e}")
                     self._jobs_failed += 1
@@ -695,10 +695,8 @@ class LinkedInAgent:
                     self._jobs_failed += 1
 
             # Close sidebar after processing each job
-            try:
+            with contextlib.suppress(Exception):
                 await self._job_searcher._search_page.close_sidebar()
-            except Exception:
-                pass
 
     def _save_local_report(self) -> None:
         """Save a local HTML report of accumulated external/failed jobs.
@@ -762,10 +760,8 @@ class LinkedInAgent:
             try:
                 logger.debug(f"Navigating to sidebar (attempt {attempt+1}): {target_url[:120]}")
                 await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
-                try:
+                with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
-                except PlaywrightTimeoutError:
-                    pass
                 await asyncio.sleep(2)
 
                 # Verify we're on a search page with the job sidebar open
@@ -803,18 +799,14 @@ class LinkedInAgent:
             try:
                 logger.info(f"Falling back to direct job URL: {job.url[:80]}")
                 await page.goto(job.url, wait_until="domcontentloaded", timeout=30000)
-                try:
+                with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
-                except PlaywrightTimeoutError:
-                    pass
                 await asyncio.sleep(2)
-                try:
+                with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_selector(
                         'button[aria-label*="Apply" i]',
                         timeout=8000, state='visible'
                     )
-                except PlaywrightTimeoutError:
-                    pass
                 return True
             except Exception as e:
                 logger.warning(f"Direct job URL navigation failed: {e}")
@@ -871,10 +863,8 @@ class LinkedInAgent:
         self._print_summary()
 
         if self._engine:
-            try:
+            with contextlib.suppress(PlaywrightTimeoutError, PlaywrightError):
                 await self._engine.close()
-            except (PlaywrightTimeoutError, PlaywrightError):
-                pass
 
     def _print_banner(self) -> None:
         console.print(

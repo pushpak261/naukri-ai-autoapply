@@ -786,7 +786,7 @@ class NaukriAgent:
             # between a successful Naukri apply and persistence can't cause a
             # duplicate application on the next run.
             claimed_id = None
-            if self._repo and db_job:
+            if self._repo and db_job and db_job.id is not None:
                 claimed_id = await self._repo.begin_application(
                     job_id=db_job.id,
                     match_score=match_score,
@@ -830,7 +830,7 @@ class NaukriAgent:
                     )
                 else:
                     await self._repo.save_application(
-                        job_id=db_job.id,
+                        job_id=db_job.id if db_job.id is not None else 0,
                         match_score=match_score,
                         status=status,
                         match_reasoning=match_result.match_reasoning,

@@ -91,6 +91,18 @@ class HumanInteractions(IBrowserInteractions):
             await self._engine.page.evaluate(f"window.scrollBy(0, {distance})")
             await asyncio.sleep(jitter_uniform(0.5, 1.5))
 
+    async def scroll_to_bottom_gradually(self, max_scrolls: int = 15, scroll_step: int = 600) -> None:
+        """Gradually scroll to the bottom of the page to load lazy-loaded content."""
+        for _ in range(max_scrolls):
+            await self._engine.page.evaluate(f"window.scrollBy(0, {scroll_step})")
+            await asyncio.sleep(jitter_uniform(0.3, 0.8))
+            # Check if we've reached the bottom
+            at_bottom = await self._engine.page.evaluate(
+                "() => window.innerHeight + window.scrollY >= document.body.scrollHeight - 100"
+            )
+            if at_bottom:
+                break
+
     async def close_popups(self) -> None:
         """Attempt to close any visible popups or modals."""
         page = self._engine.page

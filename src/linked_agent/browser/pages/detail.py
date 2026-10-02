@@ -6,6 +6,7 @@ Handles job detail extraction and the Easy Apply flow.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from typing import Any
 
@@ -45,10 +46,8 @@ class LinkedInJobDetailPage(BasePage):
         details: dict[str, str] = {}
 
         # Try a quick wait for any content, then fall back to JS extraction
-        loaded = False
         try:
             await page.wait_for_selector('h1, h2, div[class*="job"], section[class*="job"], div[class*="description"]', timeout=10000)
-            loaded = True
         except PlaywrightTimeoutError:
             logger.warning("Job detail content did not load within timeout — attempting JS extraction anyway")
 
@@ -1112,7 +1111,7 @@ class LinkedInJobDetailPage(BasePage):
         page = self._engine.page
 
         # Step 1: Click the dismiss/close button on the modal
-        try:
+        with contextlib.suppress(PlaywrightError):
             await page.evaluate("""
             () => {
                 // Try X button
@@ -1126,8 +1125,6 @@ class LinkedInJobDetailPage(BasePage):
                 if (dismiss) dismiss.click();
             }
             """)
-        except PlaywrightError:
-            pass
         await asyncio.sleep(1.5)
 
         # Step 2: Handle "Discard application?" confirmation dialog
@@ -1173,7 +1170,7 @@ class LinkedInJobDetailPage(BasePage):
                 await page.keyboard.press('Escape')
                 await asyncio.sleep(1)
                 # Check for discard dialog again after Escape
-                try:
+                with contextlib.suppress(PlaywrightError):
                     await page.evaluate("""
                     () => {
                         const dialogs = document.querySelectorAll('div[role="dialog"], div[role="alertdialog"]');
@@ -1189,8 +1186,6 @@ class LinkedInJobDetailPage(BasePage):
                         }
                     }
                     """)
-                except PlaywrightError:
-                    pass
                 await asyncio.sleep(1)
         except PlaywrightError:
             pass
@@ -1262,7 +1257,7 @@ class LinkedInJobDetailPage(BasePage):
 
     async def _click_dropdown_option(self, option_text: str, question_text: str = "") -> bool:
         """Click a specific option in a LinkedIn dropdown using Playwright select_option.
-        
+
         Finds the SELECT element associated with the question's label, then selects
         the matching option. This avoids hitting the wrong SELECT when multiple exist.
         Uses textContent as fallback when innerText returns empty.
@@ -1281,7 +1276,6 @@ class LinkedInJobDetailPage(BasePage):
                     if (!modal) return null;
                     const qText = {safe_q};
                     const answer = {safe_opt};
-                    
                     // Find label matching this question
                     const labels = modal.querySelectorAll('label');
                     for (const label of labels) {{

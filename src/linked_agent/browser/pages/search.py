@@ -18,6 +18,7 @@ from src.linked_agent.config.constants import SearchSelectors
 from src.linked_agent.models.entities import Job
 from src.linked_agent.utils.helpers import clean_text, extract_linkedin_job_id
 from src.linked_agent.utils.logger import get_logger
+import contextlib
 
 logger = get_logger(__name__)
 
@@ -36,10 +37,8 @@ class LinkedInSearchPage(BasePage):
                     f"Navigating to LinkedIn search (attempt {attempt}/{max_retries}): {search_url}"
                 )
                 await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-                try:
+                with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
-                except PlaywrightTimeoutError:
-                    pass
 
                 # Detect silent redirects (LinkedIn often strips ?start= or sends to login)
                 actual_url = page.url
@@ -219,10 +218,8 @@ class LinkedInSearchPage(BasePage):
                         return False
 
                     await next_btn.click()
-                    try:
+                    with contextlib.suppress(PlaywrightTimeoutError):
                         await page.wait_for_load_state("networkidle", timeout=10000)
-                    except PlaywrightTimeoutError:
-                        pass
                     await asyncio.sleep(2)
 
                     if await self.has_no_results():
@@ -253,7 +250,7 @@ class LinkedInSearchPage(BasePage):
                 if index >= count:
                     logger.warning(f"Card index {index} out of range (have {count}) — scrolling to load more (attempt {attempt+1})")
                     for _ in range(6):
-                        try:
+                        with contextlib.suppress(Exception):
                             await page.evaluate("""
                                 () => {
                                     const card = document.querySelector('a[href*="/jobs/view/"]');
@@ -275,8 +272,6 @@ class LinkedInSearchPage(BasePage):
                                     return false;
                                 }
                             """)
-                        except Exception:
-                            pass
                         await asyncio.sleep(1)
                     await asyncio.sleep(2)
                     continue
@@ -406,30 +401,24 @@ class LinkedInSearchPage(BasePage):
 
     async def _wait_for_search_page_ready(self, page) -> None:
         """Wait for DOM, network idle, and at least one job card to render."""
-        try:
+        with contextlib.suppress(Exception):
             await page.wait_for_load_state("domcontentloaded", timeout=10_000)
-        except Exception:
-            pass
         await asyncio.sleep(1)
 
         if await self.has_no_results():
             return
 
-        try:
+        with contextlib.suppress(Exception):
             await page.wait_for_load_state("networkidle", timeout=5_000)
-        except Exception:
-            pass
 
         if await self.has_no_results():
             return
 
-        try:
+        with contextlib.suppress(Exception):
             await page.wait_for_selector(
                 '[data-view-name="job-card"], a[href*="/jobs/view/"]',
                 timeout=10_000,
             )
-        except Exception:
-            pass
         await asyncio.sleep(1)
 
     # ── Private: container detection ────────────────────────────────────────

@@ -64,8 +64,11 @@ class SQLAlchemyRepository:
                 .join(Application, Application.job_id == Job.id)
                 .where(Application.status == "applied")
             )
-            for row in result:
-                self._applied_composite_cache.add((row[0].lower(), row[1].lower()))
+            for row in result:  # type: ignore
+                # row is Row[tuple[str, str]] from select(Job.title, Job.company)
+                title_val = str(row[0])  # type: ignore[misc]
+                company_val = str(row[1])  # type: ignore[misc]
+                self._applied_composite_cache.add((title_val.lower(), company_val.lower()))
 
         self._initialized = True
         logger.info(

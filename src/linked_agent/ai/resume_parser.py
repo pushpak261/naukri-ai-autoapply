@@ -63,7 +63,7 @@ class LinkedInResumeParser:
         cached = await self._repo.get_cached_profile(file_hash)
         if cached:
             logger.info("Using cached resume profile")
-            return self._profile_from_json(cached.parsed_json)
+            return self._profile_from_json(cached.parsed_json)  # type: ignore[attr-defined]
 
         # Extract text from PDF
         raw_text = self._extract_text(path)

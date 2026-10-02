@@ -72,7 +72,7 @@ class LinkedInJobMatcher:
     def _local_match(self, resume_profile: ResumeProfile, job: Job) -> JobApplication:
         """Fallback local matching using skill overlap with word boundaries."""
         import re as _re
-        resume_skills = set(s.lower().strip() for s in resume_profile.skills if len(s.strip()) > 2)
+        resume_skills = {s.lower().strip() for s in resume_profile.skills if len(s.strip()) > 2}
         job_text = f"{job.title} {job.description} {job.skills}".lower()
 
         def word_boundary_match(skill: str) -> bool:

@@ -18,6 +18,7 @@ from src.naukri_agent.config.constants import (
 )
 from src.naukri_agent.utils.helpers import clean_text
 from src.naukri_agent.utils.logger import get_logger
+import contextlib
 
 logger = get_logger(__name__)
 
@@ -184,7 +185,7 @@ class JobDetailPage(BasePage):
                 """
                 () => {
                     const elements = [...document.querySelectorAll('button, a, input, [role="button"], [class*="apply" i], [class*="walkin" i]')];
-                    
+
                     const visibleCandidates = elements.filter(el => {
                         try {
                             const rect = el.getBoundingClientRect();
@@ -202,7 +203,7 @@ class JobDetailPage(BasePage):
                         const tag = el.tagName.toLowerCase();
                         let text = (tag === 'input' ? (el.value || '') : (el.textContent || '')).trim().toLowerCase();
                         if (text.includes('applied') || text.includes('already applied')) continue;
-                        
+
                         if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
                             if (text === 'apply' || text === 'apply now' || (text.startsWith('apply') && !text.includes('application') && !text.includes('applicant') && !text.includes('applying')) || text.includes('walk-in') || text.includes('walkin') || text === 'interested') {
                                 el.click();
@@ -216,10 +217,10 @@ class JobDetailPage(BasePage):
                         const tag = el.tagName.toLowerCase();
                         let text = (tag === 'input' ? (el.value || '') : (el.textContent || '')).trim().toLowerCase();
                         if (text.includes('applied') || text.includes('already applied')) continue;
-                        
+
                         const id = (el.id || '').toLowerCase();
                         const className = (el.className || '').toString().toLowerCase();
-                        
+
                         if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
                             if (id.includes('apply') || className.includes('apply') || className.includes('walk-in') || className.includes('walkin')) {
                                 el.click();
@@ -232,7 +233,7 @@ class JobDetailPage(BasePage):
                     for (const el of visibleCandidates) {
                         let text = (el.textContent || '').trim().toLowerCase();
                         if (text.includes('applied') || text.includes('already applied')) continue;
-                        
+
                         if (text === 'apply' || text === 'apply now' || text.includes('walk-in') || text.includes('walkin')) {
                             el.click();
                             return true;
@@ -1191,7 +1192,8 @@ class JobDetailPage(BasePage):
                 if result:
                     return True
                 # Fallback: select by visible text matching
-                return await self._select_dropdown_option(select_elem, answer) or True
+                result = await self._select_dropdown_option(select_elem, answer)
+                return result
         return False
 
     async def _fill_choice_multi_strategy(
@@ -1372,7 +1374,7 @@ class JobDetailPage(BasePage):
         selector: str, stable_selector: str, fingerprint: str
     ) -> bool:
         """Multi-strategy text/number/date field fill.
-        
+
         After successfully filling in a chatbot flow, automatically triggers
         the Save button so the answer registers and the next question appears.
         """
@@ -1380,14 +1382,12 @@ class JobDetailPage(BasePage):
         filled = False
 
         # Strategy 1: data-agent-field-id selector
-        if not filled and selector:
-            if await self._fill_single_text_input(page, selector, answer):
-                filled = True
+        if not filled and selector and await self._fill_single_text_input(page, selector, answer):
+            filled = True
 
         # Strategy 2: stable CSS selector
-        if not filled and stable_selector:
-            if await self._fill_single_text_input(page, stable_selector, answer):
-                filled = True
+        if not filled and stable_selector and await self._fill_single_text_input(page, stable_selector, answer):
+            filled = True
 
         # Strategy 3: fingerprint-based re-find
         if not filled and fingerprint:
@@ -1414,9 +1414,8 @@ class JobDetailPage(BasePage):
             )
             if elem:
                 elem = elem.as_element()
-                if elem:
-                    if await self._fill_element_text(page, elem, answer):
-                        filled = True
+                if elem and await self._fill_element_text(page, elem, answer):
+                    filled = True
 
         # Strategy 4: Find by label text
         if not filled and q_text:
@@ -1434,10 +1433,9 @@ class JobDetailPage(BasePage):
                 for inp in inputs:
                     try:
                         ph = (await inp.get_attribute("placeholder") or "").lower()
-                        if ph and (q_lower in ph or ph in q_lower):
-                            if await self._fill_element_text(page, inp, answer):
-                                filled = True
-                                break
+                        if ph and (q_lower in ph or ph in q_lower) and await self._fill_element_text(page, inp, answer):
+                            filled = True
+                            break
                     except Exception:
                         pass
             except Exception:
@@ -1479,10 +1477,8 @@ class JobDetailPage(BasePage):
         # answer registers and the next question appears.
         if filled and await self.is_chatbot_flow():
             await asyncio.sleep(0.3)
-            try:
+            with contextlib.suppress(Exception):
                 await self.click_chatbot_save_button()
-            except Exception:
-                pass
 
         return filled
 
@@ -1498,7 +1494,7 @@ class JobDetailPage(BasePage):
 
     async def _fill_element_text(self, page, element, answer: str) -> bool:
         """Fill text into an element with robust visibility/scroll handling.
-        
+
         Strategy:
         1. For visible elements: Playwright fill() (triggers React/Angular change detection)
         2. For non-visible elements: JS native value setter + all events (focus/input/change/blur)
@@ -1567,7 +1563,7 @@ class JobDetailPage(BasePage):
                 """(el, val) => {
                     const tag = el.tagName.toLowerCase();
                     const isInput = tag === 'input' || tag === 'textarea';
-                    
+
                     if (isInput) {
                         el.focus();
                         const nativeSetter = Object.getOwnPropertyDescriptor(
@@ -1966,8 +1962,8 @@ class JobDetailPage(BasePage):
         except PlaywrightError as e:
             logger.warning(f"Failed to fill answer for question '{q[:40]}': {e}")
 
-    async def _select_dropdown_option(self, select_elem, answer: str) -> None:
-        """Select the best matching option from a dropdown."""
+    async def _select_dropdown_option(self, select_elem, answer: str) -> bool:
+        """Select the best matching option from a dropdown. Returns True if selected."""
         try:
             options = await select_elem.query_selector_all("option")
             answer_lower = answer.lower().strip()
@@ -1978,7 +1974,7 @@ class JobDetailPage(BasePage):
                 opt_value = await opt.get_attribute("value") or ""
                 if opt_text.lower() == answer_lower or opt_value.lower() == answer_lower:
                     await select_elem.select_option(value=opt_value)
-                    return
+                    return True
 
             # Try partial match
             for opt in options:
@@ -1986,12 +1982,14 @@ class JobDetailPage(BasePage):
                 opt_value = await opt.get_attribute("value") or ""
                 if answer_lower in opt_text.lower() or opt_text.lower() in answer_lower:
                     await select_elem.select_option(value=opt_value)
-                    return
+                    return True
 
             logger.warning(f"No matching dropdown option for: {answer}")
+            return False
 
         except PlaywrightError as e:
             logger.debug(f"Dropdown selection failed: {e}")
+            return False
 
     async def _select_radio_option(self, label_elem, answer: str) -> None:
         """Select the best matching radio button option."""
@@ -2015,12 +2013,12 @@ class JobDetailPage(BasePage):
 
     async def _trigger_form_validation(self) -> None:
         """Trigger client-side form validation by blurring all filled fields.
-        
+
         Many SPAs (React/Angular) validate fields on blur. This ensures
         validation state is updated before we attempt to submit.
         """
         page = self._engine.page
-        try:
+        with contextlib.suppress(Exception):
             await page.evaluate("""
                 () => {
                     const inputs = document.querySelectorAll(
@@ -2037,8 +2035,6 @@ class JobDetailPage(BasePage):
                     });
                 }
             """)
-        except Exception:
-            pass
     async def click_chatbot_save_button(self) -> bool:
         """Click the Save button specifically within a chatbot/screening panel.
 
@@ -2174,7 +2170,7 @@ class JobDetailPage(BasePage):
                 if (best.disabled) best.disabled = false;
                 best.removeAttribute('disabled');
                 best.removeAttribute('aria-disabled');
-                
+
                 // Assign temporary target attribute for Playwright native click
                 best.setAttribute('data-agent-click-target', 'true');
                 return results[0].text;
@@ -2211,10 +2207,8 @@ class JobDetailPage(BasePage):
                         logger.info(f"Clicked chatbot Save button via JS fallback (attempt {retry + 1}): '{clicked_text}'")
 
                     # Clean up the target attribute
-                    try:
+                    with contextlib.suppress(Exception):
                         await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
-                    except Exception:
-                        pass
 
                     await asyncio.sleep(1)
                     return True
@@ -2290,26 +2284,26 @@ class JobDetailPage(BasePage):
                             const rect = el.getBoundingClientRect();
                             if (rect.width < 20 || rect.height < 20) continue;
                             if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
-                            
+
                             let score = 0;
                             if (el.tagName === 'BUTTON') score += 20;
                             if (text === 'save') score += 30;
                             else if (text.startsWith('save')) score += 20;
-                            
+
                             // Prefer leaf elements (fewer descendants)
                             const descendantCount = el.querySelectorAll('*').length;
                             score -= descendantCount * 2;
-                            
+
                             // Boost for primary/CTA styling (colored background)
                             const bg = style.backgroundColor;
                             if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') score += 15;
                             if (el.className.toLowerCase().includes('primary') || el.className.toLowerCase().includes('cta')) score += 10;
-                            
+
                             // Boost if inside a chatbot/modal/drawer container
                             if (el.closest('[class*="chatbot" i], [class*="bot" i], [class*="chat" i], [class*="modal" i], [class*="dialog" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
                                 score += 100;
                             }
-                            
+
                             results.push({ el, score, text });
                         }
                         if (results.length === 0) return null;
@@ -2319,7 +2313,7 @@ class JobDetailPage(BasePage):
                         if (best.disabled) best.disabled = false;
                         best.removeAttribute('disabled');
                         best.removeAttribute('aria-disabled');
-                        
+
                         best.setAttribute('data-agent-click-target', 'true');
                         return results[0].text;
                     }"""
@@ -2354,10 +2348,8 @@ class JobDetailPage(BasePage):
                         logger.info(f"Clicked Save button via page-wide JS fallback: '{any_save_clicked}'")
 
                     # Clean up the target attribute
-                    try:
+                    with contextlib.suppress(Exception):
                         await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
-                    except Exception:
-                        pass
 
                     await asyncio.sleep(1)
                     return True
@@ -2388,7 +2380,7 @@ class JobDetailPage(BasePage):
 
         page = self._engine.page
 
-        for retry in range(3):
+        for _retry in range(3):
             # ── Strategy 1: Playwright native locators ──
             for text in ("Save", "Save & Next", "Save and Continue", "Next", "Continue"):
                 try:
@@ -2436,11 +2428,11 @@ class JobDetailPage(BasePage):
                     if (rect.width < 20 || rect.height < 20) continue;
                     if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
                     let depth = (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'A') ? 0 : 1;
-                    
+
                     // Prefer leaf elements (fewer descendants)
                     const descendantCount = el.querySelectorAll('*').length;
                     depth += descendantCount * 0.1;
-                    
+
                     // Prefer buttons inside modal/chatbot/drawer/slider containers
                     if (el.closest('[class*="modal" i], [class*="chatbot" i], [class*="dialog" i], [class*="apply" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
                         depth -= 5;
@@ -2454,7 +2446,7 @@ class JobDetailPage(BasePage):
                 if (best.disabled) best.disabled = false;
                 best.removeAttribute('disabled');
                 best.removeAttribute('aria-disabled');
-                
+
                 best.setAttribute('data-agent-click-target', 'true');
                 return results[0].text;
             }"""
@@ -2490,10 +2482,8 @@ class JobDetailPage(BasePage):
                         logger.debug(f"Clicked Save button via JS fallback: '{clicked_text}'")
 
                     # Clean up the target attribute
-                    try:
+                    with contextlib.suppress(Exception):
                         await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
-                    except Exception:
-                        pass
 
                     return True
             except Exception as e:
@@ -2541,7 +2531,7 @@ class JobDetailPage(BasePage):
                     else if (text.includes('save') || text.includes('next') || text.includes('continue') || text.includes('send')) score = 80;
                     else if (text.includes('confirm') || text.includes('proceed')) score = 70;
                 }
-                
+
                 if (score > 0) {
                     // Boost score if inside a modal, popup, or chatbot container
                     if (el.closest('[class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="chatbot"], [class*="chat" i], [class*="bot" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
@@ -2561,15 +2551,15 @@ class JobDetailPage(BasePage):
             };
 
             const candidates = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a.btn, a.button, [class*="btn" i], [class*="button" i], span, div'));
-            
+
             const validCandidates = candidates.filter(el => {
                 const style = window.getComputedStyle(el);
                 if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
                 const rect = el.getBoundingClientRect();
                 if (rect.width === 0 || rect.height === 0) return false;
-                
+
                 if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')) return false;
-                
+
                 return getScore(el) > 0;
             });
 
@@ -2614,10 +2604,8 @@ class JobDetailPage(BasePage):
                     logger.debug("Successfully clicked submit/apply button via JS fallback.")
 
                 # Clean up target attribute
-                try:
+                with contextlib.suppress(Exception):
                     await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
-                except Exception:
-                    pass
 
                 return True
         except Exception as e:

@@ -194,10 +194,8 @@ class LinkedInJobApplier:
 
                 finally:
                     if listener_active:
-                        try:
+                        with contextlib.suppress(Exception):
                             page.context.remove_listener("page", on_popup)
-                        except Exception:
-                            pass
                         listener_active = False
 
             except Exception as e:
@@ -221,7 +219,7 @@ class LinkedInJobApplier:
         """
         location = ""
         try:
-            location = self._settings.search.preferred_locations[0] if self._settings.search.preferred_locations else "India"
+            location = self._settings.search.locations[0] if self._settings.search.locations else "India"
         except Exception:
             location = "India"
 
@@ -241,7 +239,7 @@ class LinkedInJobApplier:
         for q in questions:
             question_lower = q.get("question", "").lower()
             field_type = q.get("field_type", "text")
-            options = q.get("options", [])
+            options: list[str] = q.get("options", [])  # type: ignore[assignment]
             answer = ""
 
             # Name fields
@@ -293,17 +291,24 @@ class LinkedInJobApplier:
                 elif any(kw in question_lower for kw in ["education", "degree", "qualification"]):
                     for edu in ["bachelor", "bachelor's", "be", "b.tech", "master", "master's", "m.tech", "phd"]:
                         match = next((opt for opt in options if edu in opt.lower()), None)
-                        if match: answer = match; break
+                        if match:
+                            answer = match
+                            break
                 elif any(kw in question_lower for kw in ["language", "english", "proficiency"]):
                     for lang in ["fluent", "native", "professional", "advanced", "intermediate", "basic"]:
                         match = next((opt for opt in options if lang in opt.lower()), None)
-                        if match: answer = match; break
+                        if match:
+                            answer = match
+                            break
                 elif any(kw in question_lower for kw in ["current ctc", "salary", "compensation", "annual"]):
-                    if current_ctc: answer = current_ctc
+                    if current_ctc:
+                        answer = current_ctc
                 elif any(kw in question_lower for kw in ["expected ctc", "expect"]):
-                    if expected_ctc: answer = expected_ctc
+                    if expected_ctc:
+                        answer = expected_ctc
                 elif any(kw in question_lower for kw in ["notice", "notice period"]):
-                    if notice_period: answer = notice_period
+                    if notice_period:
+                        answer = notice_period
 
             # Text fields for profile data
             elif field_type == "text":
@@ -383,10 +388,8 @@ class LinkedInJobApplier:
                     if "NO MODAL FOUND" in modal_text:
                         logger.warning("False-positive modal — bailing out")
                         break
-                    try:
+                    with contextlib.suppress(Exception):
                         await page.screenshot(path=f"debug_0questions_{job.linkedin_job_id}.png")
-                    except Exception:
-                        pass
 
                 # Try Submit/Review/Next immediately when no questions found
                 # (pre-filled form or info-only step)
@@ -486,7 +489,7 @@ class LinkedInJobApplier:
                     answers = await self._question_answerer.answer_questions(non_file_questions, job)
                 else:
                     answers = await self._answer_screening_questions_locally(non_file_questions, job)
-                for q, a in zip(non_file_questions, answers):
+                for q, a in zip(non_file_questions, answers, strict=True):
                     answer_text = a.get("answer", "")
                     field_type = q.get("field_type", "text")
                     # For radio buttons, only fill the "Yes" or best answer, skip if answer is empty

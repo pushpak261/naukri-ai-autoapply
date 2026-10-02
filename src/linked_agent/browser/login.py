@@ -160,6 +160,10 @@ class LinkedInLoginHandler:
 
     async def _perform_login(self) -> bool:
         """Perform a fresh LinkedIn login."""
+        if self._settings is None or self._strategy is None:
+            log_error("Settings or strategy not configured for login")
+            return False
+
         try:
             log_info("Navigating to LinkedIn login page...")
             await self._login_page.navigate()

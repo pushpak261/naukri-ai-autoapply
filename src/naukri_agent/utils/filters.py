@@ -89,9 +89,7 @@ class JobFilter:
             max_req = int(range_match.group(2))
             if min_req > self.max_experience:
                 return False
-            if max_req > self.max_experience + 1 and max_req >= 4:
-                return False
-            return True
+            return not (max_req > self.max_experience + 1 and max_req >= 4)
         # Single number format: "5 Yrs"
         single_match = re.search(r"(\d+)", exp_text)
         if single_match:
