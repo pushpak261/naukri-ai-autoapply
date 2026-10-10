@@ -21,7 +21,6 @@ from api.auth.jwt import (
     create_access_token,
     create_refresh_token,
     delete_refresh_token,
-    load_refresh_token,
     save_refresh_token,
     verify_refresh_token,
 )
@@ -120,6 +119,12 @@ def _save_naukri_credentials(email: str, password: str) -> None:
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
 
+    from src.naukri_agent.config.settings import get_settings
+
+    get_settings.cache_clear()
+    state.settings = get_settings()
+    state.active_account_email = None
+
 
 # ---------------------------------------------------------------------------
 # Endpoints
@@ -134,8 +139,8 @@ async def register(body: RegisterRequest, response: Response):
     falsy). Operators seed credentials via ``NAUKRI_EMAIL``/``NAUKRI_PASSWORD``
     in ``.env``/``config.yaml`` and use the login endpoint.
     """
-    # Allow registration unless explicitly disabled with OPEN_REGISTRATION=false
-    if os.environ.get("OPEN_REGISTRATION", "true").strip().lower() in (
+    # Explicit opt-in is required for initial dashboard setup.
+    if os.environ.get("OPEN_REGISTRATION", "false").strip().lower() in (
         "0",
         "false",
         "no",
@@ -146,6 +151,9 @@ async def register(body: RegisterRequest, response: Response):
             detail="Public registration is disabled",
         )
 
+
+    if state.settings and state.settings.naukri.email:
+        raise HTTPException(status_code=409, detail="An account is already configured. Please sign in.")
 
     email = body.email.strip()
     password = body.password
@@ -188,7 +196,7 @@ async def check_registration():
 async def login(body: LoginRequest, response: Response):
     """Authenticate with Naukri email + password.
 
-    Stores credentials in config.yaml for the agent, issues a JWT access
+    Verifies the configured operator credentials, then issues a JWT access
     token (returned in the body) and a refresh token (httpOnly cookie).
     """
     email = body.email.strip()
@@ -200,14 +208,14 @@ async def login(body: LoginRequest, response: Response):
             detail="Email and password are required",
         )
 
-    # Persist credentials so the agent can use them later
-    try:
-        _save_naukri_credentials(email, password)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save credentials: {exc}",
-        )
+    configured = state.settings.naukri if state.settings else None
+    if not configured or not configured.email or not configured.password:
+        raise HTTPException(status_code=409, detail="No account configured. Ask the administrator to complete setup.")
+    if not (
+        secrets.compare_digest(email.encode(), configured.email.strip().encode())
+        and secrets.compare_digest(password.encode(), configured.password.encode())
+    ):
+        raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Issue tokens
     secret = _get_jwt_secret()
@@ -233,10 +241,8 @@ async def refresh(request: Request, response: Response):
     """Issue a new access token using the refresh token cookie."""
     secret = _get_jwt_secret()
 
-    # Try cookie first, then fall back to saved file
+    # A server-side saved token does not prove the caller owns the session.
     raw_token = request.cookies.get(REFRESH_COOKIE_NAME)
-    if not raw_token:
-        raw_token = load_refresh_token(state.settings)
 
     if not raw_token:
         raise HTTPException(
@@ -279,3 +285,4 @@ async def me(email: str = Depends(get_current_user)):
         is_logged_in=True,
         naukri_configured=naukri_configured,
     )
+

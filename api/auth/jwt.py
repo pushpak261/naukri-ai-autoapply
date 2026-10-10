@@ -6,7 +6,6 @@ the dashboard authentication session.
 from __future__ import annotations
 
 import json
-import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -31,7 +30,11 @@ def _get_fernet(settings: Any) -> Any:
     """Return a Fernet instance using the configured encryption key."""
     from cryptography.fernet import Fernet
 
-    key = settings.jwt_encryption_key or secrets.token_hex(16)
+    key = settings.jwt_encryption_key or settings.jwt_secret
+    if not key:
+        from libs.common.security import resolve_encryption_key
+
+        return Fernet(resolve_encryption_key())
     key_bytes = _derive_key(key)
     # Fernet keys must be 32 base64-encoded bytes — pad if needed
     import base64
@@ -119,3 +122,4 @@ def delete_refresh_token(settings: Any) -> None:
     path = settings.data_dir / _TOKEN_FILE
     if path.exists():
         path.unlink()
+

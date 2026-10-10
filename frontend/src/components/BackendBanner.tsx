@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 
-const rawBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const HEALTH_URL = rawBase ? `${rawBase}/api/health` : '/api/health';
+import { API_BASE_URL } from '../lib/api-base';
+const HEALTH_URL = `${API_BASE_URL}/health`;
 
 /**
  * Surfaces a clear, app-wide banner when the backend API cannot be reached.
@@ -20,8 +20,9 @@ export function BackendBanner() {
     // Increased timeout from 5s to 15s to handle cold starts better
     const timer = setTimeout(() => ctrl.abort(), 15000);
     fetch(HEALTH_URL, { signal: ctrl.signal, cache: 'no-store' })
-      .then((res) => {
-        if (active) setDown(!res.ok);
+      .then(async (res) => {
+        const health = res.ok ? await res.json().catch(() => null) : null;
+        if (active) setDown(!health || !['ok', 'healthy'].includes(health.status));
       })
       .catch(() => {
         if (active) setDown(true);
@@ -41,11 +42,9 @@ export function BackendBanner() {
       role="alert"
       className="fixed inset-x-0 top-0 z-[100] bg-red-600 px-4 py-2 text-center text-sm font-medium text-white shadow-lg"
     >
-      Backend API unreachable{rawBase ? ` at ${rawBase}` : ' (same-origin /api)'}. The
-      dashboard cannot load data. This also appears when the backend is running but its
-      event loop is stalled (e.g. an agent stop left browser processes behind) — a
-      <code>curl /api/health</code> that hangs instead of erroring means restart it, so
-      check that before suspecting the CORS policy.
+      Unable to connect to the job agent. Please try again shortly or contact the
+      deployment administrator if the problem continues.
     </div>
   );
 }
+

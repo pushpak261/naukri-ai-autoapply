@@ -1,5 +1,5 @@
-const rawBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const BASE_URL = rawBase ? `${rawBase}/api` : '/api';
+import { API_BASE_URL } from './api-base';
+const BASE_URL = API_BASE_URL;
 
 // Hard timeout so a slow/unreachable backend fails fast instead of hanging the
 // dashboard (e.g. a disabled Koyeb deployment would otherwise make the app spin
@@ -59,14 +59,14 @@ async function refreshAccessToken(): Promise<string | null> {
         credentials: 'include',
       }));
       if (!res.ok) {
-        accessToken = null;
+        setAuthToken(null);
         return null;
       }
       const data = await res.json();
-      accessToken = data.access_token;
+      setAuthToken(data.access_token);
       return data.access_token;
     } catch {
-      accessToken = null;
+      setAuthToken(null);
       return null;
     } finally {
       refreshPromise = null;
@@ -525,6 +525,34 @@ export interface MeResponse {
 
 export const SSE_BASE = BASE_URL;
 
+/** Download through the same authenticated path as dashboard requests. */
+export async function downloadExport(path: string, filename: string): Promise<void> {
+  let token = getAuthToken() || await refreshAccessToken();
+  const request = () => fetch(`${BASE_URL}${path}`, withTimeout({
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
+    cache: 'no-store',
+  }));
+  let response = await request();
+  if (response.status === 401) {
+    token = await refreshAccessToken();
+    if (token) response = await request();
+  }
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `Export failed (HTTP ${response.status})`);
+  }
+  const blob = await response.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 // Job Inspector Interfaces
 export interface FilterEvaluationDetail {
   name: string;
@@ -894,4 +922,5 @@ export interface LinkedInConfig {
     dry_run: boolean;
   };
 }
+
 

@@ -14,6 +14,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import PlainTextResponse
 
 from api.deps import state as deps
+from api.auth.dashboard import accepts_dashboard_token
+from api.auth.deps import _resolve_secret
 from api.routes import (
     accounts as accounts_router,
     agent as agent_router,
@@ -130,33 +132,23 @@ async def root() -> dict[str, str]:
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next):
     api_key = deps.settings.dashboard_api_key if deps.settings else None
-    if not api_key:
-        response = await call_next(request)
-        # Enable caching for GET requests to improve performance
-        if request.url.path.startswith("/api/") and request.method == "GET":
-            response.headers["Cache-Control"] = "public, max-age=30"
-        return response
-
-    if request.url.path in PUBLIC_PATHS or any(
-        request.url.path.startswith(p) for p in PUBLIC_PREFIXES
+    public = request.url.path in PUBLIC_PATHS or any(
+        request.url.path.startswith(prefix) for prefix in PUBLIC_PREFIXES
+    )
+    if request.method == "OPTIONS" or not api_key or public or accepts_dashboard_token(
+        request, api_key, _resolve_secret()
     ):
         response = await call_next(request)
-        if request.url.path.startswith("/api/") and request.method == "GET":
-            response.headers["Cache-Control"] = "public, max-age=30"
-        return response
-
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer ") and auth_header.removeprefix("Bearer ").strip() == api_key:
-        response = await call_next(request)
-        if request.url.path.startswith("/api/") and request.method == "GET":
-            response.headers["Cache-Control"] = "public, max-age=30"
-        return response
-
-    return PlainTextResponse(
-        '{"detail":"Unauthorized"}',
-        status_code=401,
-        headers={"Content-Type": "application/json", "WWW-Authenticate": "Bearer"},
-    )
+    else:
+        response = PlainTextResponse(
+            '{"detail":"Unauthorized"}',
+            status_code=401,
+            headers={"Content-Type": "application/json", "WWW-Authenticate": "Bearer"},
+        )
+    # Dashboard data includes credentials, sessions and rapidly changing run state.
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "private, no-store"
+    return response
 
 
 # GZipMiddleware first (inner) - compresses responses
@@ -208,3 +200,4 @@ if __name__ == "__main__":
         reload=True,
         reload_dirs=["api", "src"],
     )
+
