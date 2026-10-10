@@ -25,6 +25,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg}'],
+        navigateFallbackDenylist: [/^\/api(?:\/|$)/],
         runtimeCaching: [
           {
             urlPattern: /^\/api\/stats/,
@@ -83,3 +84,4 @@ export default defineConfig({
     chunkSizeWarningLimit: 1000,
   },
 })
+

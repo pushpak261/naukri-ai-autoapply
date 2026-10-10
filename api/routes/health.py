@@ -3,6 +3,7 @@ import shutil
 from datetime import UTC, datetime
 
 from fastapi import APIRouter
+from sqlalchemy import text
 
 from api.deps import state
 
@@ -16,7 +17,7 @@ async def health():
     try:
         if state.db_manager and state.db_manager.engine:
             async with state.db_manager.engine.connect() as conn:
-                await conn.execute(conn.default_schema_name or "SELECT 1")
+                await conn.execute(text("SELECT 1"))
                 db_ok = True
             db_path = state.settings.db_path
             if db_path.exists():
@@ -54,3 +55,4 @@ async def health():
             },
         },
     }
+

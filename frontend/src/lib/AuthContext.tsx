@@ -23,8 +23,9 @@ export function useAuth(): AuthContextValue {
   const loading = useAppSelector((s) => s.auth.loading);
 
   const login = (email: string, password: string) =>
-    dispatch(loginThunk({ email, password })).then(() => undefined);
+    dispatch(loginThunk({ email, password })).unwrap().then(() => undefined);
   const logout = () => dispatch(logoutThunk()).then(() => undefined);
 
   return { user, loading, login, logout };
 }
+

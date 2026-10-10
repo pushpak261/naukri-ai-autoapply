@@ -13,14 +13,18 @@ export default function Jobs() {
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const perPage = 20;
 
   const fetchJobs = useCallback(async () => {
     setLoading(true);
+    setError('');
     try {
       const data = await api.jobs(page, perPage, search, statusFilter, 'newest', 0, 100, sourceFilter);
       setJobs(data.items);
       setTotal(data.total);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : 'Failed to load jobs');
     } finally {
       setLoading(false);
     }
@@ -71,7 +75,12 @@ export default function Jobs() {
       </div>
 
       <div className="bg-[#1e293b] rounded-xl border border-[#334155] overflow-hidden">
-        {loading ? (
+        {error ? (
+          <div role="alert" className="text-center py-16 text-red-400">
+            <p>{error}</p>
+            <button onClick={fetchJobs} className="mt-3 text-sm underline">Try again</button>
+          </div>
+        ) : loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
           </div>
@@ -190,3 +199,4 @@ export default function Jobs() {
     </div>
   );
 }
+

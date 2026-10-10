@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Briefcase, CheckCircle, XCircle, SkipForward, Clock, TrendingUp,
@@ -11,10 +12,19 @@ import StatCard from '../components/StatCard';
 import StatusBadge from '../components/StatusBadge';
 import { CardSkeleton, ChartSkeleton } from '../components/Skeleton';
 import { useDashboard } from '../lib/hooks';
-import { api } from '../lib/api';
+import { downloadExport } from '../lib/api';
 
 export default function Dashboard() {
   const { stats, session, metrics } = useDashboard();
+  const [exportError, setExportError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async (path: string, name: string) => {
+    setExportError('');
+    setExporting(true);
+    try { await downloadExport(path, name); }
+    catch (error) { setExportError(error instanceof Error ? error.message : 'Export failed'); }
+    finally { setExporting(false); }
+  };
 
   if (stats.isLoading) {
     return (
@@ -65,27 +75,28 @@ export default function Dashboard() {
           <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Overview of your AI job application agent</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <a
-            href={api.exportData.applicationsCsv()}
-            download
+          <button
+            onClick={() => handleExport('/export/applications/csv', 'applications.csv')}
+            disabled={exporting}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
             style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
           >
             <Download className="w-3.5 h-3.5" />
             Export CSV
-          </a>
-          <a
-            href={api.exportData.statsJson()}
-            download
+          </button>
+          <button
+            onClick={() => handleExport('/export/stats/json', 'stats.json')}
+            disabled={exporting}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
             style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
           >
             <Download className="w-3.5 h-3.5" />
             Export JSON
-          </a>
+          </button>
         </div>
       </div>
 
+      {exportError && <p role="alert" className="text-red-400 text-sm">{exportError}</p>}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard title="Total Jobs Found" value={data.total_jobs_found} icon={Briefcase} color="#38bdf8" />
         <StatCard title="Total Applied" value={data.total_applied} icon={CheckCircle} color="#22c55e" subtitle={`${data.today_applied} today (cap: ${data.daily_cap})`} />
@@ -270,3 +281,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { HardDrive, Plus, RefreshCw, Database, Download, Upload, AlertTriangle } from 'lucide-react';
-import { api, type BackupItem } from '../lib/api';
+import { api, downloadExport, type BackupItem } from '../lib/api';
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -56,14 +56,7 @@ export default function Backups() {
   const handleFullExport = async () => {
     setExporting(true);
     try {
-      const res = await fetch(api.exportData.full(), { credentials: 'include' });
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `naukri_agent_export_${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
+      await downloadExport('/export/full', `naukri_agent_export_${new Date().toISOString().slice(0, 10)}.json`);
       setMessage({ type: 'success', text: 'Full export downloaded' });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Export failed' });
@@ -206,3 +199,4 @@ export default function Backups() {
     </div>
   );
 }
+

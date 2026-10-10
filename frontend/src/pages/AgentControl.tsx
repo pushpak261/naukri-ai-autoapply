@@ -324,10 +324,13 @@ export default function AgentControl() {
 
     intervalRef.current = setInterval(async () => {
       if (parallelMode) {
-        await fetchMultiStatus();
+        const status = await fetchMultiStatus();
+        const running = status && Object.values(status.agents).some(agent => agent.running);
+        if (running && useSSE && !multiSseRef.current) connectMultiSSE();
         if (!useSSE) await fetchMultiOutput();
       } else {
         const s = await fetchStatus();
+        if (s?.running && useSSE && !sseRef.current) connectSSE();
         if (s?.running && !useSSE) await fetchOutput();
       }
     }, useSSE ? 10000 : 3000);
@@ -891,3 +894,4 @@ export default function AgentControl() {
     </div>
   );
 }
+
