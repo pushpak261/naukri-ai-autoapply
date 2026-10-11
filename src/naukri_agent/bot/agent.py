@@ -219,6 +219,7 @@ class NaukriAgent:
         Args:
             dry_run: If True, score jobs but don't actually apply.
         """
+        self._run_error = False
         if dry_run:
             self._settings.application.dry_run = True
 
@@ -251,6 +252,7 @@ class NaukriAgent:
             # Step 2: Parse resume
             await self._parse_resume()
             if not self._resume_profile:
+                self._run_error = True
                 log_error("Cannot proceed without a parsed resume profile.")
                 return
 
@@ -262,6 +264,7 @@ class NaukriAgent:
                 raise RuntimeError("LoginHandler not configured.")
             login_success = await login_handler.login()
             if not login_success:
+                self._run_error = True
                 from api.agent_runtime import mark_agent_blocked
                 from src.naukri_agent.bot.block_detector import classify_block
 
@@ -384,6 +387,7 @@ class NaukriAgent:
             log_warning("Agent interrupted by user (Ctrl+C)")
             self._interrupted = True
         except Exception as e:
+            self._run_error = True
             if self._interrupted:
                 log_warning(
                     "Agent run interrupted during browser operation. Shutting down gracefully."
@@ -685,17 +689,13 @@ class NaukriAgent:
                 self._jobs_skipped += 1
                 continue
 
-            # Targeted Java role reached — apply directly. The Java-stack +
-            # experience gate is stricter than the AI score, so we skip the
-            # TF-IDF similarity pre-filter and the AI match call entirely
-            # (saving tokens and guaranteeing every matching Java job is applied).
-            match_result = JobApplication(
-                match_score=100.0,
-                should_apply=True,
-                match_reasoning="Java/Spring role within 0-2 yrs target (targeting gate)",
-                matching_skills="Java/Spring (targeting gate)",
-                missing_skills="",
-            )
+            if self._settings.ai.enable_matching:
+                match_result = await matcher.match(resume_profile, job)
+            else:
+                match_result = JobApplication(
+                    match_score=100.0, should_apply=True,
+                    match_reasoning="Matching disabled in configuration",
+                )
             # Save job in database
             db_job = None
             if self._repo:
@@ -716,7 +716,8 @@ class NaukriAgent:
                 assert db_job.id is not None
 
             match_score = match_result.match_score
-            should_apply = match_result.should_apply
+            should_apply = (match_result.should_apply and
+                            match_score >= self._settings.application.match_score_threshold)
 
             # Secondary domain/stack relevance validation: override AI if job
             # clearly belongs to a non-matching tech stack or domain.
@@ -948,7 +949,7 @@ class NaukriAgent:
 
         # Update run log
         if self._repo and self._run_log_id:
-            status = "interrupted" if self._interrupted else "completed"
+            status = "interrupted" if self._interrupted else "error" if getattr(self, "_run_error", False) else "completed"
             await self._repo.update_run_log(
                 run_log_id=self._run_log_id,
                 jobs_found=self._jobs_found,

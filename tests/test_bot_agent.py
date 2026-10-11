@@ -580,14 +580,14 @@ class TestRun:
             call.args[0] for call in log_warning.call_args_list
         ]
 
-    async def test_generic_error_is_logged_and_run_completes(self, tmp_path):
+    async def test_generic_error_is_logged_and_run_fails(self, tmp_path):
         agent = self._runnable(tmp_path)
         agent._engine.launch = AsyncMock(side_effect=RuntimeError("browser exploded"))
         repo = agent._repo
         with quiet_async(), patch(f"{AGENT_MODULE}.log_error") as log_error:
             await agent.run()
         log_error.assert_called_once_with("Agent error: browser exploded")
-        assert repo.update_run_log.await_args.kwargs["status"] == "completed"
+        assert repo.update_run_log.await_args.kwargs["status"] == "error"
         assert repo.update_run_log.await_args.kwargs["jobs_found"] == 0
 
     async def test_generic_error_after_interrupt_logs_graceful_shutdown(self, tmp_path):
@@ -1140,15 +1140,15 @@ class TestProcessJobsBrowser:
         assert agent._jobs_skipped == 1
         save_kwargs = repo.save_application.await_args.kwargs
         assert save_kwargs["status"] == ApplicationStatus.SKIPPED_DRY_RUN
-        assert save_kwargs["match_score"] == 100.0
+        assert save_kwargs["match_score"] == 88.0
         repo.begin_application.assert_not_awaited()
 
-    async def test_matcher_is_never_called(self):
+    async def test_matcher_is_called_for_eligible_job(self):
         agent = make_agent()
         matcher = make_matcher()
         applier, _, _, _ = await _process(agent, [java_job()], matcher=matcher)
 
-        matcher.match.assert_not_called()
+        matcher.match.assert_awaited_once()
         assert applier.apply_to_job.await_count == 1
 
 
@@ -1160,9 +1160,9 @@ class TestProcessJobsPersistence:
 
         repo.begin_application.assert_awaited_once()
         claim_kwargs = repo.begin_application.await_args.kwargs
-        assert claim_kwargs["match_score"] == 100.0
+        assert claim_kwargs["match_score"] == 88.0
         assert claim_kwargs["match_reasoning"] == (
-            "Java/Spring role within 0-2 yrs target (targeting gate)"
+            "Resume match"
         )
         finalize_kwargs = repo.finalize_application.await_args.kwargs
         assert finalize_kwargs["app_id"] == 55
@@ -1179,7 +1179,7 @@ class TestProcessJobsPersistence:
         repo.finalize_application.assert_not_awaited()
         save_kwargs = repo.save_application.await_args.kwargs
         assert save_kwargs["status"] == ApplicationStatus.APPLIED
-        assert save_kwargs["match_score"] == 100.0
+        assert save_kwargs["match_score"] == 88.0
 
     async def test_external_status_collects_external_url(self):
         agent = make_agent()

@@ -514,9 +514,9 @@ class ResumeParser(IResumeParser):
         if not self._settings.ai.use_gemini and profile_json_path.exists():
             try:
                 local_data = json.loads(profile_json_path.read_text(encoding="utf-8"))
-                local_data.setdefault("file_hash", file_hash)
-                log_info(f"Using local {profile_json_path.name}")
-                return _map_to_domain_profile(local_data, file_hash)
+                if local_data.get("file_hash") == file_hash:
+                    log_info(f"Using local {profile_json_path.name}")
+                    return _map_to_domain_profile(local_data, file_hash)
             except Exception as e:
                 logger.warning(f"Failed to read local resume_profile.json: {e}")
 

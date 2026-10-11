@@ -346,49 +346,13 @@ async def get_jobs_inspector(
 
 @router.post("/api/jobs/apply-batch")
 async def apply_jobs_batch(req: ApplyBatchRequest):
-    if not req.job_ids:
-        raise HTTPException(status_code=400, detail="No job IDs provided")
+    from api.job_queue import enqueue_jobs
 
-    from datetime import UTC, datetime
-
-    session_factory = await state.db_manager.get_session_factory()
-    async with session_factory() as session:
-        applied_count = 0
-        for job_id in req.job_ids:
-            job_res = await session.execute(select(DBJob).where(DBJob.id == job_id))
-            job = job_res.scalar_one_or_none()
-            if not job:
-                continue
-
-            app_res = await session.execute(
-                select(DBApplication).where(DBApplication.job_id == job_id)
-            )
-            app = app_res.scalar_one_or_none()
-
-            if app:
-                app.status = "applied"
-                app.applied_at = datetime.now(UTC)
-                if not app.match_score:
-                    app.match_score = 85.0
-                app.match_reasoning = "Applied via Job Inspector Frontend"
-            else:
-                new_app = DBApplication(
-                    job_id=job_id,
-                    status="applied",
-                    applied_at=datetime.now(UTC),
-                    match_score=85.0,
-                    match_reasoning="Applied via Job Inspector Frontend",
-                    source=getattr(job, "source", "naukri"),
-                )
-                session.add(new_app)
-            applied_count += 1
-
-        await session.commit()
-        return {
-            "status": "ok",
-            "applied_count": applied_count,
-            "message": f"Successfully applied to {applied_count} job(s)",
-        }
+    queued = await enqueue_jobs(await state.db_manager.get_session_factory(), req.job_ids)
+    return {
+        "status": "queued", "queued_count": queued, "applied_count": 0,
+        "message": f"Queued {queued} job(s). The agent will evaluate and submit eligible jobs; follow progress in Agent Control.",
+    }
 
 
 @router.get("/api/jobs/{job_id}")

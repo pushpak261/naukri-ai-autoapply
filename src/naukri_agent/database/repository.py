@@ -104,6 +104,8 @@ class SQLAlchemyRepository(IRepository):
     @with_failover
     async def initialize(self) -> None:
         """Load applied job IDs and (title, company) combinations with their dates for cooldown-aware dedup."""
+        self._applied_jobs_cache.clear()
+        self._applied_composite_cache.clear()
         session_factory = await self._db_manager.get_session_factory()
         try:
             async with session_factory() as session:
@@ -113,7 +115,9 @@ class SQLAlchemyRepository(IRepository):
                         DBJob.title,
                         DBJob.company,
                         DBApplication.applied_at,
-                    ).join(DBApplication, DBApplication.job_id == DBJob.id)
+                    ).join(DBApplication, DBApplication.job_id == DBJob.id).where(
+                        DBApplication.status.notin_(["failed", "error", "pending_retry"])
+                    )
                 )
                 rows = result.all()
                 now = datetime.now(UTC)
@@ -249,7 +253,10 @@ class SQLAlchemyRepository(IRepository):
         """Record an application attempt."""
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session, session.begin():
-            app = DBApplication(
+            queued = (await session.execute(select(DBApplication).where(
+                DBApplication.job_id == job_id, DBApplication.status == "pending_retry"
+            ))).scalars().first()
+            app = queued or DBApplication(
                 job_id=job_id,
                 match_score=match_score,
                 match_reasoning=match_reasoning,
@@ -258,6 +265,14 @@ class SQLAlchemyRepository(IRepository):
                 status=status,
                 error_message=error_message,
             )
+            if queued:
+                app.match_score = match_score
+                app.match_reasoning = match_reasoning
+                app.matching_skills = matching_skills
+                app.missing_skills = missing_skills
+                app.status = status
+                app.error_message = error_message
+                app.applied_at = datetime.now(UTC)
             session.add(app)
             await session.flush()
             await session.refresh(app)
@@ -315,7 +330,12 @@ class SQLAlchemyRepository(IRepository):
                 .order_by(DBApplication.applied_at.desc())
             )
             prior = existing.scalars().first()
-            if prior and prior.status != "failed":
+            if prior and prior.status == "pending_retry":
+                prior.status = "applying"
+                prior.applied_at = datetime.now(UTC)
+                prior.match_score = match_score
+                return prior.id
+            if prior and prior.status not in ("failed", "error"):
                 return prior.id
 
             app = DBApplication(
@@ -430,12 +450,13 @@ class SQLAlchemyRepository(IRepository):
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session:
             since = datetime.now(UTC) - timedelta(days=days)
-            total, applied, skipped = (
+            total, applied, skipped, failed = (
                 await session.execute(
                     select(
                         func.count(DBApplication.id),
                         func.sum(case((DBApplication.status == "applied", 1), else_=0)),
                         func.sum(case((DBApplication.status.like("skipped%"), 1), else_=0)),
+                        func.sum(case((DBApplication.status.in_(["failed", "error", "uncertain"]), 1), else_=0)),
                     ).filter(DBApplication.applied_at >= since)
                 )
             ).one()
@@ -446,8 +467,7 @@ class SQLAlchemyRepository(IRepository):
                 "total": total,
                 "applied": applied,
                 "skipped": skipped,
-                # Anything not applied and not skipped* mirrors the prior bucketing.
-                "failed": total - applied - skipped,
+                "failed": failed or 0,
             }
 
     @with_failover

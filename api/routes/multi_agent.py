@@ -25,7 +25,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import select
 
 from api.deps import state
-from api.agent_runtime import spawn_agent, stop_agent_process
+from api.agent_runtime import spawn_agent, stop_agent_process, serialized_start, platform_process
 from src.naukri_agent.models.db_schema import NaukriAccount
 
 router = APIRouter(prefix="/api/multi", tags=["multi-agent"])
@@ -95,6 +95,7 @@ def _start_output_reader(platform: str, process) -> None:
 
 
 @router.post("/start")
+@serialized_start
 async def start_agents(
     platforms: list[str] | None = Query(None, max_length=20),  # noqa: B008
 ):
@@ -126,8 +127,9 @@ async def start_agents(
     results: dict[str, dict] = {}
     for platform in requested:
         _ensure_platform(platform)
-        if _is_running(platform):
-            proc = state.agent_processes[platform]
+        existing = platform_process(platform)
+        if existing is not None:
+            proc = existing
             results[platform] = {
                 "status": "already_running",
                 "pid": proc.pid if proc is not None else None,
@@ -136,6 +138,7 @@ async def start_agents(
 
         cmd = list(_PLATFORM_CMDS[platform])
         env = os.environ.copy()
+        env.pop("AGENT_JOB_IDS", None)
         # Force headless mode in production (no display and not Windows)
         if not os.environ.get("DISPLAY") and sys.platform != "win32":
             env.setdefault("HEADLESS", "true")

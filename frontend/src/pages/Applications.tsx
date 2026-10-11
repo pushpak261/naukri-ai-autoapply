@@ -93,9 +93,17 @@ export default function Applications() {
     setBusy(prev => ({ ...prev, sync: true }));
     setMessage(null);
     try {
-      await api.applicationsExtra.syncStatus();
+      const result = await api.applicationsExtra.syncStatus();
+      setMessage({ type: 'success', text: result.message });
+      let finished = false;
+      while (mountedRef.current && !finished) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        if (!mountedRef.current) return;
+        const progress = await api.applicationsExtra.getSyncStatus();
+        finished = !progress.running;
+        setMessage({ type: progress.error ? 'error' : 'success', text: progress.error || progress.message || 'Checking applications…' });
+      }
       await loadApps(page, statusFilter, sourceFilter);
-      setMessage({ type: 'success', text: 'Applications refreshed' });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Sync failed' });
     }

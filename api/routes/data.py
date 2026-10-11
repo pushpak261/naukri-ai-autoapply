@@ -383,7 +383,7 @@ async def list_sessions():
 async def list_backups():
     backup_dir = state.settings.db_path.parent
     backups = []
-    for f in sorted(backup_dir.glob("naukri_agent_backup_*.db"), reverse=True):
+    for f in sorted(backup_dir.glob(f"{state.settings.db_path.stem}_backup_*{state.settings.db_path.suffix}"), reverse=True):
         backups.append(
             {
                 "name": f.name,
@@ -399,31 +399,45 @@ async def create_backup():
     from src.naukri_agent.database.backup import DatabaseBackupService
 
     service = DatabaseBackupService(state.settings.db_path)
-    service.backup()
-    return {"status": "created", "message": "Database backup created"}
+    backup = await asyncio.to_thread(service.backup)
+    if backup is None:
+        raise HTTPException(404, "Database file does not exist")
+    return {"status": "created", "message": "Database backup created", "name": backup.name}
 
 
 @router.post("/api/backups/restore")
 async def restore_backup(name: str = Query(..., max_length=255)):
     """Restore database from a named backup file."""
-    backup_dir = state.settings.db_path.parent
-    backup_file = backup_dir / name
-    if not backup_file.exists() or not name.startswith("naukri_agent_backup_"):
-        raise HTTPException(status_code=404, detail=f"Backup '{name}' not found")
+    from pathlib import Path
+    import sqlite3
+    from src.naukri_agent.database.backup import DatabaseBackupService
 
-    import shutil
-    from src.naukri_agent.utils.logger import log_info
-
+    _require_stopped_agents()
     db_path = state.settings.db_path
-    if db_path.exists():
-        timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-        pre_restore = db_path.parent / f"naukri_agent_pre_restore_{timestamp}.db"
-        shutil.copy2(db_path, pre_restore)
-        log_info(f"Pre-restore backup saved: {pre_restore.name}")
+    backup_dir = db_path.parent.resolve()
+    backup_file = (backup_dir / name).resolve()
+    prefix = f"{db_path.stem}_backup_"
+    if Path(name).name != name or backup_file.parent != backup_dir or not name.startswith(prefix) or not backup_file.is_file():
+        raise HTTPException(404, "Backup not found")
 
-    shutil.copy2(backup_file, db_path)
-    log_info(f"Database restored from backup: {name}")
+    def restore():
+        with sqlite3.connect(f"{backup_file.as_uri()}?mode=ro", uri=True) as source:
+            if source.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+                raise ValueError("Backup is not a valid SQLite database")
+            tables = {row[0] for row in source.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if not {"jobs", "applications", "run_logs"}.issubset(tables):
+                raise ValueError("Backup does not contain an agent database")
+            DatabaseBackupService(db_path).backup()
+            with sqlite3.connect(db_path) as destination:
+                source.backup(destination)
 
+    await state.db_manager.engine.dispose()
+    try:
+        await asyncio.to_thread(restore)
+    except (sqlite3.DatabaseError, ValueError) as error:
+        raise HTTPException(422, str(error)) from error
+    await state.repo.initialize()
+    state.active_account_email = None
     return {"status": "restored", "message": f"Database restored from '{name}'"}
 
 
@@ -435,19 +449,19 @@ async def export_full_json():
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
         jobs_result = await session.execute(
-            select(DBJob).order_by(DBJob.scraped_at.desc()).limit(1000)
+            select(DBJob).order_by(DBJob.scraped_at.desc())
         )
         jobs = jobs_result.scalars().all()
 
         apps_result = await session.execute(
-            select(DBApplication).order_by(DBApplication.applied_at.desc()).limit(1000)
+            select(DBApplication).order_by(DBApplication.applied_at.desc())
         )
         apps = apps_result.scalars().all()
 
         from src.naukri_agent.models.db_schema import ResumeProfile as DBResumeProfile
 
         profiles_result = await session.execute(
-            select(DBResumeProfile).order_by(DBResumeProfile.parsed_at.desc()).limit(100)
+            select(DBResumeProfile).order_by(DBResumeProfile.parsed_at.desc())
         )
         profiles = profiles_result.scalars().all()
 
@@ -491,43 +505,11 @@ async def export_full_json():
 @router.post("/api/import/full")
 async def import_full_json(data: dict):
     """Import data from a full JSON export."""
-    from src.naukri_agent.models.db_schema import ResumeProfile as DBResumeProfile
+    from api.data_transfer import import_records
 
     session_factory = await state.db_manager.get_session_factory()
-    imported_counts = {"jobs": 0, "applications": 0, "resume_profiles": 0}
-
-    async with session_factory() as session:
-        import_data = data.get("data", {})
-        for job_data in import_data.get("jobs", []):
-            existing = await session.execute(
-                select(DBJob).where(DBJob.naukri_job_id == job_data.get("naukri_job_id", ""))
-            )
-            if existing.scalar_one_or_none():
-                continue
-            session.add(DBJob(**{k: v for k, v in job_data.items() if k != "id"}))
-            imported_counts["jobs"] += 1
-
-        for app_data in import_data.get("applications", []):
-            existing = await session.execute(
-                select(DBApplication).where(DBApplication.id == app_data.get("id", -1))
-            )
-            if existing.scalar_one_or_none():
-                continue
-            session.add(DBApplication(**{k: v for k, v in app_data.items() if k != "id"}))
-            imported_counts["applications"] += 1
-
-        for prof_data in import_data.get("resume_profiles", []):
-            existing = await session.execute(
-                select(DBResumeProfile).where(
-                    DBResumeProfile.file_hash == prof_data.get("file_hash", "")
-                )
-            )
-            if existing.scalar_one_or_none():
-                continue
-            session.add(DBResumeProfile(**{k: v for k, v in prof_data.items() if k != "id"}))
-            imported_counts["resume_profiles"] += 1
-
-        await session.commit()
+    imported_counts = await import_records(session_factory, data)
+    await state.repo.initialize()
 
     return {
         "status": "imported",
@@ -615,7 +597,7 @@ async def export_stats_json():
     """Export dashboard stats as JSON download."""
     from api.routes.stats import get_stats
 
-    stats_data = await get_stats(365)
+    stats_data = await get_stats(days=365, source="")
     from fastapi.responses import JSONResponse
 
     return JSONResponse(
@@ -625,12 +607,23 @@ async def export_stats_json():
     )
 
 
+def _require_stopped_agents():
+    sync_task = getattr(state, "application_sync_task", None)
+    if sync_task is not None and not sync_task.done():
+        raise HTTPException(409, "Wait for application status sync before changing data")
+    processes = [state.agent_process, *state.agent_processes.values()]
+    if any(process is not None and process.poll() is None for process in processes):
+        raise HTTPException(409, "Stop all agents before replacing or clearing data")
+
+
 @router.delete("/api/data/clear-all")
 async def clear_all_data():
     """Clear all data from SQLite DB, cache files, sessions, and logs."""
     import os
     from pathlib import Path
 
+    _require_stopped_agents()
+    state.active_account_email = None
     project_root = state.settings.project_root
     cleared_items = []
     errors = []

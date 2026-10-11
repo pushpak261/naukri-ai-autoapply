@@ -27,10 +27,7 @@ PROFILE_JSON_PATH: Path | None = None
 
 
 def _get_profile_json_path() -> Path:
-    global PROFILE_JSON_PATH
-    if PROFILE_JSON_PATH is None:
-        PROFILE_JSON_PATH = state.settings.project_root / "resume_profile.json"
-    return PROFILE_JSON_PATH
+    return state.settings.project_root / "resume_profile.json"
 
 
 def _allowed_resume_roots() -> list[Path]:
@@ -65,23 +62,18 @@ def _sanitize_uploaded_file_path(data: dict) -> None:
 
 def _update_config_resume_path(new_rel_path: str) -> None:
     """Update resume.path in config.yaml so it persists across restarts."""
+    import yaml
+    from src.naukri_agent.config.settings import get_settings
+
     config_path = state.settings.project_root / "config.yaml"
-    if not config_path.exists():
-        return
-    try:
-        content = config_path.read_text(encoding="utf-8")
-        # Replace the path: value under the resume: section
-        updated = re.sub(
-            r"(?m)^(\s*resume:\s*\n\s+path:\s*).*$",
-            rf"\1{new_rel_path}",
-            content,
-        )
-        if updated != content:
-            config_path.write_text(updated, encoding="utf-8")
-        # Also update the runtime settings so validation passes immediately
-        state.settings.resume.path = new_rel_path
-    except Exception:
-        pass
+    config = yaml.safe_load(config_path.read_text()) if config_path.exists() else {}
+    config = config or {}
+    config.setdefault("resume", {})["path"] = new_rel_path
+    temporary = config_path.with_suffix(".tmp")
+    temporary.write_text(yaml.safe_dump(config, allow_unicode=True))
+    temporary.replace(config_path)
+    state.settings.resume.path = new_rel_path
+    get_settings.cache_clear()
 
 
 @router.post("/api/resume/upload")
@@ -93,7 +85,9 @@ async def upload_resume(file: UploadFile = File(...)):
             detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
         )
 
-    contents = await file.read()
+    contents = await file.read(10 * 1024 * 1024 + 1)
+    if len(contents) > 10 * 1024 * 1024:
+        raise HTTPException(413, "Resume must be no larger than 10 MB")
     if not contents:
         raise HTTPException(status_code=400, detail="Empty file uploaded")
 
@@ -102,7 +96,7 @@ async def upload_resume(file: UploadFile = File(...)):
 
     ext_map = {".pdf": ".pdf", ".docx": ".docx"}
     dest_ext = ext_map.get(ext, ".pdf")
-    dest_path = dest_dir / f"resume_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S')}{dest_ext}"
+    dest_path = dest_dir / f"resume_{datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')}{dest_ext}"
 
     dest_path.write_bytes(contents)
     file_hash = hash_file(dest_path)
@@ -151,7 +145,7 @@ async def upload_resume(file: UploadFile = File(...)):
         if state.settings and state.settings.ai and state.settings.ai.gemini_api_key
         else os.environ.get("GEMINI_API_KEY", "")
     )
-    if not api_key:
+    if state.settings.ai.use_gemini and not api_key:
         raise HTTPException(
             status_code=400,
             detail="Gemini API key not configured. Set GEMINI_API_KEY in environment or config.",
@@ -161,7 +155,7 @@ async def upload_resume(file: UploadFile = File(...)):
     llm = GeminiProvider(
         api_key=api_key,
         model_name=state.settings.ai.model or "gemini-3.5-flash",
-    )
+    ) if state.settings.ai.use_gemini else None
 
     parser = ResumeParser(llm_provider=llm, repository=state.repo, settings=state.settings)
 

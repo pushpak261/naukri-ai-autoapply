@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import os
 import signal
 import subprocess
@@ -41,6 +42,25 @@ def _ensure_lock() -> asyncio.Lock:
     if state.agent_run_lock is None:
         state.agent_run_lock = asyncio.Lock()
     return state.agent_run_lock
+
+
+def serialized_start(function):
+    @functools.wraps(function)
+    async def wrapped(*args, **kwargs):
+        async with _ensure_lock():
+            sync_task = getattr(state, "application_sync_task", None)
+            if sync_task is not None and not sync_task.done():
+                from fastapi import HTTPException
+                raise HTTPException(409, "Wait for application status sync to finish")
+            return await function(*args, **kwargs)
+    return wrapped
+
+
+def platform_process(platform):
+    if state.agent_platform == platform and state.agent_process is not None and state.agent_process.poll() is None:
+        return state.agent_process
+    process = state.agent_processes.get(platform)
+    return process if process is not None and process.poll() is None else None
 
 
 def _touch_run_metric() -> None:
@@ -217,7 +237,7 @@ async def supervise(
                 )
                 if dead or overrun:
                     if overrun and not dead:
-                        stop_agent_process(proc)
+                        await asyncio.to_thread(stop_agent_process, proc)
                     await release_platform(platform)
                     await recover_stuck_runs(repo)
                     if getattr(state, "agent_platform", None) == platform and state.agent_process is proc:

@@ -390,7 +390,7 @@ export default function AutoPilot() {
           </div>
           {cfg.enabled && (
             <p className="text-xs mt-3" style={{ color: 'var(--color-text-muted)' }}>
-              Next run: {cfg.schedule.time} on {cfg.schedule.days.slice(0, 3).join(', ')}
+              Scheduled time (Asia/Kolkata): {cfg.schedule.time} on {cfg.schedule.days.slice(0, 3).join(', ')}
               {cfg.schedule.days.length > 3 ? ` +${cfg.schedule.days.length - 3} more` : ''}
             </p>
           )}

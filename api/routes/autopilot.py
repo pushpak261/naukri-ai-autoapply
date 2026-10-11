@@ -13,7 +13,7 @@ AUTOPILOT_FILE = "autopilot_config.json"
 
 
 def _get_config_path() -> Path:
-    return state.settings.project_root / "data" / AUTOPILOT_FILE
+    return state.settings.data_dir / AUTOPILOT_FILE
 
 
 async def _load_config() -> dict:
@@ -66,7 +66,19 @@ async def update_autopilot_config(data: dict[str, Any]):
         "tier_map",
     ):
         if key in data:
-            current[key] = data[key]
+            if key in ("schedule", "throttle") and isinstance(data[key], dict):
+                current[key] = {**current[key], **data[key]}
+            else:
+                current[key] = data[key]
+    from api.scheduler import validate_schedule
+    if not isinstance(current["enabled"], bool) or not isinstance(current["schedule"], dict):
+        raise HTTPException(422, "enabled must be boolean and schedule must be an object")
+    for key in ("company_blacklist", "company_whitelist"):
+        if not isinstance(current[key], list) or any(not isinstance(v, str) or not v.strip() for v in current[key]):
+            raise HTTPException(422, f"{key} must contain company names")
+    if not isinstance(current["throttle"], dict) or any(type(v) is not int or v < 0 for v in current["throttle"].values()):
+        raise HTTPException(422, "Throttle values must be nonnegative integers")
+    validate_schedule(current["schedule"])
     await _save_config(current)
     return {"status": "saved", "message": "Auto-pilot configuration updated"}
 

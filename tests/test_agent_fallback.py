@@ -4,7 +4,7 @@ import pytest
 
 from src.naukri_agent.utils.similarity import VectorSimilarityFilter
 from src.naukri_agent.config.settings import Settings
-from src.naukri_agent.models.entities import Job, ResumeProfile
+from src.naukri_agent.models.entities import Job, ResumeProfile, JobApplication
 from src.naukri_agent.bot.agent import NaukriAgent
 
 
@@ -56,9 +56,8 @@ def _make_agent(mock_settings):
 
 
 @pytest.mark.asyncio
-async def test_process_jobs_targeted_java_applied_directly(mock_settings):
-    # The targeting gate applies Java/Spring roles directly (no AI match call)
-    # so the matcher is intentionally bypassed to save tokens.
+async def test_process_jobs_targeted_java_uses_matcher(mock_settings):
+    # Eligible jobs must still be scored against the resume.
     agent, _, _ = _make_agent(mock_settings)
 
     jobs = [
@@ -73,6 +72,7 @@ async def test_process_jobs_targeted_java_applied_directly(mock_settings):
     ]
 
     mock_matcher = AsyncMock()
+    mock_matcher.match.return_value = JobApplication(match_score=88, should_apply=True)
     mock_applier = AsyncMock()
     mock_applier.apply_to_job.return_value = {"status": "applied"}
     mock_searcher = AsyncMock()
@@ -85,7 +85,7 @@ async def test_process_jobs_targeted_java_applied_directly(mock_settings):
     ):
         await agent._process_jobs(jobs, mock_matcher, mock_applier, mock_searcher, vector_filter)
 
-    mock_matcher.match.assert_not_called()
+    mock_matcher.match.assert_awaited_once()
     assert agent._jobs_applied == 1
     assert agent._jobs_skipped == 0
 

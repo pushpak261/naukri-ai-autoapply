@@ -277,7 +277,7 @@ def make_searcher(jobs: list[Job] | None = None, details: dict | None = None) ->
 
 def make_matcher(result: JobApplication | None = _UNSET) -> MagicMock:
     matcher = MagicMock(name="job_matcher")
-    resolved = JobApplication(match_score=88.0) if result is _UNSET else result
+    resolved = JobApplication(match_score=88.0, should_apply=True, match_reasoning="Resume match") if result is _UNSET else result
     matcher.match = AsyncMock(return_value=resolved)
     return matcher
 

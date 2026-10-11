@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+import asyncio
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from sqlalchemy import func, select, update
@@ -91,6 +92,9 @@ async def retry_application(app_id: int):
         if not app:
             raise HTTPException(status_code=404, detail="Application not found")
 
+        if app.status not in ("failed", "error"):
+            raise HTTPException(409, "Only failed applications can be retried")
+
         if app.retry_count >= app.max_retries:
             raise HTTPException(
                 status_code=400,
@@ -142,30 +146,16 @@ async def retry_all_failed():
 
 @router.post("/api/applications/sync-status")
 async def sync_application_statuses():
-    """Trigger sync of application statuses from Naukri."""
-    session_factory = await state.db_manager.get_session_factory()
-    async with session_factory() as session:
-        result = await session.execute(
-            select(DBApplication, DBJob)
-            .join(DBJob, DBApplication.job_id == DBJob.id)
-            .where(DBApplication.status == "applied")
-            .order_by(DBApplication.applied_at.desc())
-            .limit(50)
-        )
-        synced = 0
-        now = datetime.now(UTC)
-        for app, job in result.all():
-            job.naukri_status = "synced"
-            job.status_last_synced = now
-            synced += 1
-        await session.commit()
+    from api.application_sync import sync_applications
+    from api.scheduler import any_agent_running
 
-        return {
-            "status": "ok",
-            "message": f"Queued {synced} applications for status sync",
-            "synced_count": synced,
-            "synced_at": now.isoformat(),
-        }
+    task = getattr(state, "application_sync_task", None)
+    if task is not None and not task.done():
+        return {"status": "running", "message": "Status sync is already running", "synced_count": 0}
+    if any_agent_running():
+        raise HTTPException(409, "Stop agents before syncing the current Naukri session")
+    state.application_sync_task = asyncio.create_task(sync_applications())
+    return {"status": "queued", "message": "Naukri verification started. Results appear when the check finishes.", "synced_count": 0}
 
 
 @router.get("/api/applications/sync-status")
@@ -193,7 +183,7 @@ async def get_sync_status():
             }
             for row in result.all()
         ]
-        return {"items": items}
+        return {"items": items, **getattr(state, "application_sync_result", {"running": False})}
 
 
 @router.get("/api/run-logs")

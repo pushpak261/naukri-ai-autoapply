@@ -189,6 +189,7 @@ class LinkedInAgent:
 
     async def run(self, dry_run: bool = False) -> None:
         """Execute the full LinkedIn agent loop."""
+        self._run_error = False
         if dry_run:
             self._settings.application.dry_run = True
 
@@ -211,6 +212,7 @@ class LinkedInAgent:
 
             await self._parse_resume()
             if not self._resume_profile:
+                self._run_error = True
                 log_error("Cannot proceed without a parsed resume profile.")
                 return
 
@@ -218,6 +220,7 @@ class LinkedInAgent:
 
             login_success = await self._login_handler.login()
             if not login_success:
+                self._run_error = True
                 log_error("LinkedIn login failed. Cannot proceed.")
                 return
 
@@ -327,6 +330,7 @@ class LinkedInAgent:
             log_warning("LinkedIn agent interrupted by user")
             self._interrupted = True
         except Exception as e:
+            self._run_error = True
             if self._interrupted:
                 log_warning("Agent run interrupted. Shutting down gracefully.")
             else:
@@ -846,7 +850,7 @@ class LinkedInAgent:
                 logger.error(f"Failed to send external jobs email: {e}")
 
         if self._repo and self._run_log_id:
-            status = "interrupted" if self._interrupted else "completed"
+            status = "interrupted" if self._interrupted else "error" if getattr(self, "_run_error", False) else "completed"
             await self._repo.update_run_log(
                 run_log_id=self._run_log_id,
                 jobs_found=self._jobs_found,
