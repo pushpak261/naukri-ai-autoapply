@@ -73,7 +73,9 @@ def run(dry_run: bool, config_path: str | None) -> None:
             naukri_db_manager=naukri_db_manager,
         )
         agent = LinkedInAgent(factory=factory)
-        await agent.run(dry_run=dry_run)
+        from api.job_queue import run_selected_jobs
+
+        await run_selected_jobs(agent, naukri_db_manager, "linkedin", dry_run=dry_run)
 
     _run_async(_run())
 

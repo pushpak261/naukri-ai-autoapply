@@ -13,7 +13,7 @@ AUTOPILOT_FILE = "autopilot_config.json"
 
 
 def _get_config_path() -> Path:
-    return state.settings.project_root / "data" / AUTOPILOT_FILE
+    return state.settings.data_dir / AUTOPILOT_FILE
 
 
 async def _load_config() -> dict:
@@ -66,7 +66,32 @@ async def update_autopilot_config(data: dict[str, Any]):
         "tier_map",
     ):
         if key in data:
-            current[key] = data[key]
+            if key in ("schedule", "throttle") and isinstance(data[key], dict):
+                current[key] = {**current[key], **data[key]}
+            else:
+                current[key] = data[key]
+    from api.scheduler import validate_schedule
+    if not isinstance(current["enabled"], bool) or not isinstance(current["schedule"], dict):
+        raise HTTPException(422, "enabled must be boolean and schedule must be an object")
+    for key in ("company_blacklist", "company_whitelist"):
+        if not isinstance(current[key], list) or any(not isinstance(v, str) or not v.strip() for v in current[key]):
+            raise HTTPException(422, f"{key} must contain company names")
+    if not isinstance(current["throttle"], dict) or any(type(v) is not int or v < 0 for v in current["throttle"].values()):
+        raise HTTPException(422, "Throttle values must be nonnegative integers")
+    if not isinstance(current["tier_map"], dict) or any(v not in ("top_tier", "startup", "default") for v in current["tier_map"].values()):
+        raise HTTPException(422, "Company tiers must be top_tier, startup or default")
+    from api.priority_rules import parse_condition
+    rules = current["priority_rules"]
+    if not isinstance(rules, list):
+        raise HTTPException(422, "priority_rules must be an array")
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("action") != "apply_immediately" or type(rule.get("enabled")) is not bool:
+            raise HTTPException(422, "Priority rules require enabled and action apply_immediately")
+        try:
+            parse_condition(rule.get("condition"))
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
+    validate_schedule(current["schedule"])
     await _save_config(current)
     return {"status": "saved", "message": "Auto-pilot configuration updated"}
 

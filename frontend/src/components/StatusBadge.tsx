@@ -21,6 +21,9 @@ const statusColors: Record<string, string> = {
 
 const statusLabels: Record<string, string> = {
   applied: 'Applied',
+  pending_retry: 'Queued',
+  applying: 'Applying',
+  skipped_filters: 'Not submitted',
   skipped_low_score: 'Low Score',
   skipped_excluded: 'Excluded',
   skipped_already_applied: 'Duplicate',

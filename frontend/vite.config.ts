@@ -4,6 +4,10 @@ import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // Vercel forwards /api to Koyeb so refresh cookies remain first-party.
+  define: process.env.VERCEL === '1'
+    ? { 'import.meta.env.VITE_API_BASE_URL': JSON.stringify('') }
+    : {},
   plugins: [
     react(),
     tailwindcss(),

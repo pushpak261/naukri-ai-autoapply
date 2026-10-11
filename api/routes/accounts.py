@@ -51,7 +51,7 @@ async def list_accounts():
             "items": [
                 {
                     "id": a.id,
-                    "email": a.email[:3] + "..." if len(a.email) > 3 else a.email,
+                    "email": a.email,
                     "name": a.name,
                     "is_active": a.is_active,
                     "is_primary": a.is_primary,
@@ -216,7 +216,7 @@ async def activate_account(account_id: int):
             "message": f"Switched to account {account.email}",
             "account": {
                 "id": account.id,
-                "email": account.email[:3] + "..." if len(account.email) > 3 else account.email,
+                "email": account.email,
                 "name": account.name,
                 "is_active": account.is_active,
                 "is_primary": account.is_primary,

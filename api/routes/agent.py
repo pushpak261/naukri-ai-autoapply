@@ -1,4 +1,5 @@
 import asyncio
+import json
 import os
 import re
 import subprocess
@@ -13,7 +14,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import select
 
 from api.deps import state
-from api.agent_runtime import spawn_agent, stop_agent_process
+from api.agent_runtime import spawn_agent, stop_agent_process, serialized_start, platform_process
 from src.naukri_agent.models.db_schema import NaukriAccount
 import contextlib
 
@@ -57,7 +58,13 @@ def _start_output_reader(process: subprocess.Popen) -> None:
 
 
 @router.post("/api/agent/start")
-async def start_agent(platform: str = Query("naukri", max_length=20)):
+@serialized_start
+async def start_agent(platform: str = Query("naukri", max_length=20), job_ids: list[int] | None = None):
+    if platform not in ("naukri", "linkedin"):
+        raise HTTPException(422, "Unknown platform")
+    existing = platform_process(platform)
+    if existing is not None:
+        return {"status": "already_running", "message": "Platform agent is already running", "pid": existing.pid}
     if state.agent_process and state.agent_process.poll() is None:
         return {
             "status": "already_running",
@@ -84,6 +91,9 @@ async def start_agent(platform: str = Query("naukri", max_length=20)):
     else:
         cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
     env = os.environ.copy()
+    env.pop("AGENT_JOB_IDS", None)
+    if job_ids:
+        env["AGENT_JOB_IDS"] = json.dumps(job_ids)
     # Force unbuffered stdout/stderr so log lines reach the SSE stream in
     # real time. When stdout is a pipe (not a TTY) Python block-buffers it,
     # so a long/hung step (e.g. `playwright install` during browser launch)
@@ -111,6 +121,7 @@ async def start_agent(platform: str = Query("naukri", max_length=20)):
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Failed to start agent: {e}") from e
 
+    state.agent_queued_ids = job_ids or []
     state.agent_started_at = datetime.now(UTC)
     state.agent_platform = platform
     with state.agent_output_lock:

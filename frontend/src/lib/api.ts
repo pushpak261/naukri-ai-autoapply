@@ -818,7 +818,7 @@ export const api = {
     syncStatus: () =>
       fetchJSON<{ status: string; message: string; synced_count: number; synced_at: string }>('/applications/sync-status', { method: 'POST' }),
     getSyncStatus: () =>
-      fetchJSON<{ items: SyncStatusItem[] }>('/applications/sync-status'),
+      fetchJSON<{ items: SyncStatusItem[]; running: boolean; message?: string; error?: string }>('/applications/sync-status'),
   },
 
   // ---- Import (Feature 5) ----

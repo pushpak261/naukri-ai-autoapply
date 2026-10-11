@@ -88,3 +88,7 @@ _debug_login.py
 data/_check_db.py
 run_output*.txt
 run_output_final.txt
+# Local audit environment
+.venv/
+live-api-audit.json
+live-browser-audit.json

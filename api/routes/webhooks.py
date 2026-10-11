@@ -33,7 +33,7 @@ def _compute_signature(payload: str, secret: str) -> str:
     return hmac.new(secret.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
-async def fire_webhook_event(event: str, payload: dict) -> list[dict]:
+async def fire_webhook_event(event: str, payload: dict, webhook_id: int | None = None) -> list[dict]:
     """Fire a webhook event to all active webhooks subscribed to this event type.
 
     Returns a list of delivery results.
@@ -41,13 +41,12 @@ async def fire_webhook_event(event: str, payload: dict) -> list[dict]:
     session_factory = await state.db_manager.get_session_factory()
     results = []
     async with session_factory() as session:
-        result = await session.execute(
-            select(Webhook).where(
-                Webhook.is_active == True,
-                Webhook.events.contains(event),
-            )
-        )
-        webhooks = result.scalars().all()
+        query = select(Webhook).where(Webhook.is_active.is_(True))
+        if webhook_id is not None:
+            query = query.where(Webhook.id == webhook_id)
+        result = await session.execute(query)
+        webhooks = [wh for wh in result.scalars().all()
+                    if webhook_id is not None or event in [item.strip() for item in wh.events.split(",")]]
 
     for wh in webhooks:
         body = json.dumps(
@@ -179,10 +178,12 @@ async def delete_webhook(webhook_id: int):
 @router.post("/api/webhooks/{webhook_id}/test")
 async def test_webhook(webhook_id: int):
     """Send a test payload to a webhook."""
-    result = await fire_webhook_event("test", {"message": "This is a test webhook delivery"})
+    result = await fire_webhook_event("test", {"message": "This is a test webhook delivery"}, webhook_id=webhook_id)
     target = [r for r in result if r.get("webhook_id") == webhook_id]
     if not target:
         raise HTTPException(
             status_code=404, detail="Webhook not found or not active for test event"
         )
+    if "error" in target[0] or not 200 <= target[0].get("status", 0) < 300:
+        raise HTTPException(502, "Webhook delivery failed; check the destination and delivery status")
     return {"status": "sent", "result": target[0]}

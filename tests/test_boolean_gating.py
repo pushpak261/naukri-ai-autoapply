@@ -275,6 +275,11 @@ class TestResumeParserGating:
             b"trailer\n<< /Size 4 /Root 1 0 R >>\nstartxref\n190\n%%EOF"
         )
 
+        from src.naukri_agent.utils.helpers import hash_file
+        profile = json.loads(profile_path.read_text())
+        profile["file_hash"] = hash_file(fake_pdf)
+        profile_path.write_text(json.dumps(profile))
+
         result = await parser.parse(fake_pdf)
         mock_llm.generate_content.assert_not_called()
         assert result.name == "Local"

@@ -8,7 +8,10 @@ from src.naukri_agent.database.backup import DatabaseBackupService, backup_datab
 
 def test_database_backup_service(tmp_path):
     db_file = tmp_path / "test.db"
-    db_file.write_text("dummy database content")
+    import sqlite3
+    with sqlite3.connect(db_file) as conn:
+        conn.execute("CREATE TABLE sample(value TEXT)")
+        conn.execute("INSERT INTO sample VALUES ('committed')")
 
     backup_service = DatabaseBackupService(db_file, max_backups=2)
     backup_service.backup()
@@ -29,8 +32,19 @@ def test_database_backup_service(tmp_path):
 
 def test_backup_database_wrapper(tmp_path):
     db_file = tmp_path / "test_wrap.db"
-    db_file.write_text("wrap dummy database")
+    import sqlite3
+    with sqlite3.connect(db_file) as conn:
+        conn.execute("CREATE TABLE sample(value TEXT)")
 
     backup_database(db_file)
     backups = list(tmp_path.glob("test_wrap_backup_*.db"))
     assert len(backups) == 1
+
+
+def test_corrupt_database_backup_reports_failure(tmp_path):
+    import sqlite3
+    import pytest
+    db_file = tmp_path / 'broken.db'
+    db_file.write_bytes(b'not a SQLite database')
+    with pytest.raises(sqlite3.DatabaseError):
+        DatabaseBackupService(db_file).backup()

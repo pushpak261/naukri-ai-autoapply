@@ -189,6 +189,7 @@ class LinkedInAgent:
 
     async def run(self, dry_run: bool = False) -> None:
         """Execute the full LinkedIn agent loop."""
+        self._run_error = False
         if dry_run:
             self._settings.application.dry_run = True
 
@@ -211,6 +212,7 @@ class LinkedInAgent:
 
             await self._parse_resume()
             if not self._resume_profile:
+                self._run_error = True
                 log_error("Cannot proceed without a parsed resume profile.")
                 return
 
@@ -218,6 +220,7 @@ class LinkedInAgent:
 
             login_success = await self._login_handler.login()
             if not login_success:
+                self._run_error = True
                 log_error("LinkedIn login failed. Cannot proceed.")
                 return
 
@@ -327,6 +330,7 @@ class LinkedInAgent:
             log_warning("LinkedIn agent interrupted by user")
             self._interrupted = True
         except Exception as e:
+            self._run_error = True
             if self._interrupted:
                 log_warning("Agent run interrupted. Shutting down gracefully.")
             else:
@@ -376,6 +380,8 @@ class LinkedInAgent:
 
         assert self._resume_profile is not None
         resume_profile = self._resume_profile
+        from api.company_policy import CompanyPolicy
+        company_policy = CompanyPolicy(self._settings, "linkedin")
         job_queue: list[tuple[float, int, Job]] = []
 
         for idx, job in enumerate(jobs):
@@ -418,6 +424,7 @@ class LinkedInAgent:
             else:
                 score = 0.0
 
+            score += company_policy.priority(job.company) + 10 * getattr(job, "_queue_priority", 0)
             heapq.heappush(job_queue, (-score, idx, job))
 
         total_jobs = len(job_queue)
@@ -437,7 +444,12 @@ class LinkedInAgent:
                 break
 
             neg_score, idx, job = heapq.heappop(job_queue)
-            initial_score = -neg_score
+            initial_score = -neg_score - company_policy.priority(job.company) - 10 * getattr(job, "_queue_priority", 0)
+            allowed, reason = await company_policy.allowed(job.company, self._repo, "linkedin")
+            if not allowed:
+                log_info(f"Skipping {job.company}: {reason}")
+                self._jobs_skipped += 1
+                continue
 
             remaining = self._settings.application.daily_cap - self._daily_applied
             if remaining <= 0:
@@ -846,7 +858,7 @@ class LinkedInAgent:
                 logger.error(f"Failed to send external jobs email: {e}")
 
         if self._repo and self._run_log_id:
-            status = "interrupted" if self._interrupted else "completed"
+            status = "interrupted" if self._interrupted else "error" if getattr(self, "_run_error", False) else "completed"
             await self._repo.update_run_log(
                 run_log_id=self._run_log_id,
                 jobs_found=self._jobs_found,

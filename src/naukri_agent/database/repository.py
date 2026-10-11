@@ -104,6 +104,8 @@ class SQLAlchemyRepository(IRepository):
     @with_failover
     async def initialize(self) -> None:
         """Load applied job IDs and (title, company) combinations with their dates for cooldown-aware dedup."""
+        self._applied_jobs_cache.clear()
+        self._applied_composite_cache.clear()
         session_factory = await self._db_manager.get_session_factory()
         try:
             async with session_factory() as session:
@@ -113,7 +115,9 @@ class SQLAlchemyRepository(IRepository):
                         DBJob.title,
                         DBJob.company,
                         DBApplication.applied_at,
-                    ).join(DBApplication, DBApplication.job_id == DBJob.id)
+                    ).join(DBApplication, DBApplication.job_id == DBJob.id).where(
+                        DBApplication.status.notin_(["failed", "error", "pending_retry"])
+                    )
                 )
                 rows = result.all()
                 now = datetime.now(UTC)
@@ -249,7 +253,10 @@ class SQLAlchemyRepository(IRepository):
         """Record an application attempt."""
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session, session.begin():
-            app = DBApplication(
+            queued = (await session.execute(select(DBApplication).where(
+                DBApplication.job_id == job_id, DBApplication.status == "pending_retry"
+            ))).scalars().first()
+            app = queued or DBApplication(
                 job_id=job_id,
                 match_score=match_score,
                 match_reasoning=match_reasoning,
@@ -258,6 +265,14 @@ class SQLAlchemyRepository(IRepository):
                 status=status,
                 error_message=error_message,
             )
+            if queued:
+                app.match_score = match_score
+                app.match_reasoning = match_reasoning
+                app.matching_skills = matching_skills
+                app.missing_skills = missing_skills
+                app.status = status
+                app.error_message = error_message
+                app.applied_at = datetime.now(UTC)
             session.add(app)
             await session.flush()
             await session.refresh(app)
@@ -315,17 +330,16 @@ class SQLAlchemyRepository(IRepository):
                 .order_by(DBApplication.applied_at.desc())
             )
             prior = existing.scalars().first()
-            if prior and prior.status != "failed":
+            if prior and prior.status not in ("failed", "error", "pending_retry"):
                 return prior.id
 
-            app = DBApplication(
-                job_id=job_id,
-                match_score=match_score,
-                match_reasoning=match_reasoning,
-                matching_skills=matching_skills,
-                missing_skills=missing_skills,
-                status="applying",
-            )
+            app = prior if prior and prior.status == "pending_retry" else DBApplication(job_id=job_id)
+            app.match_score = match_score
+            app.match_reasoning = match_reasoning
+            app.matching_skills = matching_skills
+            app.missing_skills = missing_skills
+            app.status = "applying"
+            app.applied_at = datetime.now(UTC)
             session.add(app)
             await session.flush()
             await session.refresh(app)
@@ -405,7 +419,7 @@ class SQLAlchemyRepository(IRepository):
         return recovered
 
     @with_failover
-    async def get_today_application_count(self) -> int:
+    async def get_today_application_count(self, source: str = "") -> int:
         """Count applications made today (UTC)."""
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session:
@@ -416,12 +430,13 @@ class SQLAlchemyRepository(IRepository):
                 select(func.count(DBApplication.id)).filter(
                     DBApplication.applied_at >= today_start,
                     DBApplication.status == ApplicationStatus.APPLIED,
+                    *([DBApplication.source == source] if source else []),
                 )
             )
             return result.scalar_one() or 0
 
     @with_failover
-    async def get_application_stats(self, days: int = 7) -> dict[str, int]:
+    async def get_application_stats(self, days: int = 7, source: str = "") -> dict[str, int]:
         """Get application statistics for the last N days.
 
         Computed with a single aggregate query instead of loading every
@@ -430,13 +445,14 @@ class SQLAlchemyRepository(IRepository):
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session:
             since = datetime.now(UTC) - timedelta(days=days)
-            total, applied, skipped = (
+            total, applied, skipped, failed = (
                 await session.execute(
                     select(
                         func.count(DBApplication.id),
                         func.sum(case((DBApplication.status == "applied", 1), else_=0)),
                         func.sum(case((DBApplication.status.like("skipped%"), 1), else_=0)),
-                    ).filter(DBApplication.applied_at >= since)
+                        func.sum(case((DBApplication.status.in_(["failed", "error", "uncertain"]), 1), else_=0)),
+                    ).filter(DBApplication.applied_at >= since, *([DBApplication.source == source] if source else []))
                 )
             ).one()
             total = total or 0
@@ -446,18 +462,18 @@ class SQLAlchemyRepository(IRepository):
                 "total": total,
                 "applied": applied,
                 "skipped": skipped,
-                # Anything not applied and not skipped* mirrors the prior bucketing.
-                "failed": total - applied - skipped,
+                "failed": failed or 0,
             }
 
     @with_failover
-    async def get_recent_applications(self, limit: int = 20) -> list[dict]:
+    async def get_recent_applications(self, limit: int = 20, source: str = "") -> list[dict]:
         """Get the most recent application records with job details."""
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session:
             result = await session.execute(
                 select(DBApplication, DBJob)
                 .join(DBJob, DBApplication.job_id == DBJob.id)
+                .where(*([DBApplication.source == source] if source else []))
                 .order_by(DBApplication.applied_at.desc())
                 .limit(limit)
             )

@@ -115,7 +115,7 @@ export default function AutoPilot() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Strategic Auto-Pilot</h1>
-          <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Schedule runs, set priority rules, and manage company preferences</p>
+          <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Schedule runs, prioritize queued jobs, and manage company preferences</p>
         </div>
         <button
           onClick={toggleEnabled}
@@ -390,7 +390,7 @@ export default function AutoPilot() {
           </div>
           {cfg.enabled && (
             <p className="text-xs mt-3" style={{ color: 'var(--color-text-muted)' }}>
-              Next run: {cfg.schedule.time} on {cfg.schedule.days.slice(0, 3).join(', ')}
+              Scheduled time (Asia/Kolkata): {cfg.schedule.time} on {cfg.schedule.days.slice(0, 3).join(', ')}
               {cfg.schedule.days.length > 3 ? ` +${cfg.schedule.days.length - 3} more` : ''}
             </p>
           )}

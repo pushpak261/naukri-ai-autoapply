@@ -171,7 +171,11 @@ class SQLAlchemyRepository:
                     )
                     return
 
-                app = NaukriApplication(
+                queued = (await session.execute(select(NaukriApplication).where(
+                    NaukriApplication.job_id == naukri_job.id,
+                    NaukriApplication.status == "pending_retry",
+                ))).scalars().first()
+                app = queued or NaukriApplication(
                     job_id=naukri_job.id,
                     match_score=match_score,
                     status=status,
@@ -181,6 +185,13 @@ class SQLAlchemyRepository:
                     error_message=error_message,
                     source="linkedin",
                 )
+                if queued:
+                    app.status = status
+                    app.match_score = match_score
+                    app.match_reasoning = match_reasoning
+                    app.matching_skills = matching_skills
+                    app.missing_skills = missing_skills
+                    app.error_message = error_message
                 session.add(app)
                 await session.commit()
         except Exception as exc:

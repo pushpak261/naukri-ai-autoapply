@@ -6,6 +6,7 @@ Provides REST endpoints wrapping the existing database and agent.
 from __future__ import annotations
 
 import subprocess
+import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -53,9 +54,25 @@ async def lifespan(app: FastAPI):
     # Defer account resolution to first request to speed up startup
     deps.active_account_email = None
 
-    yield
-    _cleanup_agent()
-    multi_agent_router.cleanup_multi_agents()
+    from datetime import UTC, datetime
+    from api.webhook_publisher import run_publisher
+    from api.scheduler import run_scheduler
+    from api.agent_runtime import supervise
+
+    tasks = [asyncio.create_task(run_scheduler()), asyncio.create_task(supervise(deps.repo)),
+             asyncio.create_task(run_publisher(datetime.now(UTC)))]
+    try:
+        yield
+    finally:
+        sync_task = getattr(deps, "application_sync_task", None)
+        if sync_task is not None:
+            tasks.append(sync_task)
+        for task in tasks:
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.to_thread(_cleanup_agent)
+        await asyncio.to_thread(multi_agent_router.cleanup_multi_agents)
+        await deps.db_manager.engine.dispose()
 
 
 def _cleanup_agent() -> None:
@@ -135,8 +152,8 @@ async def api_key_auth(request: Request, call_next):
     public = request.url.path in PUBLIC_PATHS or any(
         request.url.path.startswith(prefix) for prefix in PUBLIC_PREFIXES
     )
-    if request.method == "OPTIONS" or not api_key or public or accepts_dashboard_token(
-        request, api_key, _resolve_secret()
+    if request.method == "OPTIONS" or public or accepts_dashboard_token(
+        request, api_key or "", _resolve_secret()
     ):
         response = await call_next(request)
     else:

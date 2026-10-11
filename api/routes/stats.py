@@ -18,10 +18,10 @@ async def get_stats(days: int = Query(7, ge=1, le=365), source: str = Query("", 
     # Run independent queries in parallel for better performance
     import asyncio
     stats, today_count, run_logs, recent = await asyncio.gather(
-        r.get_application_stats(days=days),
-        r.get_today_application_count(),
+        r.get_application_stats(days=days, source=source),
+        r.get_today_application_count(source=source),
         r.get_run_stats(limit=10),
-        r.get_recent_applications(limit=5),
+        r.get_recent_applications(limit=5, source=source),
     )
 
     total_jobs_found = sum(rw.get("found", 0) for rw in run_logs)
@@ -41,13 +41,14 @@ async def get_stats(days: int = Query(7, ge=1, le=365), source: str = Query("", 
             func.count(DBApplication.id),
             func.sum(case((DBApplication.status == "applied", 1), else_=0)),
             func.sum(case((DBApplication.status.like("skipped%"), 1), else_=0)),
+            func.sum(case((DBApplication.status.in_(["failed", "error", "uncertain"]), 1), else_=0)),
         )
         if base_filters:
             counts_q = counts_q.where(*base_filters)
-        total_c, applied_c, skipped_c = (await session.execute(counts_q)).one()
+        total_c, applied_c, skipped_c, failed_c = (await session.execute(counts_q)).one()
         total_applied = applied_c or 0
         total_skipped = skipped_c or 0
-        total_failed = (total_c or 0) - total_applied - total_skipped
+        total_failed = failed_c or 0
 
     return {
         "stats": stats,
@@ -212,6 +213,9 @@ async def get_application_statuses():
     return {
         "statuses": [
             {"value": "applied", "label": "Applied", "color": "green"},
+            {"value": "pending_retry", "label": "Queued", "color": "blue"},
+            {"value": "applying", "label": "Applying", "color": "blue"},
+            {"value": "skipped_filters", "label": "Not submitted", "color": "yellow"},
             {"value": "skipped_low_score", "label": "Skipped (Low Score)", "color": "yellow"},
             {"value": "skipped_excluded", "label": "Skipped (Excluded)", "color": "orange"},
             {

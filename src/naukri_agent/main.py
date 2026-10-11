@@ -206,7 +206,9 @@ async def _run(
     if active_account_email:
         agent._engine.set_session_for_account(active_account_email)
 
-    await agent.run(dry_run=dry_run)
+    from api.job_queue import run_selected_jobs
+
+    await run_selected_jobs(agent, db_manager, "naukri", dry_run=dry_run)
 
 
 @cli.command()
