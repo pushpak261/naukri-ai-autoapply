@@ -78,6 +78,19 @@ async def update_autopilot_config(data: dict[str, Any]):
             raise HTTPException(422, f"{key} must contain company names")
     if not isinstance(current["throttle"], dict) or any(type(v) is not int or v < 0 for v in current["throttle"].values()):
         raise HTTPException(422, "Throttle values must be nonnegative integers")
+    if not isinstance(current["tier_map"], dict) or any(v not in ("top_tier", "startup", "default") for v in current["tier_map"].values()):
+        raise HTTPException(422, "Company tiers must be top_tier, startup or default")
+    from api.priority_rules import parse_condition
+    rules = current["priority_rules"]
+    if not isinstance(rules, list):
+        raise HTTPException(422, "priority_rules must be an array")
+    for rule in rules:
+        if not isinstance(rule, dict) or rule.get("action") != "apply_immediately" or type(rule.get("enabled")) is not bool:
+            raise HTTPException(422, "Priority rules require enabled and action apply_immediately")
+        try:
+            parse_condition(rule.get("condition"))
+        except ValueError as error:
+            raise HTTPException(422, str(error)) from error
     validate_schedule(current["schedule"])
     await _save_config(current)
     return {"status": "saved", "message": "Auto-pilot configuration updated"}

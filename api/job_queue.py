@@ -68,12 +68,18 @@ async def run_selected_jobs(agent, db_manager, platform, dry_run=False):
     fields = {field.name for field in dataclasses.fields(DomainJob)} - {'id'}
     async with db_manager.session_factory() as session:
         rows = (await session.execute(select(Job).where(Job.id.in_(ids), Job.source == platform))).scalars().all()
+        by_id = {row.id: row for row in rows}
         jobs = []
-        for row in rows:
+        for queue_position, job_id in enumerate(ids):
+            row = by_id.get(job_id)
+            if row is None:
+                continue
             values = {name: getattr(row, name) for name in fields if hasattr(row, name)}
             if platform == 'linkedin':
                 values['linkedin_job_id'] = row.naukri_job_id.removeprefix('li_')
-            jobs.append(DomainJob(**values))
+            job = DomainJob(**values)
+            job._queue_priority = len(ids) - queue_position
+            jobs.append(job)
     agent._job_searcher = SelectedJobSearcher(agent._job_searcher, jobs)
     failed = False
     try:

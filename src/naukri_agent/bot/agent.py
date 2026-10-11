@@ -473,6 +473,8 @@ class NaukriAgent:
             "check and return early before calling this."
         )
         resume_profile = self._resume_profile
+        from api.company_policy import CompanyPolicy
+        company_policy = CompanyPolicy(self._settings, "naukri")
         job_queue: list[tuple[float, int, Job]] = []
         for idx, job in enumerate(jobs):
             # Compute heuristic score first for dynamic exclusion gating
@@ -545,6 +547,7 @@ class NaukriAgent:
                 logger.debug(f"Heuristics DISABLED for job: {job.title}. Defaulting score to 0.0")
                 score = 0.0
 
+            score += company_policy.priority(job.company) + 10 * getattr(job, "_queue_priority", 0)
             heapq.heappush(job_queue, (-score, idx, job))
 
         # Log the jobs currently in the Priority Queue in sorted order
@@ -568,7 +571,12 @@ class NaukriAgent:
             self._daily_applied = await self._repo.get_today_application_count() if self._repo else self._daily_applied
 
             neg_score, idx, job = heapq.heappop(job_queue)
-            initial_score = -neg_score
+            initial_score = -neg_score - company_policy.priority(job.company) - 10 * getattr(job, "_queue_priority", 0)
+            allowed, reason = await company_policy.allowed(job.company, self._repo, "naukri")
+            if not allowed:
+                log_info(f"Skipping {job.company}: {reason}")
+                self._jobs_skipped += 1
+                continue
 
             remaining = self._settings.application.daily_cap - self._daily_applied
             if remaining <= 0:

@@ -54,10 +54,13 @@ async def lifespan(app: FastAPI):
     # Defer account resolution to first request to speed up startup
     deps.active_account_email = None
 
+    from datetime import UTC, datetime
+    from api.webhook_publisher import run_publisher
     from api.scheduler import run_scheduler
     from api.agent_runtime import supervise
 
-    tasks = [asyncio.create_task(run_scheduler()), asyncio.create_task(supervise(deps.repo))]
+    tasks = [asyncio.create_task(run_scheduler()), asyncio.create_task(supervise(deps.repo)),
+             asyncio.create_task(run_publisher(datetime.now(UTC)))]
     try:
         yield
     finally:

@@ -380,6 +380,8 @@ class LinkedInAgent:
 
         assert self._resume_profile is not None
         resume_profile = self._resume_profile
+        from api.company_policy import CompanyPolicy
+        company_policy = CompanyPolicy(self._settings, "linkedin")
         job_queue: list[tuple[float, int, Job]] = []
 
         for idx, job in enumerate(jobs):
@@ -422,6 +424,7 @@ class LinkedInAgent:
             else:
                 score = 0.0
 
+            score += company_policy.priority(job.company) + 10 * getattr(job, "_queue_priority", 0)
             heapq.heappush(job_queue, (-score, idx, job))
 
         total_jobs = len(job_queue)
@@ -441,7 +444,12 @@ class LinkedInAgent:
                 break
 
             neg_score, idx, job = heapq.heappop(job_queue)
-            initial_score = -neg_score
+            initial_score = -neg_score - company_policy.priority(job.company) - 10 * getattr(job, "_queue_priority", 0)
+            allowed, reason = await company_policy.allowed(job.company, self._repo, "linkedin")
+            if not allowed:
+                log_info(f"Skipping {job.company}: {reason}")
+                self._jobs_skipped += 1
+                continue
 
             remaining = self._settings.application.daily_cap - self._daily_applied
             if remaining <= 0:

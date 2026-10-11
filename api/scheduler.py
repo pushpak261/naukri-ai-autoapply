@@ -71,14 +71,17 @@ async def tick(now=None):
             state.agent_queued_ids = []
     if any_agent_running():
         return
+    config = await _load_config()
     async with session_factory() as session:
-        rows = (await session.execute(select(Job.id, Job.source).join(Application, Application.job_id == Job.id).where(Application.status == 'pending_retry').order_by(Application.applied_at).limit(100))).all()
+        rows = (await session.execute(select(Job.id, Job.source, Job.posted_date, Job.company, Application.match_score).join(Application, Application.job_id == Job.id).where(Application.status == 'pending_retry').order_by(Application.applied_at).limit(100))).all()
     if rows:
+        from api.priority_rules import priority
+        preferred = {company.casefold() for company in config.get('company_whitelist', [])}
+        rows.sort(key=lambda row: (priority(config, row.match_score, row.posted_date), row.company.casefold() in preferred), reverse=True)
         platform = rows[0].source
         ids = list(dict.fromkeys(row.id for row in rows if row.source == platform))
         await start_agent(platform=platform, job_ids=ids)
         return
-    config = await _load_config()
     key = due_key(config, now)
     if key is None:
         return

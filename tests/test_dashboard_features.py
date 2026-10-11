@@ -250,3 +250,69 @@ async def test_webhook_test_targets_selected_destination(dashboard, monkeypatch)
     result = await dashboard.post(f'/api/webhooks/{ids[0]}/test')
     assert result.status_code == 200, result.text
     assert posted == ['https://example.com/1']
+
+
+@pytest.mark.asyncio
+async def test_company_preferences_and_daily_limits(dashboard):
+    from api.company_policy import CompanyPolicy
+    response = await dashboard.put('/api/autopilot/config', json={
+        'enabled': True, 'schedule': {'time': '23:59'},
+        'company_blacklist': ['Blocked'], 'company_whitelist': ['Preferred'],
+        'tier_map': {'Preferred': 'top_tier'}, 'throttle': {'top_tier_daily': 1},
+    })
+    assert response.status_code == 200
+    policy = CompanyPolicy(state.settings, 'naukri')
+    assert policy.priority('preferred') == 1
+    assert (await policy.allowed('BLOCKED', state.repo, 'naukri'))[0] is False
+    assert (await policy.allowed('Preferred', state.repo, 'naukri'))[0] is True
+    job = await state.repo.save_job(naukri_job_id='policy-job', title='Engineer', company='Preferred', url='https://www.naukri.com/test')
+    await state.repo.save_application(job_id=job.id, match_score=90, status='applied')
+    assert (await policy.allowed('Preferred', state.repo, 'naukri'))[0] is False
+
+
+@pytest.mark.asyncio
+async def test_runtime_webhook_publisher_uses_committed_outcomes(dashboard, monkeypatch):
+    from datetime import timedelta
+    from unittest.mock import AsyncMock
+    from api.webhook_publisher import publish_since
+    from api.routes import webhooks
+    deliver = AsyncMock(return_value=[])
+    monkeypatch.setattr(webhooks, 'fire_webhook_event', deliver)
+    start = datetime.now(UTC)
+    job = await state.repo.save_job(naukri_job_id='event-job', title='Engineer', company='Example', url='https://www.naukri.com/test')
+    await state.repo.save_application(job_id=job.id, match_score=90, status='applied')
+    end = datetime.now(UTC) + timedelta(seconds=1)
+    await publish_since(start, end)
+    deliver.assert_awaited_once()
+    assert deliver.await_args.args[0] == 'application.created'
+    assert deliver.await_args.args[1]['job_id'] == job.id
+    deliver.reset_mock()
+    await publish_since(end, end + timedelta(seconds=1))
+    deliver.assert_not_awaited()
+
+
+def test_priority_conditions_use_scores_and_reject_code():
+    from api.priority_rules import parse_condition, priority
+    config = {'priority_rules': [{'enabled': True, 'action': 'apply_immediately', 'condition': 'match_score > 90 AND posted_hours < 24'}]}
+    assert priority(config, 95, '2 hours ago') == 1
+    assert priority(config, 80, '2 hours ago') == 0
+    assert priority(config, 95, '3 days ago') == 0
+    with pytest.raises(ValueError):
+        parse_condition('__import__("os").system("true")')
+
+
+@pytest.mark.asyncio
+async def test_stats_filter_counts_and_recent_apps_by_platform(dashboard):
+    async with state.db_manager.session_factory() as session, session.begin():
+        for source, status in [('naukri', 'applied'), ('linkedin', 'failed'), ('linkedin', 'pending_retry')]:
+            job = Job(naukri_job_id=source+status, title='Engineer', company=source, url='https://example.invalid/job', source=source)
+            session.add(job)
+            await session.flush()
+            session.add(Application(job_id=job.id, source=source, status=status))
+    naukri = (await dashboard.get('/api/stats?source=naukri')).json()
+    linkedin = (await dashboard.get('/api/stats?source=linkedin')).json()
+    assert naukri['stats']['applied'] == naukri['today_applied'] == 1
+    assert naukri['stats']['failed'] == 0
+    assert linkedin['stats']['failed'] == 1
+    assert linkedin['today_applied'] == 0
+    assert {a['company'] for a in linkedin['recent_applications']} == {'linkedin'}

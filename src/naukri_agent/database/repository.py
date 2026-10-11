@@ -425,7 +425,7 @@ class SQLAlchemyRepository(IRepository):
         return recovered
 
     @with_failover
-    async def get_today_application_count(self) -> int:
+    async def get_today_application_count(self, source: str = "") -> int:
         """Count applications made today (UTC)."""
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session:
@@ -436,12 +436,13 @@ class SQLAlchemyRepository(IRepository):
                 select(func.count(DBApplication.id)).filter(
                     DBApplication.applied_at >= today_start,
                     DBApplication.status == ApplicationStatus.APPLIED,
+                    *([DBApplication.source == source] if source else []),
                 )
             )
             return result.scalar_one() or 0
 
     @with_failover
-    async def get_application_stats(self, days: int = 7) -> dict[str, int]:
+    async def get_application_stats(self, days: int = 7, source: str = "") -> dict[str, int]:
         """Get application statistics for the last N days.
 
         Computed with a single aggregate query instead of loading every
@@ -457,7 +458,7 @@ class SQLAlchemyRepository(IRepository):
                         func.sum(case((DBApplication.status == "applied", 1), else_=0)),
                         func.sum(case((DBApplication.status.like("skipped%"), 1), else_=0)),
                         func.sum(case((DBApplication.status.in_(["failed", "error", "uncertain"]), 1), else_=0)),
-                    ).filter(DBApplication.applied_at >= since)
+                    ).filter(DBApplication.applied_at >= since, *([DBApplication.source == source] if source else []))
                 )
             ).one()
             total = total or 0
@@ -471,13 +472,14 @@ class SQLAlchemyRepository(IRepository):
             }
 
     @with_failover
-    async def get_recent_applications(self, limit: int = 20) -> list[dict]:
+    async def get_recent_applications(self, limit: int = 20, source: str = "") -> list[dict]:
         """Get the most recent application records with job details."""
         session_factory = await self._db_manager.get_session_factory()
         async with session_factory() as session:
             result = await session.execute(
                 select(DBApplication, DBJob)
                 .join(DBJob, DBApplication.job_id == DBJob.id)
+                .where(*([DBApplication.source == source] if source else []))
                 .order_by(DBApplication.applied_at.desc())
                 .limit(limit)
             )

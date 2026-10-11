@@ -9,7 +9,7 @@ Audit performed 2026-10-11 against the Vercel frontend and its Koyeb API.
 - Isolated backend: 42 dashboard GET routes return successfully using a real dashboard JWT.
 - Isolated workflows: account CRUD/activation, export/import with ID remapping and atomic rollback, SQLite backup/restore, clear-data running-agent guard, resume PDF upload/local parsing/profile edits/config persistence, webhook CRUD and targeted test delivery, apply queue and retry semantics, scheduler dispatch and once-per-day scheduling, observed application-status synchronization.
 - External browser status observation, process launch and outbound webhook delivery use test doubles in workflow tests. They are not production delivery evidence.
-- Backend regression suite: 965 tests pass. Frontend build, lint (four existing warnings), and five API-client tests pass.
+- Backend regression suite: 969 tests pass. Frontend build, lint (four existing warnings), and five API-client tests pass.
 
 ## Repairs
 
@@ -24,10 +24,10 @@ Resume upload works with local parsing when Gemini is disabled, persists missing
 This audit is not a certification that every feature works in production.
 
 - Real Naukri and LinkedIn login, OTP/CAPTCHA/session recovery, Gemini quota/model responses, actual application submission and recruiter-side status require operator-owned test accounts and deployment verification. No real application was submitted during the audit.
-- Autopilot scheduling and queue dispatch are connected, but company-tier throttling, arbitrary priority rules and company preference enforcement still need integration with both agents. Saving those preferences is not proof they affect a run.
-- Automatic webhook delivery from application/run events is not connected; selected webhook tests are repaired, but event subscriptions need an event publisher.
+- Autopilot now enforces company blacklists and per-company daily tier limits in both agents; preferred companies rank first. Numeric priority conditions order queued jobs using recorded scores and listing ages. They do not pre-score every newly scraped listing. Tier counts are checked before processing; simultaneous platforms can race at a cap boundary.
+- A lifecycle publisher now sends application.created, application.failed and run.completed for newly recorded outcomes. Delivery is best effort while the API is running; historical outcomes are not replayed on startup. Destination failures are recorded, without guaranteed retry or exactly-once delivery.
 - Existing Java/Spring targeting and domain heuristics remain tailored to the repository owner's profile; they are not general-purpose targeting for arbitrary resumes/search terms.
-- Aggregate analytics need further seeded multi-platform validation; empty-database route success does not prove numerical accuracy.
+- Seeded multi-platform tests verify source-filtered application totals and recent applications, including excluding pending work from failures. Run logs remain global because their existing schema has no platform column.
 - Koyeb's configured filesystem must be persistent to retain accounts, schedules, uploaded resumes and SQLite across redeploys. Repository guidance currently describes ephemeral free-tier storage.
 
 ## Deployment

@@ -115,7 +115,7 @@ export default function AutoPilot() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Strategic Auto-Pilot</h1>
-          <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Schedule runs, set priority rules, and manage company preferences</p>
+          <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Schedule runs, prioritize queued jobs, and manage company preferences</p>
         </div>
         <button
           onClick={toggleEnabled}
