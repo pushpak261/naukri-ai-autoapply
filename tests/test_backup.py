@@ -39,3 +39,12 @@ def test_backup_database_wrapper(tmp_path):
     backup_database(db_file)
     backups = list(tmp_path.glob("test_wrap_backup_*.db"))
     assert len(backups) == 1
+
+
+def test_corrupt_database_backup_reports_failure(tmp_path):
+    import sqlite3
+    import pytest
+    db_file = tmp_path / 'broken.db'
+    db_file.write_bytes(b'not a SQLite database')
+    with pytest.raises(sqlite3.DatabaseError):
+        DatabaseBackupService(db_file).backup()

@@ -9,7 +9,7 @@ Audit performed 2026-10-11 against the Vercel frontend and its Koyeb API.
 - Isolated backend: 42 dashboard GET routes return successfully using a real dashboard JWT.
 - Isolated workflows: account CRUD/activation, export/import with ID remapping and atomic rollback, SQLite backup/restore, clear-data running-agent guard, resume PDF upload/local parsing/profile edits/config persistence, webhook CRUD and targeted test delivery, apply queue and retry semantics, scheduler dispatch and once-per-day scheduling, observed application-status synchronization.
 - External browser status observation, process launch and outbound webhook delivery use test doubles in workflow tests. They are not production delivery evidence.
-- Backend regression suite: 969 tests pass. Frontend build, lint (four existing warnings), and five API-client tests pass.
+- Backend regression suite: 976 tests pass. Frontend build, lint (four existing warnings), and five API-client tests pass.
 
 ## Repairs
 

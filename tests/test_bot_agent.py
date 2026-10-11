@@ -1829,3 +1829,34 @@ class TestRefreshProfile:
         with quiet_async(), patch(f"{AGENT_MODULE}.logger") as logger:
             await agent.refresh_profile()
         logger.debug.assert_called_once_with("Browser close error: gone")
+
+
+@pytest.mark.asyncio
+async def test_matching_disabled_bypasses_matcher_explicitly():
+    agent = make_agent(settings=make_settings(ai={"enable_matching": False}))
+    matcher = make_matcher()
+    applier, _, _, _ = await _process(agent, [java_job()], matcher=matcher)
+    matcher.match.assert_not_awaited()
+    assert applier.apply_to_job.await_count == 1
+    assert agent._repo.begin_application.await_args.kwargs["match_reasoning"] == "Matching disabled in configuration"
+
+
+@pytest.mark.asyncio
+async def test_configured_threshold_overrides_matcher_recommendation():
+    agent = make_agent(settings=make_settings(application={"match_score_threshold": 95}))
+    matcher = make_matcher(JobApplication(match_score=88, should_apply=True))
+    applier, _, _, _ = await _process(agent, [java_job()], matcher=matcher)
+    assert applier.apply_to_job.await_count == 0
+    assert agent._repo.save_application.await_args.kwargs["status"] == ApplicationStatus.SKIPPED_LOW_SCORE
+
+
+@pytest.mark.asyncio
+async def test_company_policy_blocks_before_matching(monkeypatch):
+    from api.company_policy import CompanyPolicy
+    monkeypatch.setattr(CompanyPolicy, 'allowed', AsyncMock(return_value=(False, 'Daily company limit reached')))
+    agent = make_agent()
+    matcher = make_matcher()
+    applier, _, _, _ = await _process(agent, [java_job()], matcher=matcher)
+    matcher.match.assert_not_awaited()
+    applier.apply_to_job.assert_not_awaited()
+    assert agent._jobs_skipped == 1

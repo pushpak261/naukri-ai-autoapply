@@ -330,22 +330,16 @@ class SQLAlchemyRepository(IRepository):
                 .order_by(DBApplication.applied_at.desc())
             )
             prior = existing.scalars().first()
-            if prior and prior.status == "pending_retry":
-                prior.status = "applying"
-                prior.applied_at = datetime.now(UTC)
-                prior.match_score = match_score
-                return prior.id
-            if prior and prior.status not in ("failed", "error"):
+            if prior and prior.status not in ("failed", "error", "pending_retry"):
                 return prior.id
 
-            app = DBApplication(
-                job_id=job_id,
-                match_score=match_score,
-                match_reasoning=match_reasoning,
-                matching_skills=matching_skills,
-                missing_skills=missing_skills,
-                status="applying",
-            )
+            app = prior if prior and prior.status == "pending_retry" else DBApplication(job_id=job_id)
+            app.match_score = match_score
+            app.match_reasoning = match_reasoning
+            app.matching_skills = matching_skills
+            app.missing_skills = missing_skills
+            app.status = "applying"
+            app.applied_at = datetime.now(UTC)
             session.add(app)
             await session.flush()
             await session.refresh(app)

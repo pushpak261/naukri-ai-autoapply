@@ -316,3 +316,39 @@ async def test_stats_filter_counts_and_recent_apps_by_platform(dashboard):
     assert linkedin['stats']['failed'] == 1
     assert linkedin['today_applied'] == 0
     assert {a['company'] for a in linkedin['recent_applications']} == {'linkedin'}
+
+
+@pytest.mark.asyncio
+async def test_queued_claim_reuses_record_and_blocks_duplicate(dashboard):
+    from api.job_queue import enqueue_jobs
+    job = await state.repo.save_job(naukri_job_id='claim-queue', title='Engineer', company='Example', url='https://www.naukri.com/test')
+    factory = await state.db_manager.get_session_factory()
+    assert await enqueue_jobs(factory, [job.id]) == 1
+    await state.repo.initialize()
+    assert not state.repo.is_already_applied(job.naukri_job_id)
+    app_id = await state.repo.begin_application(job.id, 87, 'Resume fit', 'Java', 'Go')
+    assert state.repo.is_already_applied(job.naukri_job_id)
+    assert await enqueue_jobs(factory, [job.id]) == 0
+    await state.repo.finalize_application(app_id, 'applied')
+    async with factory() as session:
+        rows = (await session.execute(select(Application).where(Application.job_id == job.id))).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].status == 'applied'
+        assert rows[0].match_score == 87
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('outcome', ['failed', 'skipped_dry_run'])
+async def test_queued_save_reuses_record_and_updates_metadata(dashboard, outcome):
+    from api.job_queue import enqueue_jobs
+    job = await state.repo.save_job(naukri_job_id='save-queue', title='Engineer', company='Example', url='https://www.naukri.com/test')
+    factory = await state.db_manager.get_session_factory()
+    await enqueue_jobs(factory, [job.id])
+    result = await state.repo.save_application(job.id, 72, outcome, 'Reason', 'Python', 'Java', 'Diagnostic')
+    async with factory() as session:
+        rows = (await session.execute(select(Application).where(Application.job_id == job.id))).scalars().all()
+        assert len(rows) == 1
+        assert rows[0].id == result.id
+        assert rows[0].status == outcome
+        assert rows[0].match_reasoning == 'Reason'
+        assert rows[0].error_message == 'Diagnostic'
