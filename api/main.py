@@ -15,7 +15,6 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import PlainTextResponse
 
 from api.deps import state as deps
-from api.auth.dashboard import accepts_dashboard_token
 from api.auth.deps import _resolve_secret
 from api.routes import (
     accounts as accounts_router,
@@ -53,6 +52,13 @@ async def lifespan(app: FastAPI):
 
     # Defer account resolution to first request to speed up startup
     deps.active_account_email = None
+    from api import identity
+    from api.tenants import runtime_for
+    await asyncio.to_thread(identity.seed_operator)
+    app.state.auth_attempts = {}
+    for user in await asyncio.to_thread(identity.all_users):
+        if not user['is_operator']:
+            await runtime_for(user)
 
     from datetime import UTC, datetime
     from api.webhook_publisher import run_publisher
@@ -64,6 +70,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        from api.tenants import shutdown_tenants
+        await shutdown_tenants()
         sync_task = getattr(deps, "application_sync_task", None)
         if sync_task is not None:
             tasks.append(sync_task)
@@ -148,20 +156,47 @@ async def root() -> dict[str, str]:
 
 @app.middleware("http")
 async def api_key_auth(request: Request, call_next):
-    api_key = deps.settings.dashboard_api_key if deps.settings else None
-    public = request.url.path in PUBLIC_PATHS or any(
-        request.url.path.startswith(prefix) for prefix in PUBLIC_PREFIXES
-    )
-    if request.method == "OPTIONS" or public or accepts_dashboard_token(
-        request, api_key or "", _resolve_secret()
-    ):
-        response = await call_next(request)
+    from api.deps import current_state, root_state
+    from api import identity
+    from api.tenants import runtime_for
+    from api.auth.jwt import verify_access_token
+    import secrets
+    import time
+
+    api_key = root_state.settings.dashboard_api_key if root_state.settings else None
+    public = request.url.path in PUBLIC_PATHS or any(request.url.path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+    authorization = request.headers.get("Authorization", "")
+    token = authorization[7:].strip() if authorization.startswith("Bearer ") else ""
+    if not token and request.url.path in ("/api/agent/output/stream", "/api/multi/output/stream"):
+        token = request.query_params.get("token", "")
+    runtime = root_state
+    authorized = bool(api_key and token and secrets.compare_digest(token, api_key))
+    if token and not authorized:
+        payload = verify_access_token(token, _resolve_secret())
+        user = await asyncio.to_thread(identity.find_user, payload.get("sub", "")) if payload else None
+        if user:
+            runtime = await runtime_for(user)
+            authorized = True
+    if request.method == "POST" and request.url.path in ("/api/auth/login", "/api/auth/register"):
+        attempts = getattr(app.state, "auth_attempts", {})
+        key = request.client.host if request.client else "unknown"
+        now = time.monotonic()
+        recent = [stamp for stamp in attempts.get(key, []) if stamp > now - 60]
+        if len(recent) >= 60:
+            return PlainTextResponse('{"detail":"Too many attempts. Try again shortly."}', status_code=429, media_type="application/json")
+        if len(attempts) > 10000:
+            attempts.clear()
+        attempts[key] = recent + [now]
+        app.state.auth_attempts = attempts
+    if request.method == "OPTIONS" or public or authorized:
+        context_token = current_state.set(runtime)
+        try:
+            response = await call_next(request)
+        finally:
+            current_state.reset(context_token)
     else:
-        response = PlainTextResponse(
-            '{"detail":"Unauthorized"}',
-            status_code=401,
-            headers={"Content-Type": "application/json", "WWW-Authenticate": "Bearer"},
-        )
+        response = PlainTextResponse('{"detail":"Unauthorized"}', status_code=401,
+            headers={"Content-Type": "application/json", "WWW-Authenticate": "Bearer"})
     # Dashboard data includes credentials, sessions and rapidly changing run state.
     if request.url.path.startswith("/api/"):
         response.headers["Cache-Control"] = "private, no-store"
@@ -174,7 +209,8 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 # CORSMiddleware last (outermost) - handles CORS headers on all responses
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://.*$",
+    allow_origins=[origin.strip() for origin in __import__("os").environ.get("DASHBOARD_ALLOWED_ORIGINS", "https://naukri-ai-autoapply.vercel.app").split(",") if origin.strip()],
+    allow_origin_regex=r"^http://(localhost|127\.0\.0\.1)(:[0-9]+)?$",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"],
     allow_headers=[

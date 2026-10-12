@@ -61,7 +61,7 @@ async def session_status(
             pass
 
     # 2. Resolve LinkedIn session
-    linkedin_email = os.environ.get("LINKEDIN_EMAIL", "")
+    linkedin_email = os.environ.get("LINKEDIN_EMAIL", "") if not state.user_id else ""
     if not linkedin_email:
         config_path = state.settings.project_root / "linkedin_config.yaml"
         if config_path.exists():

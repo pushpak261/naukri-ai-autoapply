@@ -92,3 +92,8 @@ run_output_final.txt
 .venv/
 live-api-audit.json
 live-browser-audit.json
+
+# Isolated dashboard workspaces and test artifacts
+data/users/
+artifacts/
+.venv/

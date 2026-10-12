@@ -44,10 +44,40 @@ def _ensure_lock() -> asyncio.Lock:
     return state.agent_run_lock
 
 
+_shared_start_lock = None
+_shared_start_loop = None
+
+
+def _shared_lock():
+    global _shared_start_lock, _shared_start_loop
+    loop = asyncio.get_running_loop()
+    if _shared_start_loop is not loop:
+        _shared_start_lock = asyncio.Lock()
+        _shared_start_loop = loop
+    return _shared_start_lock
+
+
+def ensure_browser_capacity():
+    from api.deps import root_state
+    from api.tenants import runtimes
+    from fastapi import HTTPException
+    active = sum(1 for runtime in [root_state, *runtimes.values()]
+                 for process in [runtime.agent_process, *runtime.agent_processes.values()]
+                 if process is not None and process.poll() is None)
+    current_task = asyncio.current_task()
+    active += sum(1 for runtime in [root_state, *runtimes.values()]
+                  if runtime.application_sync_task is not None
+                  and runtime.application_sync_task is not current_task
+                  and not runtime.application_sync_task.done())
+    maximum = max(1, int(os.environ.get("MAX_ACTIVE_AGENTS", "2")))
+    if active >= maximum:
+        raise HTTPException(409, "Server browser capacity is busy. Try again after a running agent stops.")
+
+
 def serialized_start(function):
     @functools.wraps(function)
     async def wrapped(*args, **kwargs):
-        async with _ensure_lock():
+        async with _shared_lock(), _ensure_lock():
             sync_task = getattr(state, "application_sync_task", None)
             if sync_task is not None and not sync_task.done():
                 from fastapi import HTTPException

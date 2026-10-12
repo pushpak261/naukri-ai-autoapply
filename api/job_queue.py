@@ -74,6 +74,11 @@ async def run_selected_jobs(agent, db_manager, platform, dry_run=False):
             row = by_id.get(job_id)
             if row is None:
                 continue
+            from urllib.parse import urlsplit
+            parsed = urlsplit(row.url)
+            hosts = ('naukri.com', 'www.naukri.com') if platform == 'naukri' else ('linkedin.com', 'www.linkedin.com')
+            if parsed.scheme != 'https' or parsed.hostname not in hosts or parsed.username or parsed.password:
+                raise ValueError('Queued jobs must link to the selected job platform over HTTPS')
             values = {name: getattr(row, name) for name in fields if hasattr(row, name)}
             if platform == 'linkedin':
                 values['linkedin_job_id'] = row.naukri_job_id.removeprefix('li_')

@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # ---------------------------------------------------------------------------
 # Project root (LinkedIn agent sits under src/linked_agent/)
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = Path(os.environ.get("AGENT_WORKSPACE") or Path(__file__).resolve().parent.parent.parent.parent)
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +46,8 @@ class LinkedInCredentials(BaseModel):
     def _clean_secret(cls, value: object) -> object:
         """Strip surrounding whitespace only - inner characters are significant."""
         if isinstance(value, str):
-            return value.strip()
+            from libs.common.security import decrypt_value
+            return decrypt_value(value).strip()
         return value
 
 
@@ -163,6 +164,7 @@ class ProfileSettings(BaseModel):
 class ExclusionSettings(BaseModel):
     """Filters to skip certain jobs."""
 
+    legacy_domain_filter: bool = True
     enable_scam_filter: bool = False
     fake_company_blocklist: list[str] = Field(default_factory=list)
     companies: list[str] = Field(default_factory=list)

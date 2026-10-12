@@ -16,6 +16,7 @@ import re
 import subprocess
 import sys
 import threading
+import contextvars
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
@@ -90,7 +91,7 @@ def _start_output_reader(platform: str, process) -> None:
 
     for stream in (process.stdout, process.stderr):
         if stream:
-            t = threading.Thread(target=_reader, args=(stream,), daemon=True)
+            t = threading.Thread(target=contextvars.copy_context().run, args=(_reader, stream), daemon=True)
             t.start()
 
 
@@ -136,8 +137,17 @@ async def start_agents(
             }
             continue
 
+        from api.agent_runtime import ensure_browser_capacity
+        from api.tenants import validate_agent_configuration
+        try:
+            await validate_agent_configuration(platform)
+            ensure_browser_capacity()
+        except HTTPException as error:
+            results[platform] = {"status": "busy" if error.status_code == 409 else "configuration_required", "message": error.detail}
+            continue
         cmd = list(_PLATFORM_CMDS[platform])
-        env = os.environ.copy()
+        from api.tenants import agent_environment
+        env = agent_environment()
         env.pop("AGENT_JOB_IDS", None)
         # Force headless mode in production (no display and not Windows)
         if not os.environ.get("DISPLAY") and sys.platform != "win32":

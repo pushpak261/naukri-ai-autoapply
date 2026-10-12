@@ -221,6 +221,15 @@ class JobMatcher(IJobMatcher):
             threshold=self._threshold,
         )
 
+        if not getattr(self._settings.exclusions, "legacy_domain_filter", True):
+            prompt = (
+                "Compare only this candidate resume against this job. Do not assume any skills, "
+                "industry or experience beyond the resume. Return the supplied JSON schema with "
+                "a score from 0 to 100, matching/missing skills and concise reasoning. "
+                f"Recommend applying only when score >= {self._threshold} and no material red flags exist.\n"
+                f"RESUME: {resume_summary}\nJOB: {job.title} at {job.company}\n"
+                f"EXPERIENCE: {job.experience}\nSKILLS: {job.skills}\nDESCRIPTION: {description}"
+            )
         try:
             response_text = await self._llm.generate_content(
                 prompt=prompt,

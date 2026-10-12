@@ -6,6 +6,7 @@ the dashboard authentication session.
 from __future__ import annotations
 
 import json
+import secrets
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -66,6 +67,7 @@ def create_refresh_token(email: str, secret: str) -> str:
         "iat": now,
         "exp": now + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS),
         "type": "refresh",
+        "jti": secrets.token_hex(16),
     }
     return pyjwt.encode(payload, secret, algorithm=ALGORITHM)
 

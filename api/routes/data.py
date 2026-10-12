@@ -150,7 +150,11 @@ async def list_logs():
 
 @router.get("/api/logs/read")
 async def read_log(log_path: str = Query(...), max_lines: int = Query(200, ge=1, le=50000)):
-    full_path = state.settings.project_root / log_path
+    full_path = (state.settings.project_root / log_path).resolve()
+    allowed_roots = [(state.settings.project_root / "data/logs").resolve(),
+                     (state.settings.project_root / "terminal_output").resolve()]
+    if full_path.suffix != ".log" or not any(full_path.is_relative_to(root) for root in allowed_roots):
+        raise HTTPException(status_code=400, detail="Choose a log from your account log directories")
     if not full_path.exists() or not full_path.is_file():
         raise HTTPException(status_code=404, detail="Log file not found")
     try:
@@ -213,7 +217,7 @@ async def session_status(
             pass
 
     # 2. Resolve LinkedIn session
-    linkedin_email = os.environ.get("LINKEDIN_EMAIL", "")
+    linkedin_email = os.environ.get("LINKEDIN_EMAIL", "") if not state.user_id else ""
     if not linkedin_email:
         config_path = state.settings.project_root / "linkedin_config.yaml"
         if config_path.exists():

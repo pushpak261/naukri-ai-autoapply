@@ -282,7 +282,7 @@ class LinkedInAgent:
             exclusions = self._settings.exclusions
             base_exclusion_spec: JobSpecification = (
                 CompanyExclusionSpecification(exclusions.companies)
-                | TitleExclusionSpecification(exclusions.title_keywords)
+                | TitleExclusionSpecification(exclusions.title_keywords, getattr(exclusions, "legacy_domain_filter", True))
                 | DescriptionExclusionSpecification(exclusions.description_keywords)
                 | AuthenticityExclusionSpecification(
                     exclusions.fake_company_blocklist, exclusions.max_openings_without_logo

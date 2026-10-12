@@ -37,7 +37,7 @@ export default function Login() {
             <Activity className="w-8 h-8 text-[#38bdf8]" />
             <h1 className="text-2xl font-bold text-white">Naukri Agent</h1>
           </div>
-          <p className="text-sm text-slate-400">Sign in with your Naukri credentials</p>
+          <p className="text-sm text-slate-400">Sign in to your dashboard account</p>
         </div>
 
         <form
@@ -46,7 +46,7 @@ export default function Login() {
         >
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1.5">
-              Naukri Email
+              Email
             </label>
             <input
               id="email"
@@ -102,7 +102,7 @@ export default function Login() {
           </Link>
         </p>
         <p className="text-center mt-2 text-xs text-slate-500">
-          Your Naukri credentials are stored securely and used only for the agent.
+          Connect your Naukri or LinkedIn account after signing in.
         </p>
       </div>
     </div>

@@ -12,7 +12,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from api.auth.jwt import verify_access_token
-from api.deps import state
+from api.deps import root_state as state
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -20,7 +20,8 @@ _bearer = HTTPBearer(auto_error=False)
 def _resolve_secret() -> str:
     if state.settings and state.settings.jwt_secret:
         return state.settings.jwt_secret
-    secret_file = state.settings.data_dir / ".jwt_secret" if state.settings else None
+    from api.identity import workspace_base
+    secret_file = workspace_base() / ".jwt_secret" if state.settings else None
     if secret_file and secret_file.exists():
         return secret_file.read_text(encoding="utf-8").strip()
     secret = secrets.token_hex(32)

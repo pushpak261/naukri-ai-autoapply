@@ -34,8 +34,8 @@ def _allowed_resume_roots() -> list[Path]:
     """Directories an ``uploaded_file_path`` is permitted to point at."""
     roots = [state.settings.resumes_dir]
     configured = state.settings.resume.path if state.settings.resume else ""
-    if configured:
-        roots.append(Path(configured).expanduser().parent)
+    if configured and not state.user_id:
+        roots.append((state.settings.project_root / Path(configured).expanduser()).parent)
     return roots
 
 
@@ -73,7 +73,8 @@ def _update_config_resume_path(new_rel_path: str) -> None:
     temporary.write_text(yaml.safe_dump(config, allow_unicode=True))
     temporary.replace(config_path)
     state.settings.resume.path = new_rel_path
-    get_settings.cache_clear()
+    if not state.user_id:
+        get_settings.cache_clear()
 
 
 @router.post("/api/resume/upload")
@@ -143,7 +144,7 @@ async def upload_resume(file: UploadFile = File(...)):
     api_key = (
         state.settings.ai.gemini_api_key
         if state.settings and state.settings.ai and state.settings.ai.gemini_api_key
-        else os.environ.get("GEMINI_API_KEY", "")
+        else (os.environ.get("GEMINI_API_KEY", "") if not state.user_id else "")
     )
     if state.settings.ai.use_gemini and not api_key:
         raise HTTPException(

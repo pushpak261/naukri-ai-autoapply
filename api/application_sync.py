@@ -52,6 +52,11 @@ async def sync_applications():
         if not jobs:
             state.application_sync_result = {'running': False, 'synced_count': 0, 'message': 'No Naukri applications to verify'}
             return
+        from api.agent_runtime import _shared_lock, ensure_browser_capacity
+        from api.tenants import validate_agent_configuration
+        async with _shared_lock():
+            ensure_browser_capacity()
+            await validate_agent_configuration("naukri")
         async with asyncio.timeout(300):
             observed = await observe_applications(state.settings, state.db_manager, jobs)
         now = datetime.now(UTC)

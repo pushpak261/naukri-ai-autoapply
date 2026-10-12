@@ -31,3 +31,8 @@ resume.pdf
 .vscode
 .idea
 
+
+# Isolated dashboard workspaces and test artifacts
+data/users/
+artifacts/
+.venv/

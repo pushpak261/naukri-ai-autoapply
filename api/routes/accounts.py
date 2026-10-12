@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, update as sql_update
 
 from api.deps import state
+from libs.common.security import encrypt_value
 from src.naukri_agent.models.db_schema import NaukriAccount
 
 router = APIRouter(tags=["accounts"])
@@ -87,7 +88,7 @@ async def create_account(body: AccountCreate):
 
         account = NaukriAccount(
             email=body.email.strip(),
-            password=body.password,
+            password=encrypt_value(body.password),
             name=body.name.strip() or body.email.strip(),
             is_active=True,
             is_primary=body.is_primary or False,
@@ -123,7 +124,7 @@ async def update_account(account_id: int, body: AccountUpdate):
         if body.email is not None:
             account.email = body.email.strip()
         if body.password is not None:
-            account.password = body.password
+            account.password = encrypt_value(body.password)
         if body.name is not None:
             account.name = body.name.strip()
         if body.is_active is not None:

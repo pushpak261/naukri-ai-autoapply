@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
-import { api, setAuthToken } from '../lib/api';
+import { api } from '../lib/api';
 import { Activity } from 'lucide-react';
 
 export default function Register() {
@@ -23,15 +23,14 @@ export default function Register() {
       setError('Passwords do not match');
       return;
     }
-    if (password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (password.length < 10) {
+      setError('Password must be at least 10 characters');
       return;
     }
     setError('');
     setSubmitting(true);
     try {
-      const res = await api.auth.register(email.trim(), password);
-      setAuthToken(res.access_token);
+      await api.auth.register(email.trim(), password);
       await login(email.trim(), password);
       navigate('/', { replace: true });
     } catch (err) {
@@ -49,7 +48,7 @@ export default function Register() {
             <Activity className="w-8 h-8 text-[#38bdf8]" />
             <h1 className="text-2xl font-bold text-white">Naukri Agent</h1>
           </div>
-          <p className="text-sm text-slate-400">Create your account</p>
+          <p className="text-sm text-slate-400">Create your dashboard account</p>
         </div>
 
         <form
@@ -58,7 +57,7 @@ export default function Register() {
         >
           <div>
             <label htmlFor="email" className="block text-sm font-medium text-slate-300 mb-1.5">
-              Naukri Email
+              Email
             </label>
             <input
               id="email"
