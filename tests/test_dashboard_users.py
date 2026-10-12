@@ -184,3 +184,32 @@ async def test_browser_capacity_and_platform_password_storage(dashboard, monkeyp
         assert error.value.status_code == 409
         monkeypatch.setattr(runtime, 'agent_process', None)
         ensure_browser_capacity()
+
+
+@pytest.mark.asyncio
+async def test_agent_cli_resolves_saved_account_before_validation(dashboard, monkeypatch):
+    from unittest.mock import AsyncMock, Mock
+    from api import identity, job_queue
+    from api.tenants import runtime_for
+    from src.naukri_agent import main
+    from src.naukri_agent.models import db_schema
+
+    async with register_client('agent-start@example.invalid') as user:
+        await user.post('/api/accounts', json={'email': 'platform@example.invalid', 'password': 'Dummy-platform-secret'})
+        runtime = await runtime_for(identity.find_user('agent-start@example.invalid'))
+        settings = runtime.settings.model_copy(deep=True)
+        resume = settings.resumes_dir / 'dummy.pdf'
+        resume.write_bytes(b'dummy resume; parser is not invoked by this startup test')
+        settings.resume.path = str(resume)
+        assert not settings.naukri.email
+        monkeypatch.delenv('NAUKRI_ACTIVE_ACCOUNT', raising=False)
+        monkeypatch.setattr(main, 'get_settings', lambda: settings)
+        monkeypatch.setattr(db_schema, 'setup_database_manager', AsyncMock(return_value=runtime.db_manager))
+        agent = Mock()
+        monkeypatch.setattr(main, 'create_agent', lambda configured, manager: agent)
+        run = AsyncMock()
+        monkeypatch.setattr(job_queue, 'run_selected_jobs', run)
+        await main._run(dry_run=True, cap=None, threshold=None, keyword=None)
+        assert settings.naukri.email == 'platform@example.invalid'
+        assert settings.naukri.password == 'Dummy-platform-secret'
+        run.assert_awaited_once_with(agent, runtime.db_manager, 'naukri', dry_run=True)

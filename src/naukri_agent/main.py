@@ -143,14 +143,6 @@ async def _run(
     # settings so validation passes even if config.yaml wasn't updated.
     _patch_resume_path_from_uploaded(settings)
 
-    problems = settings.validate_required()
-    if problems:
-        console.print("[bold red]Configuration error — cannot start the agent:[/bold red]")
-        for problem in problems:
-            console.print(f"  • {problem}")
-        console.print("\n[dim]See .env.example and config.yaml for what needs to be set.[/dim]")
-        raise SystemExit(1)
-
     db_manager = await setup_database_manager(settings.db_path)
 
     # Determine which account to use: env var overrides, otherwise query DB for active account
@@ -182,6 +174,15 @@ async def _run(
             console.print(
                 f"[yellow]  ⚠️  Active account '{active_account_email}' not found in DB, falling back to default[/yellow]"
             )
+
+    problems = settings.validate_required()
+    if problems:
+        console.print("[bold red]Configuration error — cannot start the agent:[/bold red]")
+        for problem in problems:
+            console.print(f"  • {problem}")
+        console.print("\n[dim]See .env.example and config.yaml for what needs to be set.[/dim]")
+        await db_manager.engine.dispose()
+        raise SystemExit(1)
 
     # Start the incremental project indexer in the background
     if settings.application.enable_project_indexer:
