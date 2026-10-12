@@ -20,7 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 # ---------------------------------------------------------------------------
 # Project root is two levels up from this file (src/config/settings.py)
 # ---------------------------------------------------------------------------
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+PROJECT_ROOT = Path(os.environ.get("AGENT_WORKSPACE") or Path(__file__).resolve().parent.parent.parent.parent)
 
 
 def _decrypt_secret(value: str) -> str:
@@ -158,6 +158,7 @@ class ProfileSettings(BaseModel):
 class ExclusionSettings(BaseModel):
     """Filters to skip certain jobs."""
 
+    legacy_domain_filter: bool = True
     enable_scam_filter: bool = False
     fake_company_blocklist: list[str] = Field(default_factory=list)
     max_openings_without_logo: int = 50

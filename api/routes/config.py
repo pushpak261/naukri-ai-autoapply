@@ -238,10 +238,8 @@ async def update_config(update: ConfigUpdate):
         encoding="utf-8",
     )
 
-    get_settings.cache_clear()
-    import api.deps
-
-    api.deps.state.settings = get_settings()
+    from api.tenants import reload_current_settings
+    reload_current_settings()
 
     return {"status": "ok", "message": "Configuration updated"}
 
@@ -251,11 +249,7 @@ async def update_config(update: ConfigUpdate):
 LINKEDIN_CONFIG_PATH = None  # resolved at runtime
 
 def _get_linkedin_config_path():
-    global LINKEDIN_CONFIG_PATH
-    if LINKEDIN_CONFIG_PATH is None:
-        from pathlib import Path
-        LINKEDIN_CONFIG_PATH = state.settings.project_root / "linkedin_config.yaml"
-    return LINKEDIN_CONFIG_PATH
+    return state.settings.project_root / "linkedin_config.yaml"
 
 @router.get("/api/config/linkedin")
 async def get_linkedin_config():
@@ -270,8 +264,8 @@ async def get_linkedin_config():
         config_data = yaml.safe_load(text) or {}
 
     # Check .env for credentials
-    env_email = os.environ.get("LINKEDIN_EMAIL", "")
-    env_password = os.environ.get("LINKEDIN_PASSWORD", "")
+    env_email = os.environ.get("LINKEDIN_EMAIL", "") if not state.user_id else ""
+    env_password = os.environ.get("LINKEDIN_PASSWORD", "") if not state.user_id else ""
 
     linkedin = config_data.get("linkedin", {})
     ai = config_data.get("ai", {})
@@ -366,7 +360,7 @@ async def update_linkedin_config(update: LinkedInConfigUpdate):
         config_data["linkedin"]["email"] = update.linkedin_email
     if update.linkedin_password is not None:
         _set_env("LINKEDIN_PASSWORD", update.linkedin_password)
-        config_data["linkedin"]["password"] = update.linkedin_password
+        config_data["linkedin"]["password"] = encrypt_value(update.linkedin_password)
     if update.linkedin_2fa_code is not None:
         config_data["linkedin"]["two_factor_code"] = update.linkedin_2fa_code
 
@@ -391,12 +385,16 @@ async def update_linkedin_config(update: LinkedInConfigUpdate):
     if update.dry_run is not None:
         config_data["application"]["dry_run"] = update.dry_run
     if update.resume_path is not None:
+        if state.user_id and update.resume_path:
+            from fastapi import HTTPException
+            target = (state.settings.project_root / update.resume_path).resolve()
+            if not target.is_relative_to(state.settings.resumes_dir.resolve()):
+                raise HTTPException(422, "Choose a resume uploaded to your account")
         config_data["resume"]["path"] = update.resume_path
 
     # Write .env
-    await asyncio.to_thread(
-        env_path.write_text, "\n".join(env_lines) + "\n", encoding="utf-8"
-    )
+    if not state.user_id:
+        await asyncio.to_thread(env_path.write_text, "\n".join(env_lines) + "\n", encoding="utf-8")
 
     # Write linkedin_config.yaml
     await asyncio.to_thread(
@@ -409,9 +407,7 @@ async def update_linkedin_config(update: LinkedInConfigUpdate):
     # values take effect immediately instead of on the next restart.
     from src.naukri_agent.config.settings import get_settings
 
-    get_settings.cache_clear()
-    import api.deps
-
-    api.deps.state.settings = get_settings()
+    from api.tenants import reload_current_settings
+    reload_current_settings()
 
     return {"status": "ok", "message": "LinkedIn configuration updated"}

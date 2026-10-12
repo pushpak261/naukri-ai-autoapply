@@ -57,12 +57,16 @@ async def fire_webhook_event(event: str, payload: dict, webhook_id: int | None =
             headers["X-Webhook-Signature"] = _compute_signature(body, wh.secret)
 
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(wh.url, content=body, headers=headers)
-                wh.last_triggered_at = datetime.now(UTC)
-                if resp.is_error:
-                    wh.failure_count = (wh.failure_count or 0) + 1
-                results.append({"webhook_id": wh.id, "name": wh.name, "status": resp.status_code})
+            if state.user_id:
+                from api.outbound import post_public_webhook
+                resp = await post_public_webhook(wh.url, body, headers)
+            else:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    resp = await client.post(wh.url, content=body, headers=headers)
+            wh.last_triggered_at = datetime.now(UTC)
+            if resp.is_error:
+                wh.failure_count = (wh.failure_count or 0) + 1
+            results.append({"webhook_id": wh.id, "name": wh.name, "status": resp.status_code})
         except Exception as e:
             wh.failure_count = (wh.failure_count or 0) + 1
             results.append({"webhook_id": wh.id, "name": wh.name, "error": str(e)})

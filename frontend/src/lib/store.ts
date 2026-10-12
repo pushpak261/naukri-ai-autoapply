@@ -30,7 +30,7 @@ const initialUser = loadSavedUser();
 
 const initialAuthState: AuthState = {
   user: initialUser,
-  loading: !!initialUser,
+  loading: true,
 };
 
 export const loginThunk = createAsyncThunk<
@@ -39,7 +39,8 @@ export const loginThunk = createAsyncThunk<
 >('auth/login', async ({ email, password }) => {
   const res = await api.auth.login(email, password);
   setAuthToken(res.access_token);
-  const userData: User = { email: res.email, naukriConfigured: true };
+  const me = await api.auth.me();
+  const userData: User = { email: me.email, naukriConfigured: me.naukri_configured };
   if (typeof window !== 'undefined') {
     localStorage.setItem(USER_KEY, JSON.stringify(userData));
   }

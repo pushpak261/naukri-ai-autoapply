@@ -2,16 +2,14 @@
 Authentication endpoints: login, logout, refresh, and current user info.
 
 Uses JWT access tokens (15 min) + refresh tokens (7 days, httpOnly cookie).
-The refresh token is encrypted on disk so the session survives server restarts.
+Refresh token hashes are persisted for rotation and revocation.
 """
 
 from __future__ import annotations
 
-import secrets
 import os
 
-import yaml
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from fastapi import Depends
@@ -20,12 +18,9 @@ from api.auth.deps import get_current_user
 from api.auth.jwt import (
     create_access_token,
     create_refresh_token,
-    delete_refresh_token,
-    save_refresh_token,
     verify_refresh_token,
 )
 from api.deps import state
-from libs.common.security import encrypt_value
 
 router = APIRouter(tags=["auth"])
 
@@ -71,17 +66,8 @@ class MeResponse(BaseModel):
 
 
 def _get_jwt_secret() -> str:
-    if state.settings and state.settings.jwt_secret:
-        return state.settings.jwt_secret
-    # Persist a generated secret so it survives across calls
-    secret_file = state.settings.data_dir / ".jwt_secret" if state.settings else None
-    if secret_file and secret_file.exists():
-        return secret_file.read_text(encoding="utf-8").strip()
-    secret = secrets.token_hex(32)
-    if secret_file:
-        secret_file.parent.mkdir(parents=True, exist_ok=True)
-        secret_file.write_text(secret, encoding="utf-8")
-    return secret
+    from api.auth.deps import _resolve_secret
+    return _resolve_secret()
 
 
 def _set_refresh_cookie(response: Response, token: str) -> None:
@@ -90,7 +76,7 @@ def _set_refresh_cookie(response: Response, token: str) -> None:
         value=token,
         httponly=True,
         secure=True,
-        samesite="none",
+        samesite="lax",
         max_age=7 * 24 * 3600,
         path="/api/auth",
     )
@@ -104,185 +90,84 @@ def _clear_refresh_cookie(response: Response) -> None:
     )
 
 
-def _save_naukri_credentials(email: str, password: str) -> None:
-    """Persist Naukri credentials to config.yaml so the agent can use them."""
-    config_path = state.settings.project_root / "config.yaml"
-    config_data: dict = {}
-    if config_path.exists():
-        with open(config_path, encoding="utf-8") as f:
-            config_data = yaml.safe_load(f) or {}
-
-    config_data.setdefault("naukri", {})
-    config_data["naukri"]["email"] = email
-    config_data["naukri"]["password"] = encrypt_value(password)
-
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.dump(config_data, f, default_flow_style=False, allow_unicode=True)
-
-    from src.naukri_agent.config.settings import get_settings
-
-    get_settings.cache_clear()
-    state.settings = get_settings()
-    state.active_account_email = None
-
-
-# ---------------------------------------------------------------------------
-# Endpoints
-# ---------------------------------------------------------------------------
-
-
 @router.post("/api/auth/register")
 async def register(body: RegisterRequest, response: Response):
-    """Register a new user and persist credentials for the agent.
+    from api import identity
+    import asyncio
+    import re
+    import sqlite3
 
-    Public self-registration is disabled by default (``OPEN_REGISTRATION`` is
-    falsy). Operators seed credentials via ``NAUKRI_EMAIL``/``NAUKRI_PASSWORD``
-    in ``.env``/``config.yaml`` and use the login endpoint.
-    """
-    # Explicit opt-in is required for initial dashboard setup.
-    if os.environ.get("OPEN_REGISTRATION", "false").strip().lower() in (
-        "0",
-        "false",
-        "no",
-        "off",
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Public registration is disabled",
-        )
-
-
-    if state.settings and state.settings.naukri.email:
-        raise HTTPException(status_code=409, detail="An account is already configured. Please sign in.")
-
-    email = body.email.strip()
-    password = body.password
-
-    if not email or not password:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Email and password are required",
-        )
-
+    if os.environ.get("OPEN_REGISTRATION", "true").strip().lower() in ("0", "false", "no", "off"):
+        raise HTTPException(403, "Public registration is disabled")
+    email = body.email.strip().casefold()
+    if len(email) > 254 or not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", email):
+        raise HTTPException(422, "Enter a valid email address")
+    if not 10 <= len(body.password) <= 128:
+        raise HTTPException(422, "Password must contain 10 to 128 characters")
+    if len(body.name) > 200:
+        raise HTTPException(422, "Name is too long")
     try:
-        _save_naukri_credentials(email, password)
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save credentials: {exc}",
-        )
+        user = await asyncio.to_thread(identity.create_user, email, body.password, body.name)
+    except sqlite3.IntegrityError:
+        raise HTTPException(409, "An account with this email already exists") from None
+    return await _issue_session(user, response)
 
+
+async def _issue_session(user, response):
+    import asyncio
+    from api import identity
     secret = _get_jwt_secret()
-    access_token = create_access_token(email, secret)
-    refresh_token = create_refresh_token(email, secret)
-
-    save_refresh_token(state.settings, refresh_token)
+    access_token = create_access_token(user['email'], secret)
+    refresh_token = create_refresh_token(user['email'], secret)
+    await asyncio.to_thread(identity.remember_session, user['id'], refresh_token)
     _set_refresh_cookie(response, refresh_token)
-
-    return LoginResponse(access_token=access_token, email=email)
+    return LoginResponse(access_token=access_token, email=user['email'])
 
 
 @router.get("/api/auth/register/check")
 async def check_registration():
-    """Check if credentials are already configured (soft registration check)."""
-    s = state.settings
-    return {
-        "registered": bool(s.naukri.email) if s else False,
-        "email": s.naukri.email[:3] + "..." if s and s.naukri.email else "",
-    }
+    return {"registered": False, "email": "", "separate_accounts": True,
+            "registration_enabled": os.environ.get("OPEN_REGISTRATION", "true").lower() not in ("0", "false", "no", "off")}
 
 
 @router.post("/api/auth/login")
 async def login(body: LoginRequest, response: Response):
-    """Authenticate with Naukri email + password.
-
-    Verifies the configured operator credentials, then issues a JWT access
-    token (returned in the body) and a refresh token (httpOnly cookie).
-    """
-    email = body.email.strip()
-    password = body.password
-
-    if not email or not password:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Email and password are required",
-        )
-
-    configured = state.settings.naukri if state.settings else None
-    if not configured or not configured.email or not configured.password:
-        raise HTTPException(status_code=409, detail="No account configured. Ask the administrator to complete setup.")
-    if not (
-        secrets.compare_digest(email.encode(), configured.email.strip().encode())
-        and secrets.compare_digest(password.encode(), configured.password.encode())
-    ):
-        raise HTTPException(status_code=401, detail="Invalid email or password")
-
-    # Issue tokens
-    secret = _get_jwt_secret()
-    access_token = create_access_token(email, secret)
-    refresh_token = create_refresh_token(email, secret)
-
-    save_refresh_token(state.settings, refresh_token)
-    _set_refresh_cookie(response, refresh_token)
-
-    return LoginResponse(access_token=access_token, email=email)
+    import asyncio
+    from api import identity
+    if not body.email.strip() or not body.password or len(body.password) > 128:
+        raise HTTPException(422, "Email and password are required")
+    user = await asyncio.to_thread(identity.authenticate, body.email, body.password)
+    if user is None:
+        raise HTTPException(401, "Invalid email or password")
+    return await _issue_session(user, response)
 
 
 @router.post("/api/auth/logout")
-async def logout(response: Response):
-    """Invalidate the current session."""
-    delete_refresh_token(state.settings)
+async def logout(request: Request, response: Response):
+    import asyncio
+    from api import identity
+    token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if token:
+        await asyncio.to_thread(identity.revoke_session, token)
     _clear_refresh_cookie(response)
     return {"status": "ok", "message": "Logged out"}
 
 
 @router.post("/api/auth/refresh")
 async def refresh(request: Request, response: Response):
-    """Issue a new access token using the refresh token cookie."""
-    secret = _get_jwt_secret()
-
-    # A server-side saved token does not prove the caller owns the session.
+    import asyncio
+    from api import identity
     raw_token = request.cookies.get(REFRESH_COOKIE_NAME)
-
-    if not raw_token:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token not found",
-        )
-
-    payload = verify_refresh_token(raw_token, secret)
-    if payload is None:
-        delete_refresh_token(state.settings)
+    payload = verify_refresh_token(raw_token, _get_jwt_secret()) if raw_token else None
+    user = await asyncio.to_thread(identity.consume_session, raw_token) if payload else None
+    if user is None or user['email'] != payload.get('sub'):
         _clear_refresh_cookie(response)
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token expired or invalid",
-        )
-
-    email: str = payload.get("sub", "")
-    if not email:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token payload",
-        )
-
-    # Rotate refresh token
-    new_refresh = create_refresh_token(email, secret)
-    save_refresh_token(state.settings, new_refresh)
-    _set_refresh_cookie(response, new_refresh)
-
-    access_token = create_access_token(email, secret)
-    return RefreshResponse(access_token=access_token)
+        raise HTTPException(401, "Refresh token expired or invalid")
+    issued = await _issue_session(user, response)
+    return RefreshResponse(access_token=issued.access_token)
 
 
 @router.get("/api/auth/me")
 async def me(email: str = Depends(get_current_user)):
-    """Return the currently authenticated user's info."""
-    s = state.settings
-    naukri_configured = bool(s.naukri.email) if s else False
-    return MeResponse(
-        email=email,
-        is_logged_in=True,
-        naukri_configured=naukri_configured,
-    )
-
+    return MeResponse(email=email, is_logged_in=True,
+                      naukri_configured=bool(state.settings and state.settings.naukri.email))

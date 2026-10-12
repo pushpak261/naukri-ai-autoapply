@@ -678,7 +678,7 @@ class NaukriAgent:
 
             # Pre-AI role/domain check: block non-development roles before
             # consuming an AI API call.
-            if self._is_job_in_excluded_domain(job):
+            if self._settings.exclusions.legacy_domain_filter and self._is_job_in_excluded_domain(job):
                 log_info(
                     f"Skipping job: non-matching role/stack/domain ({job.title} @ {job.company})"
                 )
@@ -729,7 +729,7 @@ class NaukriAgent:
 
             # Secondary domain/stack relevance validation: override AI if job
             # clearly belongs to a non-matching tech stack or domain.
-            if should_apply and self._is_job_in_excluded_domain(job):
+            if should_apply and self._settings.exclusions.legacy_domain_filter and self._is_job_in_excluded_domain(job):
                 log_info(
                     f"Domain/stack override: skipping {job.title} @ {job.company} "
                     f"(non-matching tech stack or domain)"
@@ -926,11 +926,14 @@ class NaukriAgent:
                         f"Experience required ({min_req} Yrs) exceeds {max_exp} Yrs target",
                     )
                 # Skip clearly senior ranges even if the lower bound is within range.
-                if min_req >= 3 and max_req >= 4:
+                if self._settings.exclusions.legacy_domain_filter and min_req >= 3 and max_req >= 4:
                     return (
                         False,
                         f"Senior role ({min_req}-{max_req} Yrs) exceeds {max_exp} Yrs target",
                     )
+
+        if not self._settings.exclusions.legacy_domain_filter:
+            return True, "Experience fits; relevance is determined from the uploaded resume"
 
         # 2) Java/Spring stack requirement.
         ok, reason = is_java_related(job)

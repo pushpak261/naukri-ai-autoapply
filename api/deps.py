@@ -7,6 +7,7 @@ Uses a state object so that all imports see mutations (mutable container).
 from __future__ import annotations
 
 import asyncio
+from contextvars import ContextVar
 import threading
 from datetime import datetime
 from subprocess import Popen
@@ -47,4 +48,42 @@ class AppState:
     agent_platform: str | None = None
 
 
-state = AppState()
+# Mutable values must belong to an instance, never to a shared class container.
+    def __init__(self):
+        self.agent_output_buffer = []
+        self.agent_output_lock = threading.Lock()
+        self.agent_sse_clients = []
+        self.agent_processes = {}
+        self.agent_started_at_map = {}
+        self.agent_output_buffers = {}
+        self.agent_output_locks = {}
+        self.agent_sse_clients_map = {}
+        self.agent_active_platforms = set()
+        self.agent_queued_ids = []
+        self.application_sync_task = None
+        self.application_sync_result = {"running": False}
+        self.background_tasks = []
+        self.user_id = None
+
+
+
+root_state = AppState()
+current_state: ContextVar[AppState | None] = ContextVar("dashboard_state", default=None)
+
+
+def current_runtime():
+    return current_state.get() or root_state
+
+
+class StateProxy:
+    def __getattr__(self, name):
+        return getattr(current_runtime(), name)
+
+    def __setattr__(self, name, value):
+        setattr(current_runtime(), name, value)
+
+    def __delattr__(self, name):
+        delattr(current_runtime(), name)
+
+
+state = StateProxy()

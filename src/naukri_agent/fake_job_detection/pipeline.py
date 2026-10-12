@@ -159,7 +159,7 @@ class FakeJobDetectionPipeline:
                 exclusions.max_openings_without_logo,
             )
         )
-        title_spec = TitleExclusionSpecification(exclusions.title_keywords)
+        title_spec = TitleExclusionSpecification(exclusions.title_keywords, getattr(exclusions, "legacy_domain_filter", True))
         self._exclusion_spec = common_spec | title_spec
         self._exclusion_spec_no_title = common_spec
         return self._exclusion_spec

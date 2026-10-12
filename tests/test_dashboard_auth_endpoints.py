@@ -55,7 +55,7 @@ class AuthEndpointTests(unittest.IsolatedAsyncioTestCase):
         self.client.cookies.clear()
         self.assertEqual((await self.client.post("/api/auth/refresh")).status_code, 401)
 
-    async def test_registration_requires_opt_in_and_cannot_overwrite_account(self):
+    async def test_registration_honors_disable_and_keeps_operator_credentials(self):
         with patch.dict(os.environ, {"OPEN_REGISTRATION": "false"}):
             self.assertEqual((await self.client.post("/api/auth/register", json={
                 "email": "other@example.com", "password": "other-password",
@@ -63,7 +63,9 @@ class AuthEndpointTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, {"OPEN_REGISTRATION": "true"}):
             self.assertEqual((await self.client.post("/api/auth/register", json={
                 "email": "other@example.com", "password": "other-password",
-            })).status_code, 409)
+            })).status_code, 200)
+            self.assertEqual(state.settings.naukri.email, "operator@example.com")
+            self.assertEqual(state.settings.naukri.password, "configured-password")
 
 
 if __name__ == "__main__":

@@ -841,7 +841,8 @@ class TitleExclusionSpecification(JobSpecification):
     or matches non-matching domain/role patterns.
     """
 
-    def __init__(self, keywords: list[str]) -> None:
+    def __init__(self, keywords: list[str], legacy_domain_filter: bool = True) -> None:
+        self._legacy_domain_filter = legacy_domain_filter
         self._regex: re.Pattern[str] | None = None
         if keywords:
             pattern = "|".join(rf"\b{re.escape(k)}\b" for k in keywords)
@@ -856,7 +857,7 @@ class TitleExclusionSpecification(JobSpecification):
             logger.info(f"Excluded title match: {title}")
             return True
 
-        is_excl, reason = is_job_in_excluded_domain(job)
+        is_excl, reason = is_job_in_excluded_domain(job) if self._legacy_domain_filter else (False, "")
         if is_excl:
             logger.info(f"Excluded domain title match: {title} ({reason})")
             return True
@@ -1115,7 +1116,8 @@ def evaluate_job_all_filters(
                 if kw and re.search(r"\b" + re.escape(kw.lower()) + r"\b", t_lower):
                     matched_title_kws.append(kw)
 
-        is_excl_domain, domain_reason = is_job_in_excluded_domain(job)
+        is_excl_domain, domain_reason = (is_job_in_excluded_domain(job)
+            if getattr(settings.exclusions, "legacy_domain_filter", True) else (False, ""))
         if matched_title_kws:
             title_passed = False
             title_reason = f"Title matches blacklisted keyword(s): {', '.join(matched_title_kws)}"

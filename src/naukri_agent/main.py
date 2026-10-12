@@ -175,7 +175,8 @@ async def _run(
             account = result.scalar_one_or_none()
         if account:
             settings.naukri.email = account.email
-            settings.naukri.password = account.password
+            from libs.common.security import decrypt_value
+            settings.naukri.password = decrypt_value(account.password)
             console.print(f"  ℹ️  Using Naukri account: {account.email[:3]}...")
         else:
             console.print(

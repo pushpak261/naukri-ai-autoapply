@@ -5,6 +5,7 @@ import re
 import subprocess
 import sys
 import threading
+import contextvars
 from datetime import UTC, datetime
 from collections.abc import AsyncGenerator
 
@@ -53,7 +54,7 @@ def _start_output_reader(process: subprocess.Popen) -> None:
 
     for stream in (process.stdout, process.stderr):
         if stream:
-            t = threading.Thread(target=_reader, args=(stream,), daemon=True)
+            t = threading.Thread(target=contextvars.copy_context().run, args=(_reader, stream), daemon=True)
             t.start()
 
 
@@ -71,6 +72,11 @@ async def start_agent(platform: str = Query("naukri", max_length=20), job_ids: l
             "message": "Agent is already running",
             "pid": state.agent_process.pid,
         }
+
+    from api.agent_runtime import ensure_browser_capacity
+    ensure_browser_capacity()
+    from api.tenants import validate_agent_configuration
+    await validate_agent_configuration(platform)
 
     # Fallback: if in-memory state is lost (server restart), query DB for active account
     if not state.active_account_email:
@@ -90,7 +96,8 @@ async def start_agent(platform: str = Query("naukri", max_length=20), job_ids: l
         cmd = [sys.executable, "-m", "src.linked_agent.main", "run"]
     else:
         cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
-    env = os.environ.copy()
+    from api.tenants import agent_environment
+    env = agent_environment()
     env.pop("AGENT_JOB_IDS", None)
     if job_ids:
         env["AGENT_JOB_IDS"] = json.dumps(job_ids)
