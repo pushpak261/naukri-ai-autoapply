@@ -230,6 +230,9 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
             self._session_saved = True
             logger.debug("LinkedIn session state saved")
 
+    def has_saved_session(self) -> bool:
+        return self._session_path is not None and self._session_path.is_file()
+
     def mark_session_authenticated(self) -> None:
         self._session_saved = True
 
