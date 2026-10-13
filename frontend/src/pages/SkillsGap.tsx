@@ -122,10 +122,12 @@ export default function SkillsGap() {
         </div>
         <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-8 text-center">
           <Upload className="w-12 h-12 text-[#475569] mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-white mb-2">No Resume Uploaded</h2>
+          <h2 className="text-lg font-semibold text-white mb-2">{summary.has_resume ? 'No Job Skills to Compare Yet' : 'No Resume Uploaded'}</h2>
           <p className="text-[#94a3b8] max-w-md mx-auto">
-            Upload your resume on the <strong>Resume</strong> page to enable skill gap analysis,
-            ATS scoring, and keyword density optimization.
+            {summary.has_resume
+              ? 'Your resume is uploaded. Run an agent search to collect job listings and compare their skills with your resume.'
+              : <>Upload your resume on the <strong>Resume</strong> page to enable skill gap analysis,
+                ATS scoring, and keyword density optimization.</>}
           </p>
           <button onClick={fetchAnalysis} className="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-[#38bdf8] text-[#0f172a] rounded-lg hover:bg-[#7dd3fc] transition-colors font-medium">
             <RefreshCw className="w-4 h-4" /> Refresh
