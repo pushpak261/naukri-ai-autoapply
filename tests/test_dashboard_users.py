@@ -213,3 +213,66 @@ async def test_agent_cli_resolves_saved_account_before_validation(dashboard, mon
         assert settings.naukri.email == 'platform@example.invalid'
         assert settings.naukri.password == 'Dummy-platform-secret'
         run.assert_awaited_once_with(agent, runtime.db_manager, 'naukri', dry_run=True)
+
+
+@pytest.mark.asyncio
+async def test_linkedin_api_and_child_share_resume_and_ai_but_not_search(dashboard, monkeypatch):
+    import yaml
+    from api import identity
+    from api.tenants import runtime_for
+    from src.linked_agent.config import settings as linked_settings
+    async with register_client('shared-resume@example.invalid') as user:
+        runtime = await runtime_for(identity.find_user('shared-resume@example.invalid'))
+        root = runtime.settings.project_root
+        resume = runtime.settings.resumes_dir / 'resume.pdf'
+        resume.write_bytes(b'fixture; only configuration validation reads its existence')
+        config = yaml.safe_load((root/'config.yaml').read_text())
+        config['resume'] = {'path': str(resume)}
+        config['search'] = {'freshness': 7, 'keywords': ['Naukri search only'], 'sort_by': 'date'}
+        (root/'config.yaml').write_text(yaml.safe_dump(config))
+        await user.put('/api/config/linkedin', json={'linkedin_email': 'linked@example.invalid', 'linkedin_password': 'Dummy-platform-password'})
+        result = await user.get('/api/config/linkedin')
+        assert result.status_code == 200, result.text
+        data = result.json()
+        assert data['resume']['exists'] is True
+        assert data['application']['dry_run'] is True
+        assert data['ai']['use_gemini'] is False
+        assert data['search']['freshness'] == 'past_week'
+        assert 'Naukri search only' not in data['search']['keywords']
+        monkeypatch.setattr(linked_settings, 'PROJECT_ROOT', root)
+        monkeypatch.setenv('AGENT_WORKSPACE', str(root))
+        child = linked_settings.Settings(**linked_settings._load_yaml_config())
+        assert child.resume.path == str(resume)
+        assert child.ai.use_gemini is False
+        assert child.application.dry_run is True
+        assert child.exclusions.legacy_domain_filter is False
+        assert child.validate_required() == []
+
+
+@pytest.mark.asyncio
+async def test_resume_extraction_keeps_event_loop_responsive(tmp_path, monkeypatch):
+    import threading
+    from src.naukri_agent.ai.resume_parser import ResumeParser
+    from src.naukri_agent.config.settings import Settings
+    entered, release = threading.Event(), threading.Event()
+    settings = Settings(project_root=tmp_path)
+    settings.ai.use_gemini = False
+    resume = tmp_path / 'resume.pdf'
+    resume.write_bytes(b'parser extraction is mocked for the blocking-work regression')
+    parser = ResumeParser(None, None, settings)
+    def extract(path):
+        entered.set()
+        release.wait(0.5)
+        return 'Dummy Candidate\nPython SQL engineer\ndummy@example.invalid'
+    monkeypatch.setattr(parser, '_extract_pdf_text', extract)
+    task = asyncio.create_task(parser.parse(resume))
+    try:
+        async with asyncio.timeout(2):
+            while not entered.is_set():
+                await asyncio.sleep(0.005)
+            # A synchronous extraction would finish the entire parse before
+            # this coroutine gets another turn on the event loop.
+            assert not task.done()
+    finally:
+        release.set()
+        await task

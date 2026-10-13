@@ -8,7 +8,9 @@ Results are cached in the database by file hash to avoid redundant API calls.
 
 from __future__ import annotations
 
+import asyncio
 import dataclasses
+import threading
 import json
 import os
 import shutil
@@ -62,6 +64,7 @@ class ResumeProfileSchema(BaseModel):
 
 
 logger = get_logger(__name__)
+_PDF_EXTRACTION_LOCK = threading.Lock()
 
 # ---------------------------------------------------------------------------
 # Resume profile schema (what Gemini should return)
@@ -472,6 +475,13 @@ class ResumeParser(IResumeParser):
         except Exception as e:
             logger.warning(f"Failed to write local resume_profile.json: {e}")
 
+    def _extract_resume_text(self, path: Path) -> str:
+        if path.suffix.lower() == ".docx":
+            return self._extract_docx_text(path)
+        # PyMuPDF operations must not run concurrently in separate threads.
+        with _PDF_EXTRACTION_LOCK:
+            return self._extract_pdf_text(path)
+
     async def parse(self, pdf_path: str | Path) -> ResumeProfile:
         """
         Parse a resume PDF into a structured profile.
@@ -522,11 +532,9 @@ class ResumeParser(IResumeParser):
 
         log_info(f"Parsing resume: {path.name}")
 
-        # Extract text
-        if path.suffix.lower() == ".docx":
-            resume_text = self._extract_docx_text(path)
-        else:
-            resume_text = self._extract_pdf_text(path)
+        # Native PDF loading and OCR can be slow on small deployment instances.
+        # Keep health checks and other account requests responsive during extraction.
+        resume_text = await asyncio.to_thread(self._extract_resume_text, path)
         truncated_text = truncate_text(resume_text, max_length=15000)
 
         # Call Gemini or parse locally

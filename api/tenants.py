@@ -120,11 +120,8 @@ async def validate_agent_configuration(platform):
     if platform == 'linkedin':
         from src.linked_agent.config.settings import Settings as LinkedInSettings
         root = runtime.settings.project_root
-        config = yaml.safe_load((root / 'config.yaml').read_text()) or {}
-        path = root / 'linkedin_config.yaml'
-        if path.exists():
-            for key, value in (yaml.safe_load(path.read_text()) or {}).items():
-                config[key] = {**config.get(key, {}), **value} if isinstance(value, dict) else value
+        from libs.common.workspace_config import load_linkedin_workspace_config
+        config = load_linkedin_workspace_config(root)
         config.update(project_root=root, data_dir=root/'data/linkedin', db_path=root/'data/linkedin/linkedin_agent.db', sessions_dir=root/'data/linkedin/sessions', resumes_dir=root/'data/resumes')
         settings = LinkedInSettings(**config)
     else:
