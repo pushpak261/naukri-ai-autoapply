@@ -1,4 +1,5 @@
 """Shared account settings used by the LinkedIn API and agent process."""
+
 from pathlib import Path
 
 import yaml
@@ -12,7 +13,9 @@ def load_linkedin_workspace_config(root: Path) -> dict:
     shared = shared or {}
     # Search formats are platform-specific: Naukri freshness is an integer,
     # whereas LinkedIn uses past_week/past_month/etc.
-    config = {key: dict(shared[key]) for key in SHARED_SECTIONS if isinstance(shared.get(key), dict)}
+    config = {
+        key: dict(shared[key]) for key in SHARED_SECTIONS if isinstance(shared.get(key), dict)
+    }
     platform_path = root / "linkedin_config.yaml"
     platform = yaml.safe_load(platform_path.read_text()) if platform_path.exists() else {}
     for key, value in (platform or {}).items():
