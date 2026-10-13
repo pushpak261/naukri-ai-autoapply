@@ -138,7 +138,7 @@ class LinkedInLoginHandler:
         Execute the full LinkedIn login flow.
         First checks if a saved session is still valid.
         """
-        if await self._check_existing_session():
+        if self._engine.has_saved_session() and await self._check_existing_session():
             log_success("LinkedIn session restored — already logged in!")
             self._engine.mark_session_authenticated()
             return True
