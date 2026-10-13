@@ -318,6 +318,9 @@ def _expand_tree(node):
 
 def _load_yaml_config() -> dict:
     """Load the linkedin_config.yaml file from the project root."""
+    if os.environ.get("AGENT_WORKSPACE"):
+        from libs.common.workspace_config import load_linkedin_workspace_config
+        return _expand_tree(load_linkedin_workspace_config(PROJECT_ROOT))
     config_path = PROJECT_ROOT / "linkedin_config.yaml"
     if not config_path.exists():
         # Fallback: try config.yaml if linkedin-specific config doesn't exist

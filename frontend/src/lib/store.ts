@@ -1,6 +1,7 @@
 import { configureStore, createSlice, createAsyncThunk, type PayloadAction } from '@reduxjs/toolkit';
 import { useDispatch, useSelector, type TypedUseSelectorHook } from 'react-redux';
 import { api, setAuthToken } from './api';
+import { clearAccountCache } from './query-client';
 
 const USER_KEY = 'naukri_auth_user';
 const THEME_KEY = 'theme';
@@ -37,6 +38,7 @@ export const loginThunk = createAsyncThunk<
   User,
   { email: string; password: string }
 >('auth/login', async ({ email, password }) => {
+  await clearAccountCache();
   const res = await api.auth.login(email, password);
   setAuthToken(res.access_token);
   const me = await api.auth.me();
@@ -48,6 +50,7 @@ export const loginThunk = createAsyncThunk<
 });
 
 export const logoutThunk = createAsyncThunk('auth/logout', async () => {
+  await clearAccountCache();
   try {
     await api.auth.logout();
   } catch {

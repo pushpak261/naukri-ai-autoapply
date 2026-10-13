@@ -85,3 +85,17 @@ test('exports attach authorization and never download error responses', async ()
 });
 
 test.after(async () => { await rm(dir, { recursive: true, force: true }); });
+
+
+test('account switches discard cached data and cancel outstanding reads', async () => {
+  const { queryClient, clearAccountCache } = await import('../src/lib/query-client.ts');
+  queryClient.setQueryData(['autopilot'], { privateCompany: 'First user only' });
+  let complete;
+  const pending = queryClient.fetchQuery({ queryKey: ['resume'], queryFn: () => new Promise(resolve => { complete = resolve; }) }).catch(() => undefined);
+  await clearAccountCache();
+  complete({ name: 'Previous account' });
+  await pending;
+  assert.equal(queryClient.getQueryData(['autopilot']), undefined);
+  assert.equal(queryClient.getQueryData(['resume']), undefined);
+  assert.equal(queryClient.getQueryCache().getAll().length, 0);
+});

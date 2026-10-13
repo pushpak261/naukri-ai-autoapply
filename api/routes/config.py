@@ -263,6 +263,11 @@ async def get_linkedin_config():
         text = await asyncio.to_thread(config_path.read_text, encoding="utf-8")
         config_data = yaml.safe_load(text) or {}
 
+    if state.user_id:
+        from libs.common.workspace_config import load_linkedin_workspace_config
+        from src.linked_agent.config.settings import Settings as LinkedInSettings
+        config_data = LinkedInSettings(**load_linkedin_workspace_config(state.settings.project_root)).model_dump()
+
     # Check .env for credentials
     env_email = os.environ.get("LINKEDIN_EMAIL", "") if not state.user_id else ""
     env_password = os.environ.get("LINKEDIN_PASSWORD", "") if not state.user_id else ""
