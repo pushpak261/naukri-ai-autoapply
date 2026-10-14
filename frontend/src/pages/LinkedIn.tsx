@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Globe, Settings, Bot, Key, AlertCircle, CheckCircle, RefreshCw, Loader2 } from 'lucide-react';
 import { api, type LinkedInConfig } from '../lib/api';
+import LinkedInVerification from '../components/LinkedInVerification';
 
 export default function LinkedIn() {
   const [config, setConfig] = useState<LinkedInConfig | null>(null);
@@ -112,6 +113,7 @@ export default function LinkedIn() {
         </div>
       )}
 
+      <LinkedInVerification />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Credentials */}
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>

@@ -526,6 +526,16 @@ export interface MeResponse {
 export const SSE_BASE = BASE_URL;
 
 /** Download through the same authenticated path as dashboard requests. */
+export function verificationRequest<T>(path: string, body?: unknown): Promise<T> {
+  return fetchJSON<T>(`/linkedin/verification/${path}`, body === undefined ? undefined : { method: 'POST', body: JSON.stringify(body) });
+}
+
+export function restoreLinkedInSession(file: File): Promise<{ message: string }> {
+  const data = new FormData();
+  data.append('file', file);
+  return fetchFormData('/linkedin/verification/restore', data);
+}
+
 export async function downloadExport(path: string, filename: string): Promise<void> {
   let token = getAuthToken() || await refreshAccessToken();
   const request = () => fetch(`${BASE_URL}${path}`, withTimeout({

@@ -70,6 +70,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        from api.remote_verification import controller
+        await controller.close()
         from api.tenants import shutdown_tenants
         await shutdown_tenants()
         sync_task = getattr(deps, "application_sync_task", None)
@@ -242,6 +244,8 @@ app.include_router(market_intel_router.router)
 app.include_router(accounts_router.router)
 app.include_router(webhooks_router.router)
 app.include_router(multi_agent_router.router)
+from api.remote_verification import router as verification_router
+app.include_router(verification_router)
 
 
 if __name__ == "__main__":

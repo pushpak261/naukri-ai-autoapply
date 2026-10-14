@@ -50,8 +50,9 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
     - Encrypted session storage (Fernet)
     """
 
-    def __init__(self, settings: Settings, stealth_patcher: IStealthPatcher | None = None) -> None:
+    def __init__(self, settings: Settings, stealth_patcher: IStealthPatcher | None = None, headless_override: bool | None = None) -> None:
         self._settings = settings
+        self._headless_override = headless_override
         self._stealth_patcher = stealth_patcher
         self._playwright: Playwright | None = None
         self._browser: Browser | None = None
@@ -79,8 +80,9 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
         try:
             return Fernet(key_str.encode() if isinstance(key_str, str) else key_str)
         except Exception:
-            logger.warning("Invalid session encryption key, falling back to plaintext storage")
-            return None
+            # Host configurations may use a passphrase rather than a Fernet key.
+            # Always encrypt instead of silently storing session cookies plainly.
+            return Fernet(base64.urlsafe_b64encode(hashlib.sha256(key_str.encode()).digest()))
 
     def _encrypt(self, data: bytes) -> bytes:
         if self._fernet:
@@ -125,6 +127,8 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
                 is_headless = False
             else:
                 is_headless = not os.environ.get("DISPLAY") and sys.platform != "win32"
+            if self._headless_override is not None:
+                is_headless = self._headless_override
             launch_args = [
                 "--disable-blink-features=AutomationControlled",
                 "--disable-infobars",
