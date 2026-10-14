@@ -66,11 +66,27 @@ async def test_unverified_login_is_never_saved(monkeypatch):
     controller.owner = "owner@example.com"
     controller.phase = "ready"
     controller.engine = Mock()
+    controller.engine.page.url = "https://www.linkedin.com/checkpoint/"
     controller.engine._context.cookies = AsyncMock(return_value=[])
     controller.engine.save_session = AsyncMock()
     page = Mock()
     page.verify_auth_state = AsyncMock(return_value=(False, "checkpoint"))
     monkeypatch.setattr(remote, "LinkedInLoginPage", lambda *args: page)
+    monkeypatch.setattr(remote, "controller", controller)
+    with pytest.raises(HTTPException) as error:
+        await remote.finish(controller.owner)
+    assert error.value.status_code == 422
+    controller.engine.save_session.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_verification_resource_cannot_be_saved_as_linkedin_login(monkeypatch):
+    controller = remote.BrowserController()
+    controller.owner = "owner@example.com"
+    controller.phase = "ready"
+    controller.engine = Mock()
+    controller.engine.page.url = "https://www.google.com/"
+    controller.engine.save_session = AsyncMock()
     monkeypatch.setattr(remote, "controller", controller)
     with pytest.raises(HTTPException) as error:
         await remote.finish(controller.owner)

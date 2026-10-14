@@ -178,10 +178,13 @@ async def finish(owner=Depends(get_current_user)):
     async with controller.lock:
         if controller.phase != "ready":
             raise HTTPException(409, "Browser is not ready.")
+        host = (urlsplit(controller.engine.page.url).hostname or "").lower()
+        if host != "linkedin.com" and not host.endswith(".linkedin.com"):
+            raise HTTPException(422, "Return to LinkedIn and complete sign-in before saving.")
         page = LinkedInLoginPage(controller.engine, None)
         verified, _ = await page.verify_auth_state()
         cookies = await controller.engine._context.cookies()
-        if not verified or not any(c["name"] == "li_at" and c.get("value") for c in cookies):
+        if not verified or not any(c["name"] == "li_at" and c.get("value") and (c.get("domain", "").lstrip(".") == "linkedin.com" or c.get("domain", "").endswith(".linkedin.com")) for c in cookies):
             raise HTTPException(422, "LinkedIn login is not verified yet. Complete sign-in and verification in the browser view.")
         await controller.engine.save_session()
         await controller.close("verified")
@@ -221,7 +224,7 @@ async def restore(file: UploadFile, owner=Depends(get_current_user)):
             if envelope["owner"] != owner or envelope["email"] != engine._settings.linkedin.email.casefold():
                 raise ValueError()
             saved = envelope["state"]
-            if not any(c.get("name") == "li_at" and c.get("value") for c in saved["cookies"]):
+            if not any(c.get("name") == "li_at" and c.get("value") and (c.get("domain", "").lstrip(".") == "linkedin.com" or c.get("domain", "").endswith(".linkedin.com")) for c in saved["cookies"]):
                 raise ValueError()
             saved["cookies"] = [c for c in saved["cookies"] if any(c.get("domain", "").lstrip(".") == h or c.get("domain", "").endswith("." + h) for h in ALLOWED_HOSTS)]
             saved["origins"] = [o for o in saved.get("origins", []) if allowed_url(o.get("origin", ""))]
