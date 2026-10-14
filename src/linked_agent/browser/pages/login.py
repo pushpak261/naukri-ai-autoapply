@@ -45,8 +45,12 @@ class LinkedInLoginPage(BasePage):
     async def navigate(self) -> None:
         """Navigate directly to the LinkedIn login page."""
         page = self._engine.page
-        await page.goto(LINKEDIN_LOGIN_URL, wait_until="domcontentloaded")
-        await self._interactions.wait_for_navigation_complete()
+        # Third-party scripts can delay DOMContentLoaded/network idle even when
+        # the sign-in form is usable. Wait for the field we actually need.
+        await page.goto(LINKEDIN_LOGIN_URL, wait_until="commit", timeout=90_000)
+        await page.locator('input[type="password"]:visible').first.wait_for(
+            state="visible", timeout=90_000
+        )
         await asyncio.sleep(2)
 
     async def navigate_to_base(self) -> None:
