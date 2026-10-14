@@ -57,7 +57,11 @@ def _shared_lock():
     return _shared_start_lock
 
 
-def ensure_browser_capacity():
+def ensure_browser_capacity(maximum=None):
+    from api.remote_verification import controller
+    if controller.active():
+        from fastapi import HTTPException
+        raise HTTPException(409, "Close LinkedIn verification before starting an agent.")
     from api.deps import root_state
     from api.tenants import runtimes
     from fastapi import HTTPException
@@ -69,7 +73,7 @@ def ensure_browser_capacity():
                   if runtime.application_sync_task is not None
                   and runtime.application_sync_task is not current_task
                   and not runtime.application_sync_task.done())
-    maximum = max(1, int(os.environ.get("MAX_ACTIVE_AGENTS", "2")))
+    maximum = maximum if maximum is not None else max(1, int(os.environ.get("MAX_ACTIVE_AGENTS", "2")))
     if active >= maximum:
         raise HTTPException(409, "Server browser capacity is busy. Try again after a running agent stops.")
 
