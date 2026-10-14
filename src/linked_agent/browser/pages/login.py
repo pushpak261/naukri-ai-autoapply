@@ -509,7 +509,41 @@ class LinkedInLoginPage(BasePage):
 
     async def submit_login(self) -> None:
         """Click the sign-in button."""
-        await self._interactions.safe_click(LoginSelectors.LOGIN_BUTTON, force=True)
+        password_selector = await self._find_input_by_js(self._engine.page, "password")
+        selector = None
+        if password_selector:
+            selector = await self._engine.page.evaluate(
+                """(passwordSelector) => {
+                    const password = document.querySelector(passwordSelector);
+                    if (!password) return null;
+                    const passwordRect = password.getBoundingClientRect();
+                    const rendered = (el) => {
+                        const rect = el.getBoundingClientRect();
+                        const style = getComputedStyle(el);
+                        return rect.width > 1 && rect.height > 1
+                            && style.visibility === 'visible' && style.display !== 'none'
+                            && parseFloat(style.opacity || '1') > 0.05;
+                    };
+                    for (let scope = password.parentElement; scope; scope = scope.parentElement) {
+                        const candidates = Array.from(scope.querySelectorAll('button')).filter(el =>
+                            rendered(el) && el.innerText.trim() && !el.disabled
+                            && !el.querySelector('figure')
+                            && el.getBoundingClientRect().top >= passwordRect.bottom - 2
+                        );
+                        if (candidates.length === 1) {
+                            document.querySelectorAll('[data-agent-login-submit]').forEach(el =>
+                                el.removeAttribute('data-agent-login-submit'));
+                            candidates[0].setAttribute('data-agent-login-submit', 'true');
+                            return '[data-agent-login-submit="true"]';
+                        }
+                        if (candidates.length > 1) return null;
+                    }
+                    return null;
+                }""",
+                password_selector,
+            )
+        if not await self._interactions.safe_click(selector or LoginSelectors.LOGIN_BUTTON, force=True):
+            raise RuntimeError("Could not click the LinkedIn sign-in button")
         await asyncio.sleep(3)
 
     async def detect_2fa_input(self) -> bool:
