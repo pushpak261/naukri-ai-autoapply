@@ -230,7 +230,7 @@ class Settings(BaseModel):
                 "LinkedIn email is not set. Set LINKEDIN_EMAIL in your .env file "
                 "or linkedin.email in linkedin_config.yaml."
             )
-        if not self.linkedin.password:
+        if not self.linkedin.password and os.environ.get("LOCAL_AGENT_MODE") != "1":
             problems.append(
                 "LinkedIn password is not set. Set LINKEDIN_PASSWORD in your .env "
                 "or linkedin.password in linkedin_config.yaml."
