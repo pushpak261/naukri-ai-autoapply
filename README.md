@@ -2,6 +2,10 @@
 
 A production-grade, AI-powered agent that automatically discovers and applies to relevant jobs on Naukri.com based on your resume, preferences, and intelligent matching.
 
+## Free local agent with phone control
+
+On Windows, install Python 3.11+ and Node.js 22 LTS, then double-click `start-local.cmd`. The launcher prints a dashboard URL for your phone on the same Wi-Fi. Complete LinkedIn sign-in and verification manually in the computer's browser; verified sessions are saved encrypted for later runs. The computer must stay awake. Start with dry-run enabled. [Setup instructions](docs/LOCAL_MOBILE.md).
+
 ## ✨ Features
 
 - **🧠 AI-Powered Matching** — Uses Google Gemini to analyze job descriptions against your resume and compute a match score (0-100) with detailed reasoning

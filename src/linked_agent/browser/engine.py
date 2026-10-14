@@ -163,7 +163,7 @@ class LinkedInPlaywrightEngine(IBrowserEngine):
                         headless=is_headless,
                         args=launch_args,
                     )
-                elif not is_headless:
+                elif not is_headless and os.environ.get("LOCAL_AGENT_MODE") != "1":
                     # If headed launch fails (e.g., no display), retry with headless
                     logger.warning(f"Headed launch failed: {launch_err}. Retrying with headless mode...")
                     is_headless = True

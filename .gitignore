@@ -90,6 +90,7 @@ run_output*.txt
 run_output_final.txt
 # Local audit environment
 .venv/
+local-workspace/
 live-api-audit.json
 live-browser-audit.json
 

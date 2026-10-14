@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import os
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -171,6 +172,9 @@ class LinkedInLoginHandler:
             await asyncio.sleep(2)
             await self._login_page.close_popups()
 
+            if os.environ.get("LOCAL_AGENT_MODE") == "1":
+                return await self._wait_for_manual_login()
+
             log_info(f"Email configured: {'Yes' if self._settings.linkedin.email else 'No'}")
             log_info(f"Password configured: {'Yes' if self._settings.linkedin.password else 'No'}")
 
@@ -211,7 +215,22 @@ class LinkedInLoginHandler:
                 log_error(f"LinkedIn login failed with error: {e}")
                 logger.exception("LinkedIn login exception details")
             return False
+
         except RuntimeError as e:
             log_error(f"LinkedIn login runtime error: {e}")
             logger.exception("LinkedIn login runtime exception details")
             return False
+
+    async def _wait_for_manual_login(self) -> bool:
+        log_warning("Sign in to LinkedIn in the browser on your computer. Complete any verification there. Waiting up to 5 minutes.")
+        for _ in range(60):
+            if await self._login_page.is_logged_in():
+                verified, _ = await self._login_page.verify_auth_state()
+                if verified:
+                    self._engine.mark_session_authenticated()
+                    await self._engine.save_session()
+                    log_success("LinkedIn verified. Session saved securely for future runs.")
+                    return True
+            await asyncio.sleep(5)
+        log_error("Manual LinkedIn verification timed out. Start again when you are at the computer.")
+        return False
