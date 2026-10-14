@@ -8,7 +8,14 @@ export default function LinkedInVerification() {
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
-  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    alive.current = true;
+    let mounted = true;
+    void verificationRequest<{ phase: string; error?: string }>('status').then(state => {
+      if (mounted) { setPhase(state.phase); if (state.error) setMessage(state.error); }
+    }).catch(() => { /* No browser exists before the first verification. */ });
+    return () => { mounted = false; alive.current = false; };
+  }, []);
   useEffect(() => {
     if (!['starting', 'ready'].includes(phase)) return;
     let stopped = false;
