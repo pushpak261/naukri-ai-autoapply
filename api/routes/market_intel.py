@@ -27,6 +27,9 @@ async def salary_benchmarks():
 
     salaries = []
     for salary, title, company, location in rows:
+        # The chart is INR lakhs/year: do not relabel foreign, monthly or unknown units as LPA.
+        if not re.search(r'\b(?:lpa|lakhs?|lacs?)\b', str(salary), re.I) or re.search(r'USD|EUR|GBP|\$|/month|monthly|per month', str(salary), re.I):
+            continue
         nums = re.findall(r"(\d+(?:\.\d+)?)\s*(?:Lakh|L|lac|k|K)?", str(salary))
         if len(nums) >= 2:
             low, high = float(nums[0]), float(nums[1])
@@ -149,7 +152,7 @@ async def win_rate_prediction():
                 func.sum(case((DBApplication.status == "applied", 1), else_=0)).label(
                     "applied_count"
                 ),
-            ).group_by("bucket").order_by("bucket")
+            ).where(DBApplication.match_score.isnot(None)).group_by("bucket").order_by("bucket")
         )
         rows = {row.bucket: row for row in result.all()}
 

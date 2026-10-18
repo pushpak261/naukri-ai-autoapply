@@ -53,7 +53,7 @@ class SQLAlchemyRepository:
             result = await session.execute(
                 select(Job.linkedin_job_id)
                 .join(Application, Application.job_id == Job.id)
-                .where(Application.status == "applied")
+                .where(Application.status.in_(["applied", "applying", "uncertain"]))
             )
             for row in result.scalars():
                 self._applied_jobs_cache.add(row)
@@ -62,7 +62,7 @@ class SQLAlchemyRepository:
             result = await session.execute(
                 select(Job.title, Job.company)
                 .join(Application, Application.job_id == Job.id)
-                .where(Application.status == "applied")
+                .where(Application.status.in_(["applied", "applying", "uncertain"]))
             )
             for row in result:  # type: ignore
                 # row is Row[tuple[str, str]] from select(Job.title, Job.company)
@@ -173,7 +173,7 @@ class SQLAlchemyRepository:
 
                 queued = (await session.execute(select(NaukriApplication).where(
                     NaukriApplication.job_id == naukri_job.id,
-                    NaukriApplication.status == "pending_retry",
+                    NaukriApplication.status.in_(["pending_retry", "applying"]),
                 ))).scalars().first()
                 app = queued or NaukriApplication(
                     job_id=naukri_job.id,
@@ -317,15 +317,16 @@ class SQLAlchemyRepository:
         error_message: str = "",
     ) -> JobApplication:
         async with self._db.get_session() as session:
-            app = Application(
-                job_id=job_id,
-                match_score=match_score,
-                status=status,
-                match_reasoning=match_reasoning,
-                matching_skills=matching_skills,
-                missing_skills=missing_skills,
-                error_message=error_message,
-            )
+            existing = (await session.execute(select(Application).where(
+                Application.job_id == job_id, Application.status == 'applying',
+            ).order_by(Application.id.desc()))).scalars().first()
+            app = existing or Application(job_id=job_id)
+            app.match_score = match_score
+            app.status = status
+            app.match_reasoning = match_reasoning
+            app.matching_skills = matching_skills
+            app.missing_skills = missing_skills
+            app.error_message = error_message
             session.add(app)
             await session.flush()
 
@@ -339,10 +340,14 @@ class SQLAlchemyRepository:
             job_company = job_row[2] if job_row else ""
 
             # Update dedup cache ONLY for actual applications
-            if status == "applied" and linkedin_job_id:
+            if status in ("applied", "applying", "uncertain") and linkedin_job_id:
                 self._applied_jobs_cache.add(linkedin_job_id)
                 if job_title and job_company:
                     self._applied_composite_cache.add((job_title.lower(), job_company.lower()))
+
+            if status not in ('applied', 'applying', 'uncertain') and linkedin_job_id:
+                self._applied_jobs_cache.discard(linkedin_job_id)
+                self._applied_composite_cache.discard((job_title.lower(), job_company.lower()))
 
             await self._write_through_application(
                 linkedin_job_id=linkedin_job_id,
@@ -434,13 +439,16 @@ class SQLAlchemyRepository:
         self, file_hash: str, file_path: str, parsed_json: str
     ) -> ResumeProfile:
         async with self._db.get_session() as session:
-            profile = ResumeProfile(
-                file_hash=file_hash,
-                file_path=file_path,
-                parsed_json=parsed_json,
+            from sqlalchemy.dialects.sqlite import insert
+            statement = insert(ResumeProfile).values(
+                file_hash=file_hash, file_path=file_path, parsed_json=parsed_json,
+            ).on_conflict_do_update(
+                index_elements=['file_hash'],
+                set_={'file_path': file_path, 'parsed_json': parsed_json, 'parsed_at': datetime.now(UTC)},
             )
-            session.add(profile)
+            await session.execute(statement)
             await session.flush()
+            profile = (await session.execute(select(ResumeProfile).where(ResumeProfile.file_hash == file_hash))).scalar_one()
             return profile
 
     async def get_cached_profile(self, file_hash: str) -> ResumeProfile | None:

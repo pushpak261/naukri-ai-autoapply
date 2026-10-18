@@ -1,197 +1,164 @@
 import { API_BASE_URL } from './api-base';
+export interface CareerArtifact {
+  id: string; kind: 'application' | 'interview' | 'strategy'; job_id: number | null;
+  title: string; summary: string; created_at: string; model: string;
+  sections: {heading: string; content: string; evidence: {source: 'resume' | 'job'; job_id: number | null; quote: string}[]}[];
+  questions: {question: string; looking_for: string}[];
+  daily_plan: {day: number; action: string; rationale: string}[];
+  missing_information: string[];
+  job_titles: {id: number; title: string; company: string}[];
+}
+export interface InterviewFeedback { assessment: string; strengths: string[]; improvements: string[]; follow_up_question: string; model: string }
+export interface AIAdvice {
+  summary: string;
+  recommendations: string[];
+  cautions: string[];
+  model: string;
+  generated_at: string;
+  jobs_reviewed: number;
+  applications_reviewed: number;
+  feature: string;
+}
 const BASE_URL = API_BASE_URL;
-
-// Hard timeout so a slow/unreachable backend fails fast instead of hanging the
-// dashboard (e.g. a disabled Koyeb deployment would otherwise make the app spin
-// indefinitely and surface as a vague CORS error in the console).
-// Increased from 12s to 30s to handle cold starts better
-const API_TIMEOUT_MS = Number(import.meta.env.VITE_API_TIMEOUT_MS) || 30000;
+const configuredTimeout = Number(import.meta.env.VITE_API_TIMEOUT_MS);
+const API_TIMEOUT_MS = Number.isFinite(configuredTimeout) && configuredTimeout > 0
+  ? Math.min(Math.floor(configuredTimeout), 2_147_483_647) : 30_000;
 
 function withTimeout(options?: RequestInit): RequestInit {
   if (options?.signal) return options;
-  const signal =
-    typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
-      ? AbortSignal.timeout(API_TIMEOUT_MS)
-      : undefined;
+  const signal = typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal
+    ? AbortSignal.timeout(API_TIMEOUT_MS) : undefined;
   return { ...options, signal };
 }
 
-// ---------------------------------------------------------------------------
-// JWT access token management
-// ---------------------------------------------------------------------------
 const TOKEN_KEY = 'naukri_access_token';
-let accessToken: string | null = typeof window !== 'undefined' ? localStorage.getItem(TOKEN_KEY) : null;
+function savedToken(): string | null {
+  try { return typeof window === 'undefined' ? null : localStorage.getItem(TOKEN_KEY); }
+  catch { return null; }
+}
+let accessToken = savedToken();
 let refreshPromise: Promise<string | null> | null = null;
-let refreshWaiters: Array<() => void> = [];
+let authGeneration = 0;
+
+function persistToken(token: string | null) {
+  accessToken = token;
+  try {
+    if (typeof window !== 'undefined') {
+      if (token) localStorage.setItem(TOKEN_KEY, token);
+      else localStorage.removeItem(TOKEN_KEY);
+    }
+  } catch { /* In-memory sign-in still works if browser storage is unavailable. */ }
+}
 
 export function setAuthToken(token: string | null) {
-  accessToken = token;
-  if (typeof window !== 'undefined') {
-    if (token) {
-      localStorage.setItem(TOKEN_KEY, token);
-    } else {
-      localStorage.removeItem(TOKEN_KEY);
-    }
-  }
+  authGeneration++;
+  // Older refreshes may finish, but cannot replace this session's token.
+  refreshPromise = null;
+  persistToken(token);
 }
+export function getAuthToken(): string | null { return accessToken; }
+export function getAuthGeneration(): number { return authGeneration; }
 
-export function getAuthToken(): string | null {
-  if (!accessToken && typeof window !== 'undefined') {
-    accessToken = localStorage.getItem(TOKEN_KEY);
-  }
-  return accessToken;
-}
-
-
-/** Wait for any in-flight token refresh to complete, then return the token. */
-async function waitForRefresh(): Promise<string | null> {
-  if (!refreshPromise) return accessToken;
-  await new Promise<void>((resolve) => refreshWaiters.push(resolve));
-  return accessToken;
+function assertSession(generation: number) {
+  if (generation !== authGeneration) throw new Error('Your session changed. Please retry.');
 }
 
 async function refreshAccessToken(): Promise<string | null> {
   if (refreshPromise) return refreshPromise;
-  refreshPromise = (async () => {
+  const generation = authGeneration;
+  const pending = (async () => {
     try {
-      const res = await fetch(`${BASE_URL}/auth/refresh`, withTimeout({
-        method: 'POST',
-        credentials: 'include',
+      const response = await fetch(`${BASE_URL}/auth/refresh`, withTimeout({
+        method: 'POST', credentials: 'include',
       }));
-      if (!res.ok) {
-        setAuthToken(null);
-        return null;
+      if (generation !== authGeneration) return null;
+      if (!response.ok) {
+        if (response.status === 401 || response.status === 403) { persistToken(null); return null; }
+        throw await responseError(response);
       }
-      const data = await res.json();
-      setAuthToken(data.access_token);
-      return data.access_token;
-    } catch {
-      setAuthToken(null);
-      return null;
-    } finally {
-      refreshPromise = null;
-      refreshWaiters.forEach((r) => r());
-      refreshWaiters = [];
+      const data = await response.json();
+      if (generation !== authGeneration) return null;
+      const token = typeof data.access_token === 'string' && data.access_token ? data.access_token : null;
+      persistToken(token);
+      return token;
+    } catch (error) {
+      if (generation !== authGeneration) return null;
+      throw error;
     }
   })();
-  return refreshPromise;
+  refreshPromise = pending;
+  try { return await pending; }
+  finally { if (refreshPromise === pending) refreshPromise = null; }
 }
 
-// ---------------------------------------------------------------------------
-// Base fetch helpers
-// ---------------------------------------------------------------------------
+export class APIError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'APIError';
+    this.status = status;
+  }
+}
+
+async function responseError(response: Response): Promise<APIError> {
+  let message = response.statusText || `HTTP ${response.status}`;
+  try {
+    const body = await response.json();
+    if (typeof body.detail === 'string') message = body.detail;
+    else if (Array.isArray(body.detail)) {
+      message = body.detail.map((item: { loc?: unknown[]; msg?: string }) =>
+        `${item.loc?.filter(part => part !== 'body').join('.') || 'Request'}: ${item.msg || 'Invalid value'}`,
+      ).join('; ');
+    }
+  } catch { /* Proxies can return HTML or empty error bodies. */ }
+  return new APIError(response.status, message);
+}
+
+async function requestAPI(url: string, options?: RequestInit, skipAuth = false): Promise<Response> {
+  const generation = authGeneration;
+  let token = accessToken;
+  if (!skipAuth) {
+    if (refreshPromise) token = await refreshPromise;
+    assertSession(generation);
+    if (!token) token = await refreshAccessToken();
+    assertSession(generation);
+  }
+  const send = () => {
+    const headers = Object.fromEntries(new Headers(options?.headers).entries());
+    if (!skipAuth && token) {
+      delete headers.authorization;
+      headers.Authorization = `Bearer ${token}`;
+    }
+    return fetch(`${BASE_URL}${url}`, withTimeout({
+      ...options, headers, credentials: 'include',
+    }));
+  };
+  let response = await send();
+  if (!skipAuth) {
+    assertSession(generation);
+    if (response.status === 401) {
+      // Another request may already have renewed the rejected token.
+      token = token !== accessToken ? accessToken : await refreshAccessToken();
+      assertSession(generation);
+      if (token) response = await send();
+      assertSession(generation);
+    }
+  }
+  if (!response.ok) throw await responseError(response);
+  return response;
+}
 
 async function fetchJSON<T>(url: string, options?: RequestInit, skipAuth = false): Promise<T> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...(options?.headers as Record<string, string> | undefined),
-  };
-
-  // If a token refresh is in-flight, wait for it before sending this request
-  let token = accessToken;
-  if (refreshPromise) {
-    token = await waitForRefresh();
-  }
-
-  // No token yet but auth is required – proactively refresh so we never
-  // send a request that will 401 (avoids noisy 401 logs on page load).
-  if (!token && !skipAuth) {
-    token = await refreshAccessToken();
-  }
-
-  if (token && !skipAuth) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  let res = await fetch(`${BASE_URL}${url}`, withTimeout({
-    ...options,
-    headers,
-    credentials: 'include',
-  }));
-
-  // On 401, attempt token refresh and retry once
-  if (res.status === 401 && !skipAuth) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(`${BASE_URL}${url}`, withTimeout({
-        ...options,
-        headers,
-        credentials: 'include',
-      }));
-    }
-  }
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
-  }
-  return res.json();
+  const headers = new Headers(options?.headers);
+  if (!headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
+  const response = await requestAPI(url, { ...options, headers }, skipAuth);
+  return response.status === 204 ? undefined as T : response.json();
 }
-
-async function fetchFormData<T>(url: string, formData: FormData): Promise<T> {
-  const headers: Record<string, string> = {};
-
-  let token = accessToken;
-  if (refreshPromise) {
-    token = await waitForRefresh();
-  }
-  if (!token) {
-    token = await refreshAccessToken();
-  }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  let res = await fetch(`${BASE_URL}${url}`, withTimeout({
-    method: 'POST',
-    body: formData,
-    headers,
-    credentials: 'include',
-  }));
-  if (res.status === 401) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(`${BASE_URL}${url}`, withTimeout({
-        method: 'POST',
-        body: formData,
-        headers,
-        credentials: 'include',
-      }));
-    }
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `HTTP ${res.status}`);
-  }
-  return res.json();
+async function fetchFormData<T>(url: string, formData: FormData, timeout = API_TIMEOUT_MS): Promise<T> {
+  return (await requestAPI(url, { method: 'POST', body: formData, signal: AbortSignal.timeout(timeout) })).json();
 }
-
 async function fetchText(url: string): Promise<string> {
-  const headers: Record<string, string> = {};
-
-  let token = accessToken;
-  if (refreshPromise) {
-    token = await waitForRefresh();
-  }
-  if (!token) {
-    token = await refreshAccessToken();
-  }
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  let res = await fetch(`${BASE_URL}${url}`, withTimeout({ headers, credentials: 'include' }));
-  if (res.status === 401) {
-    const newToken = await refreshAccessToken();
-    if (newToken) {
-      headers['Authorization'] = `Bearer ${newToken}`;
-      res = await fetch(`${BASE_URL}${url}`, withTimeout({ headers, credentials: 'include' }));
-    }
-  }
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.text();
+  return (await requestAPI(url)).text();
 }
 
 export interface StatsResponse {
@@ -537,21 +504,7 @@ export function restoreLinkedInSession(file: File): Promise<{ message: string }>
 }
 
 export async function downloadExport(path: string, filename: string): Promise<void> {
-  let token = getAuthToken() || await refreshAccessToken();
-  const request = () => fetch(`${BASE_URL}${path}`, withTimeout({
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    credentials: 'include',
-    cache: 'no-store',
-  }));
-  let response = await request();
-  if (response.status === 401) {
-    token = await refreshAccessToken();
-    if (token) response = await request();
-  }
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ detail: response.statusText }));
-    throw new Error(error.detail || `Export failed (HTTP ${response.status})`);
-  }
+  const response = await requestAPI(path, { cache: 'no-store' });
   const blob = await response.blob();
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
@@ -628,7 +581,27 @@ export interface InspectorResponse {
   per_page: number;
 }
 
+export interface CopilotOpportunity {
+  id: number; title: string; company: string; location: string; source: string; url: string;
+  score: number | null; confidence: 'low' | 'medium' | 'high';
+  recommendation: 'review' | 'prioritize' | 'prepare' | 'already_in_progress';
+  matching_skills: string[]; missing_skills: string[]; reasons: string[]; cautions: string[];
+  application_status: string | null;
+}
+export interface CopilotOpportunities {
+  profile_ready: boolean; total_reviewed: number; method: string;
+  actions: { title: string; detail: string; href: string }[];
+  opportunities: CopilotOpportunity[]; skill_focus: { skill: string; jobs: number }[];
+}
+export interface CopilotBrief {
+  job: { id: number; title: string; company: string; source: string };
+  matching_skills: string[]; missing_skills: string[]; talking_points: string[];
+  questions: string[]; checklist: string[]; outreach_draft: string; method: string;
+}
+
 export const api = {
+  copilotOpportunities: () => fetchJSON<CopilotOpportunities>('/copilot/opportunities?limit=30'),
+  copilotBrief: (id: number) => fetchJSON<CopilotBrief>(`/copilot/jobs/${id}/brief`),
   auth: {
     login: (email: string, password: string) =>
       fetchJSON<LoginResponse>('/auth/login', {
@@ -648,7 +621,7 @@ export const api = {
     me: () =>
       fetchJSON<MeResponse>('/auth/me'),
   },
-  health: () => fetchJSON<{ status: string }>('/health'),
+  health: () => fetchJSON<{ status: string }>('/health', {}, true),
   stats: (days = 7) => fetchJSON<StatsResponse>(`/stats?days=${days}`),
   jobs: (page = 1, perPage = 20, search = '', status = '', sort = 'newest', matchScoreMin = 0, matchScoreMax = 100, source = '') =>
     fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}&source=${encodeURIComponent(source)}`),
@@ -691,11 +664,20 @@ export const api = {
   resumeProfile: () => fetchJSON<{ exists: boolean; profile: Record<string, unknown> | null }>('/resume-profile'),
   applicationStatuses: () => fetchJSON<{ statuses: StatusInfo[] }>('/application-statuses'),
 
+  testAI: () => fetchJSON<{message: string; model: string}>('/ai/test', {method: 'POST'}),
+  careerStudio: {
+    history: (jobId?: number) => fetchJSON<{items: Pick<CareerArtifact, 'id' | 'kind' | 'title' | 'created_at' | 'job_id' | 'model'>[]}>(`/career-studio/artifacts${jobId ? `?job_id=${jobId}` : ''}`),
+    load: (id: string, signal?: AbortSignal) => fetchJSON<CareerArtifact>(`/career-studio/artifacts/${encodeURIComponent(id)}`, {signal}),
+    generate: (kind: CareerArtifact['kind'], job_id?: number, signal?: AbortSignal) => fetchJSON<CareerArtifact>('/career-studio/generate', {method:'POST', body:JSON.stringify({kind,job_id}), signal}),
+    practice: (id: string, question_index: number, answer: string, signal?: AbortSignal) => fetchJSON<InterviewFeedback>(`/career-studio/artifacts/${encodeURIComponent(id)}/practice`, {method:'POST', body:JSON.stringify({question_index,answer}), signal}),
+  },
+  aiAdvice: (feature: string, job_id?: number, signal?: AbortSignal) => fetchJSON<AIAdvice>('/ai/advice', {method: 'POST', body: JSON.stringify({feature, job_id}), signal}),
   resume: {
+    reparseAI: () => fetchJSON<{profile: Record<string, unknown>}>('/resume/reparse', {method: 'POST', signal: AbortSignal.timeout(120_000)}),
     upload: (file: File) => {
       const fd = new FormData();
       fd.append('file', file);
-      return fetchFormData<{ status: string; profile: Record<string, unknown>; file_path: string }>('/resume/upload', fd);
+      return fetchFormData<{ status: string; profile: Record<string, unknown>; file_path: string }>('/resume/upload?mode=ai', fd, 120_000);
     },
     saveProfile: (data: Record<string, unknown>) =>
       fetchJSON<{ status: string; profile: Record<string, unknown> }>('/resume/profile', { method: 'PUT', body: JSON.stringify(data) }),

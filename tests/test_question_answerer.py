@@ -65,7 +65,7 @@ class TestQuestionAnswerer:
         assert len(answers) == 3
         assert answers[0]["answer"] == "10 LPA"
         assert answers[1]["answer"] == "15 LPA"
-        assert answers[2]["answer"] == "1 year"
+        assert answers[2]["answer"] == "3 years"
 
         # Verify LLM was not called
         mock_llm.generate_content.assert_not_called()
@@ -185,9 +185,10 @@ class TestQuestionAnswerer:
         assert answers[0]["answer"] == "Great career opportunity."
 
     @pytest.mark.asyncio
-    async def test_skill_experience_question_hijacked_by_direct_answer(self, mock_settings, sample_resume):
+    async def test_skill_experience_question_is_reviewed_by_ai(self, mock_settings, sample_resume):
         """Skill-specific questions like HTML/CSS experience should be hijacked by direct total experience patterns and answered directly."""
         mock_llm = AsyncMock()
+        mock_llm.generate_content.return_value = json.dumps([{"id":"q_html","question":"How many years of experience do you have in HTML?","answer":"","confidence":"low"}])
         answerer = QuestionAnswerer(mock_llm, mock_settings, sample_resume)
         questions = [
             {
@@ -206,9 +207,9 @@ class TestQuestionAnswerer:
         answers = await answerer.answer_questions(questions, job)
 
         assert len(answers) == 1
-        assert answers[0]["answer"] == "1"
+        assert answers[0]["answer"] == ""
         # Verify LLM was NOT called
-        mock_llm.generate_content.assert_not_called()
+        mock_llm.generate_content.assert_called_once()
 
     def test_cache_validation_rejects_dom_element_ids(self, mock_settings):
         """QACache.set should reject element IDs, DOM selectors, and generic placeholders."""
@@ -467,8 +468,8 @@ class TestTryDirectAnswerFuzzyAndTable:
     def test_experience_questions_always_report_one_year(self, tmp_path):
         answerer = make_answerer(tmp_path)
 
-        assert answerer._try_direct_answer("What is your total experience?", "text") == "1 year"
-        assert answerer._try_direct_answer("How many months of exp do you have?", "text") == "1 year"
+        assert answerer._try_direct_answer("What is your total experience?", "text") == "3 years"
+        assert answerer._try_direct_answer("How many months of exp do you have?", "text") == "3 years"
 
     def test_descriptive_skill_questions_are_deferred_to_the_llm(self, tmp_path):
         answerer = make_answerer(tmp_path)
@@ -479,7 +480,7 @@ class TestTryDirectAnswerFuzzyAndTable:
         answerer = make_answerer(tmp_path)
 
         assert (
-            answerer._try_direct_answer("What is your total experience in Java?", "text") == "1 year"
+            answerer._try_direct_answer("What is your total experience in Java?", "text") is None
         )
 
     def test_number_fields_get_bare_digits(self, tmp_path):
@@ -532,7 +533,7 @@ class TestTryDirectAnswerFuzzyAndTable:
             "are you willing to relocate?", "dropdown", [{"text": "willing to relocate"}]
         )
 
-        assert answer == "willing to relocate"
+        assert answer is None
 
     def test_choice_field_relocation_agree_fallback(self, tmp_path):
         answerer = make_answerer(tmp_path)
@@ -541,7 +542,7 @@ class TestTryDirectAnswerFuzzyAndTable:
             "are you willing to relocate?", "checkbox", [{"text": "I agree to relocate"}]
         )
 
-        assert answer == "I agree to relocate"
+        assert answer is None
 
     def test_choice_field_notice_period_immediate_fallback(self, tmp_path):
         answerer = make_answerer(tmp_path)
@@ -575,9 +576,9 @@ class TestDirectAnswerLookupTable:
         assert answerer._direct_answers["preferred_location"] == "Bangalore, Pune"
         assert answerer._direct_answers["languages"] == "English, Hindi"
         assert answerer._direct_answers["candidate_name"] == "Jane Developer"
-        assert answerer._direct_answers["reloc_consent"] == "Yes"
-        assert answerer._direct_answers["graduation_year"] == "2023"
-        assert answerer._direct_answers["qualification"].startswith("PG-DAC")
+        assert answerer._direct_answers["reloc_consent"] == ""
+        assert answerer._direct_answers["graduation_year"] == ""
+        assert answerer._direct_answers["qualification"] == ""
 
     def test_hardcoded_defaults_when_settings_and_profile_are_empty(self, tmp_path):
         answerer = make_answerer(
@@ -602,18 +603,18 @@ class TestDirectAnswerLookupTable:
         )
 
         direct = answerer._direct_answers
-        assert direct["current_ctc"] == "4.5 LPA"
-        assert direct["expected_ctc"] == "6 LPA"
-        assert direct["notice_period"] == "Immediate"
-        assert direct["total_experience"] == "1 years"
-        assert direct["current_location"] == "Pune"
-        assert direct["preferred_location"] == "Pune"
+        assert direct["current_ctc"] == ""
+        assert direct["expected_ctc"] == ""
+        assert direct["notice_period"] == ""
+        assert direct["total_experience"] == ""
+        assert direct["current_location"] == ""
+        assert direct["preferred_location"] == ""
         assert direct["candidate_name"] == "Candidate"
         assert direct["candidate_email"] == ""
         assert direct["candidate_phone"] == ""
         assert direct["date_of_birth"] == ""
         assert direct["marital_status"] == ""
-        assert direct["languages"] == "English, Hindi, Marathi"
+        assert direct["languages"] == ""
 
     def test_total_experience_falls_back_to_resume_years(self, tmp_path):
         settings = make_settings(tmp_path, total_experience="")
@@ -634,8 +635,8 @@ class TestDirectAnswerLookupTable:
             tmp_path, settings=settings, profile=make_profile(current_title="")
         )
 
-        assert titled._direct_answers["current_location"] == "Software Engineer"
-        assert untitled._direct_answers["current_location"] == "Pune"
+        assert titled._direct_answers["current_location"] == ""
+        assert untitled._direct_answers["current_location"] == ""
 
     def test_contacts_fall_back_to_naukri_credentials(self, tmp_path):
         settings = make_settings(tmp_path)
@@ -663,7 +664,8 @@ class TestDirectAnswerLookupTable:
     def test_cache_file_lives_under_the_project_root(self, tmp_path):
         answerer = make_answerer(tmp_path)
 
-        assert answerer._cache._cache_file == tmp_path / "data" / "qa_cache.json"
+        assert answerer._cache._cache_file.parent == tmp_path / "data"
+        assert answerer._cache._cache_file.name.startswith("qa_evidence_v2_")
 
 
 class TestAnswerQuestionsFlow:
@@ -752,7 +754,7 @@ class TestAnswerQuestionsFlow:
         llm.generate_content.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_blank_ai_answer_is_replaced_by_intelligent_fallback(self, tmp_path, monkeypatch):
+    async def test_blank_ai_answer_remains_unknown(self, tmp_path, monkeypatch):
         llm = make_llm(ai_reply({"id": "q1", "question": "Rate your proficiency in Excel", "answer": "  "}))
         answerer = make_answerer(tmp_path, llm=llm)
         monkeypatch.setattr(sys, "stdin", io.StringIO())
@@ -761,8 +763,8 @@ class TestAnswerQuestionsFlow:
             [q("Rate your proficiency in Excel", id="q1", index=0)], make_job()
         )
 
-        assert answers[0]["answer"] == "8"
-        assert answers[0]["confidence"] == "medium"
+        assert answers[0]["answer"] == ""
+        assert answers[0]["confidence"] == "low"
 
     @pytest.mark.asyncio
     async def test_direct_cache_and_ai_answers_are_merged_and_sorted(self, tmp_path):
@@ -847,7 +849,7 @@ class TestInteractiveClarification:
         assert prompts == ["   Enter answer: "]
         assert answers[0]["answer"] == "Indigo"
         assert answers[0]["confidence"] == "high"
-        assert json.loads((tmp_path / "data" / "qa_cache.json").read_text(encoding="utf-8")) == {
+        assert json.loads(answerer._cache._cache_file.read_text(encoding="utf-8")) == {
             "favourite colour": "Indigo"
         }
 
@@ -884,7 +886,7 @@ class TestInteractiveClarification:
         assert loop_progress == [True]
 
     @pytest.mark.asyncio
-    async def test_blank_user_answer_leaves_the_fallback_in_place(self, tmp_path, monkeypatch):
+    async def test_blank_user_answer_leaves_answer_unknown(self, tmp_path, monkeypatch):
         llm = make_llm(ai_reply(EMPTY_LOW))
         answerer = make_answerer(tmp_path, llm=llm)
         monkeypatch.setattr(sys, "stdin", _FakeTTY())
@@ -894,12 +896,12 @@ class TestInteractiveClarification:
             [q("Favourite colour", id="q1", index=0)], make_job()
         )
 
-        assert answers[0]["answer"] == "Yes"
-        assert answers[0]["confidence"] == "medium"
+        assert answers[0]["answer"] == ""
+        assert answers[0]["confidence"] == "low"
         assert not (tmp_path / "data" / "qa_cache.json").exists()
 
     @pytest.mark.asyncio
-    async def test_input_failure_is_swallowed_and_fallback_used(self, tmp_path, monkeypatch):
+    async def test_input_failure_is_swallowed_and_answer_unknown(self, tmp_path, monkeypatch):
         llm = make_llm(ai_reply(EMPTY_LOW))
         answerer = make_answerer(tmp_path, llm=llm)
         monkeypatch.setattr(sys, "stdin", _FakeTTY())
@@ -913,8 +915,8 @@ class TestInteractiveClarification:
             [q("Favourite colour", id="q1", index=0)], make_job()
         )
 
-        assert answers[0]["answer"] == "Yes"
-        assert answers[0]["confidence"] == "medium"
+        assert answers[0]["answer"] == ""
+        assert answers[0]["confidence"] == "low"
 
     @pytest.mark.asyncio
     async def test_prompt_is_skipped_when_stdin_is_not_a_tty(self, tmp_path, monkeypatch):
@@ -929,8 +931,8 @@ class TestInteractiveClarification:
             [q("Favourite colour", id="q1", index=0)], make_job()
         )
 
-        assert answers[0]["answer"] == "Yes"
-        assert answers[0]["confidence"] == "medium"
+        assert answers[0]["answer"] == ""
+        assert answers[0]["confidence"] == "low"
 
     @pytest.mark.asyncio
     async def test_confident_ai_answers_are_not_prompted(self, tmp_path, monkeypatch):
@@ -969,11 +971,11 @@ class TestIntelligentFallback:
             ({"question": "comfortable with night shift"}, "Yes"),
             ({"question": "do you agree to the terms"}, "Yes"),
             ({"question": "do you authorize the background check"}, "Yes"),
-            ({"question": "highest qualification"}, "PG-DAC / Bachelor of Mechanical Engineering"),
-            ({"question": "your degree"}, "PG-DAC / Bachelor of Mechanical Engineering"),
-            ({"question": "graduation year"}, "2023"),
-            ({"question": "passing year"}, "2023"),
-            ({"question": "gender"}, "Male"),
+            ({"question": "highest qualification"}, ""),
+            ({"question": "your degree"}, ""),
+            ({"question": "graduation year"}, ""),
+            ({"question": "passing year"}, ""),
+            ({"question": "gender"}, ""),
             ({"question": "full name"}, "Jane Developer"),
             ({"question": "email address"}, "jane@example.com"),
             ({"question": "phone number"}, "9998887776"),
@@ -1275,7 +1277,7 @@ class TestAskAiPrompt:
         assert "- Total Experience: 1 year (Not specified)" in prompt
         assert "- Current Location: Not specified" in prompt
         assert "- Preferred Locations: Not specified (Willing to relocate: Yes)" in prompt
-        assert "- Languages: English" in prompt
+        assert "- Languages: Not provided" in prompt
         assert "- Title: Unknown" in prompt
         assert "- Company: Unknown" in prompt
         assert "- Description: Not specified" in prompt
@@ -1482,7 +1484,7 @@ class TestAskAiResponseParsing:
 
         await answerer._ask_ai([q("Favourite hobby", id="q1")], make_job())
 
-        assert json.loads((tmp_path / "data" / "qa_cache.json").read_text(encoding="utf-8")) == {
+        assert json.loads(answerer._cache._cache_file.read_text(encoding="utf-8")) == {
             "favourite hobby": "Chess"
         }
 

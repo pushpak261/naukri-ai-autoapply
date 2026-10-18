@@ -4,11 +4,14 @@ REST endpoints for resume upload, parsing, and profile management.
 
 from __future__ import annotations
 
+
 import json
+import asyncio
 import os
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -78,7 +81,10 @@ def _update_config_resume_path(new_rel_path: str) -> None:
 
 
 @router.post("/api/resume/upload")
-async def upload_resume(file: UploadFile = File(...)):
+async def upload_resume(file: UploadFile = File(...), mode: Literal['configured', 'ai', 'local'] = 'configured'):
+    require_ai = mode == 'ai'
+    if require_ai and not state.settings.ai.gemini_api_key:
+        raise HTTPException(422, 'Add your Gemini API key in Preferences → AI Settings, save it, then retry AI parsing. Your existing profile is unchanged.')
     ext = Path(file.filename or "resume.pdf").suffix.lower()
     if ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
@@ -103,7 +109,7 @@ async def upload_resume(file: UploadFile = File(...)):
     file_hash = hash_file(dest_path)
 
     cached_profile = None
-    if state.repo:
+    if state.repo and not require_ai:
         cached = await state.repo.get_cached_profile(file_hash)
         if cached:
             cached_profile = {
@@ -153,17 +159,29 @@ async def upload_resume(file: UploadFile = File(...)):
         )
 
 
+    parser_settings = state.settings.model_copy(deep=True)
+    if mode != 'configured':
+        parser_settings.ai.use_gemini = require_ai
     llm = GeminiProvider(
         api_key=api_key,
-        model_name=state.settings.ai.model or "gemini-3.5-flash",
-    ) if state.settings.ai.use_gemini else None
+        model_name=state.settings.ai.model or "gemini-2.5-flash",
+    ) if parser_settings.ai.use_gemini else None
 
-    parser = ResumeParser(llm_provider=llm, repository=state.repo, settings=state.settings)
+    parser = ResumeParser(llm_provider=llm, repository=state.repo, settings=parser_settings)
+    previous_path = _get_profile_json_path()
+    previous_profile = previous_path.read_bytes() if previous_path.exists() else None
 
     try:
-        profile = await parser.parse(str(dest_path))
+        operation = parser.parse(str(dest_path), require_ai=True) if require_ai else parser.parse(str(dest_path))
+        profile = await asyncio.wait_for(operation, timeout=105)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to parse resume: {e}")
+        if require_ai:
+            if previous_profile is not None:
+                previous_path.write_bytes(previous_profile)
+            else:
+                previous_path.unlink(missing_ok=True)
+        dest_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=503, detail="AI resume parsing failed. Check your saved key, model and Gemini quota, then retry. Your previous profile has been retained.") from e
 
     if not profile.name:
         raise HTTPException(
@@ -174,6 +192,8 @@ async def upload_resume(file: UploadFile = File(...)):
 
     profile_json_path = _get_profile_json_path()
     profile_dict = {
+        "raw_text": profile.raw_text,
+        "parsing": {"method": "ai" if parser_settings.ai.use_gemini else "local", "model": getattr(llm, '_model_name', '') if llm else ''} if require_ai or not parser_settings.ai.use_gemini else {"method": "unknown"},
         "uploaded_file_path": str(dest_path),
         "name": profile.name,
         "email": profile.email,
@@ -220,6 +240,20 @@ async def upload_resume(file: UploadFile = File(...)):
     _update_config_resume_path(rel_path)
 
     return {"status": "parsed", "profile": profile_dict, "file_path": str(dest_path)}
+
+
+@router.post('/api/resume/reparse')
+async def reparse_resume_ai():
+    path = _get_profile_json_path()
+    try:
+        saved = json.loads(path.read_text(encoding='utf-8'))
+        source = resolve_path_within(saved.get('uploaded_file_path', ''), _allowed_resume_roots())
+        if source is None or not source.is_file():
+            raise ValueError('No uploaded resume')
+    except (OSError, ValueError, TypeError):
+        raise HTTPException(422, 'Upload a resume file first to parse it with AI.') from None
+    with source.open('rb') as stream:
+        return await upload_resume(UploadFile(filename=source.name, file=stream), mode='ai')
 
 
 @router.put("/api/resume/profile")

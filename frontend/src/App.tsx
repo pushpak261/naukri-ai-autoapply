@@ -1,5 +1,5 @@
 import { lazy } from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './lib/AuthContext';
 import ProtectedRoute from './components/ProtectedRoute';
 import { BackendBanner } from './components/BackendBanner';
@@ -7,6 +7,8 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Register from './pages/Register';
 
+const Copilot = lazy(() => import('./pages/Copilot'));
+const Help = lazy(() => import('./pages/Help'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const MarketIntel = lazy(() => import('./pages/MarketIntelligence'));
 const Analytics = lazy(() => import('./pages/Analytics'));
@@ -35,10 +37,13 @@ export default function App() {
       <AuthProvider>
         <BackendBanner />
         <Routes>
+          <Route path="/demo" element={<Navigate to="/" replace />} />
           <Route path="/login" element={<Login />} />
           <Route path="/register" element={<Register />} />
           <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
             <Route path="/" element={<Dashboard />} />
+            <Route path="/copilot" element={<Copilot />} />
+            <Route path="/help" element={<Help />} />
             <Route path="/market-intelligence" element={<MarketIntel />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/skills-gap" element={<SkillsGap />} />

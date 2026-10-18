@@ -13,7 +13,6 @@ import asyncio
 import contextlib
 import os
 import re
-import subprocess
 import sys
 import threading
 import contextvars
@@ -26,7 +25,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import select
 
 from api.deps import state
-from api.agent_runtime import spawn_agent, stop_agent_process, serialized_start, platform_process
+from api.agent_runtime import spawn_agent, stop_agent_process, serialized_start, serialized_stop, platform_process, sse_data
 from src.naukri_agent.models.db_schema import NaukriAccount
 
 router = APIRouter(prefix="/api/multi", tags=["multi-agent"])
@@ -81,12 +80,18 @@ def _start_output_reader(platform: str, process) -> None:
     with state.agent_output_locks[platform]:
         state.agent_output_buffers.setdefault(platform, []).clear()
 
+    loop = asyncio.get_running_loop()
+
+    def publish(line):
+        if state.agent_processes.get(platform) is process:
+            _broadcast_line(platform, line)
+
     def _reader(stream) -> None:
         try:
             for raw_line in iter(stream.readline, b""):
                 line = raw_line.decode("utf-8", errors="replace")
-                _broadcast_line(platform, line)
-        except (ValueError, OSError):
+                loop.call_soon_threadsafe(publish, line)
+        except (ValueError, OSError, RuntimeError):
             pass
 
     for stream in (process.stdout, process.stderr):
@@ -165,13 +170,15 @@ async def start_agents(
                 env,
             )
         except FileNotFoundError:
-            raise HTTPException(
-                status_code=500, detail=f"Python executable not found: {sys.executable}"
-            ) from None
+            results[platform] = {"status": "error", "message": "Python executable not found"}
+            continue
         except OSError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to start agent: {e}") from e
+            results[platform] = {"status": "error", "message": f"Failed to start agent: {e}"}
+            continue
 
         state.agent_processes[platform] = proc
+        if state.agent_platform == platform:
+            state.agent_platform = None
         state.agent_started_at_map[platform] = datetime.now(UTC)
         _start_output_reader(platform, proc)
         results[platform] = {"status": "started", "pid": proc.pid, "command": " ".join(cmd)}
@@ -180,14 +187,22 @@ async def start_agents(
 
 
 @router.post("/stop")
+@serialized_stop
 async def stop_agents(
     platform: str | None = Query(default=None, max_length=20),
 ):
     """Stop one platform, or all running platforms when ``platform`` is omitted."""
-    targets = [platform] if platform else list(state.agent_processes.keys())
+    if platform is not None and platform not in VALID_PLATFORMS:
+        raise HTTPException(422, "Unknown platform")
+    targets = [platform] if platform else list(VALID_PLATFORMS)
     results: dict[str, dict] = {}
     for plat in targets:
         _ensure_platform(plat)
+        if state.agent_platform == plat and state.agent_process is not None:
+            from api.routes.agent import _stop_single_agent
+            result = await _stop_single_agent()
+            results[plat] = {"status": result["status"]}
+            continue
         proc = state.agent_processes.get(plat)
         if proc is None or proc.poll() is not None:
             results[plat] = {"status": "not_running"}
@@ -198,10 +213,10 @@ async def stop_agents(
         # orphan holds the agent's inherited stdout/stderr pipes open so wait()
         # would block (this runs in a thread to keep the event loop free).
         await asyncio.to_thread(stop_agent_process, proc)
+        if proc.poll() is None:
+            raise HTTPException(503, f"{plat} is still running. Retry stop before restarting.")
         state.agent_processes[plat] = None
         state.agent_started_at_map[plat] = None
-        with state.agent_output_locks[plat]:
-            state.agent_output_buffers[plat] = []
         results[plat] = {"status": "stopped"}
 
     return {"status": "ok", "agents": results}
@@ -213,15 +228,15 @@ async def agents_status():
     status_map: dict[str, dict] = {}
     for platform in VALID_PLATFORMS:
         _ensure_platform(platform)
-        running = _is_running(platform)
-        proc = state.agent_processes.get(platform)
-        started_at = state.agent_started_at_map.get(platform)
+        proc = platform_process(platform)
+        running = proc is not None
+        started_at = state.agent_started_at if proc is state.agent_process and running else state.agent_started_at_map.get(platform)
         uptime = None
         if running and started_at is not None:
             uptime = int((datetime.now(UTC) - started_at).total_seconds())
         status_map[platform] = {
             "running": running,
-            "pid": proc.pid if proc is not None else None,
+            "pid": proc.pid if running else None,
             "started_at": started_at.isoformat() if started_at is not None else None,
             "uptime_seconds": uptime,
         }
@@ -239,10 +254,13 @@ async def agents_status():
 
 
 @router.get("/output")
-async def agents_output(platform: str = Query(...), lines: int = 50000):
+async def agents_output(platform: str = Query(...), lines: int = Query(50000, ge=1, le=60000)):
     if platform not in VALID_PLATFORMS:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
     _ensure_platform(platform)
+    if state.agent_platform == platform:
+        from api.routes.agent import agent_output
+        return await agent_output(lines)
     running = _is_running(platform)
     with state.agent_output_locks[platform]:
         buffer = state.agent_output_buffers.get(platform, [])
@@ -258,18 +276,21 @@ async def agents_output(platform: str = Query(...), lines: int = 50000):
 async def agents_output_stream(
     request: Request,
     platform: str = Query(...),
-    history: int = 50000,
+    history: int = Query(50000, ge=0, le=60000),
 ):
     """SSE endpoint streaming one platform's agent output in real time."""
     if platform not in VALID_PLATFORMS:
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
     _ensure_platform(platform)
+    if state.agent_platform == platform:
+        from api.routes.agent import agent_output_stream
+        return await agent_output_stream(request, history)
 
     queue: asyncio.Queue = asyncio.Queue(maxsize=60000)
     with state.agent_output_locks[platform]:
         clients = state.agent_sse_clients_map.setdefault(platform, [])
         clients.append(queue)
-        for line in state.agent_output_buffers.get(platform, [])[-history:]:
+        for line in (state.agent_output_buffers.get(platform, [])[-history:] if history else []):
             try:
                 queue.put_nowait(line)
             except asyncio.QueueFull:
@@ -282,7 +303,7 @@ async def agents_output_stream(
                     break
                 try:
                     line = await asyncio.wait_for(queue.get(), timeout=15)
-                    yield f"data: {line}\n\n"
+                    yield sse_data(line)
                 except TimeoutError:
                     yield ": keepalive\n\n"
         finally:
@@ -298,11 +319,6 @@ def cleanup_multi_agents() -> None:
     """Terminate all parallel agent processes (called on server shutdown)."""
     for platform, proc in list(state.agent_processes.items()):
         if proc is not None and proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
+            stop_agent_process(proc)
         state.agent_processes[platform] = None
         state.agent_started_at_map[platform] = None

@@ -90,6 +90,20 @@ def serialized_start(function):
     return wrapped
 
 
+def serialized_stop(function):
+    """Order stop requests with starts without blocking cancellation during sync."""
+    @functools.wraps(function)
+    async def wrapped(*args, **kwargs):
+        async with _shared_lock(), _ensure_lock():
+            return await function(*args, **kwargs)
+    return wrapped
+
+
+def sse_data(line: str) -> str:
+    """Encode every logical line so embedded newlines cannot break SSE frames."""
+    return ''.join(f'data: {part}\n' for part in line.rstrip('\r\n').splitlines() or ['']) + '\n'
+
+
 def platform_process(platform):
     if state.agent_platform == platform and state.agent_process is not None and state.agent_process.poll() is None:
         return state.agent_process

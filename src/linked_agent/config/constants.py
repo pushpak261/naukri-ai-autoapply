@@ -211,9 +211,11 @@ class JobDetailSelectors:
     # Apply buttons — LinkedIn often shows "Apply" (without "Easy") that opens
     # the same Easy Apply modal. Match both to avoid missing the modal flow.
     APPLY_BUTTON = (
-        'button:has-text("Easy Apply"), button[aria-label*="Easy Apply" i], '
-        'button:has-text("Apply"):not(:has-text("Easy")), '
-        'button[aria-label*="Apply" i]:not([aria-label*="Easy Apply" i]):not([aria-label*="Applied" i])'
+        'button:text-is("Easy Apply"):visible:not([disabled]), '
+        'button[aria-label*="Easy Apply" i]:visible:not([disabled]), '
+        'button:text-is("Apply"):visible:not([disabled]), '
+        'button[aria-label*="Apply" i]:visible:not([disabled])'
+        ':not([aria-label*="Applied" i]):not([aria-label*="filter" i]):not([aria-label*="show results" i])'
     )
     ALREADY_APPLIED = (
         'button:text-is("Applied"), span:text-is("Applied"), '

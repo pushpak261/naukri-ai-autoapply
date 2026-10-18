@@ -15,7 +15,7 @@ from fastapi.responses import PlainTextResponse, StreamingResponse
 from sqlalchemy import select
 
 from api.deps import state
-from api.agent_runtime import spawn_agent, stop_agent_process, serialized_start, platform_process
+from api.agent_runtime import spawn_agent, stop_agent_process, serialized_start, serialized_stop, platform_process, sse_data
 from src.naukri_agent.models.db_schema import NaukriAccount
 import contextlib
 
@@ -44,12 +44,18 @@ def _start_output_reader(process: subprocess.Popen) -> None:
     with state.agent_output_lock:
         state.agent_output_buffer.clear()
 
+    loop = asyncio.get_running_loop()
+
+    def publish(line):
+        if state.agent_process is process:
+            _broadcast_line(line)
+
     def _reader(stream) -> None:
         try:
             for raw_line in iter(stream.readline, b""):
                 line = raw_line.decode("utf-8", errors="replace")
-                _broadcast_line(line)
-        except (ValueError, OSError):
+                loop.call_soon_threadsafe(publish, line)
+        except (ValueError, OSError, RuntimeError):
             pass
 
     for stream in (process.stdout, process.stderr):
@@ -143,18 +149,23 @@ async def start_agent(platform: str = Query("naukri", max_length=20), job_ids: l
 
 
 @router.post("/api/agent/stop")
+@serialized_stop
 async def stop_agent():
+    return await _stop_single_agent()
+
+
+async def _stop_single_agent():
     if not state.agent_process or state.agent_process.poll() is not None:
         return {"status": "not_running", "message": "No agent process is running"}
 
     # Kill the whole tree so orphaned Chromium processes cannot keep the agent's
     # output pipes open and stall the event loop.
     await asyncio.to_thread(stop_agent_process, state.agent_process)
+    if state.agent_process.poll() is None:
+        raise HTTPException(503, "Agent is still running. Retry stop before starting another run.")
     state.agent_process = None
     state.agent_started_at = None
-    state.agent_platform = None
-    with state.agent_output_lock:
-        state.agent_output_buffer.clear()
+    # Retain the final output and platform so stopped-run logs remain inspectable.
     return {"status": "stopped", "message": "Agent process terminated"}
 
 
@@ -162,7 +173,10 @@ async def stop_agent():
 async def agent_status():
     running = state.agent_process is not None and state.agent_process.poll() is None
 
-    last_runs = await state.repo.get_run_stats(limit=1)
+    try:
+        last_runs = await state.repo.get_run_stats(limit=1)
+    except Exception:
+        last_runs = []
     last_run = last_runs[0] if last_runs else None
 
     uptime_seconds = None
@@ -173,10 +187,7 @@ async def agent_status():
     if running and not platform and state.agent_process:
         try:
             args = getattr(state.agent_process, "args", [])
-            if any("linked_agent" in str(arg) for arg in args):
-                platform = "linkedin"
-            else:
-                platform = "naukri"
+            platform = "linkedin" if any("linked_agent" in str(arg) for arg in args) else "naukri"
         except Exception:
             platform = "naukri"
 
@@ -194,8 +205,7 @@ async def agent_status():
 
 
 @router.get("/api/agent/output")
-async def agent_output(lines: int = 50000):
-    running = state.agent_process is not None and state.agent_process.poll() is None
+async def agent_output(lines: int = Query(50000, ge=1, le=60000)):
 
     with state.agent_output_lock:
         if not state.agent_output_buffer:
@@ -207,7 +217,7 @@ async def agent_output(lines: int = 50000):
 
 
 @router.get("/api/agent/output/stream")
-async def agent_output_stream(request: Request, history: int = 50000):
+async def agent_output_stream(request: Request, history: int = Query(50000, ge=0, le=60000)):
     """SSE endpoint that streams agent output in real-time."""
     queue: asyncio.Queue = asyncio.Queue(maxsize=60000)
 
@@ -227,7 +237,7 @@ async def agent_output_stream(request: Request, history: int = 50000):
                     break
                 try:
                     line = await asyncio.wait_for(queue.get(), timeout=15)
-                    yield f"data: {line}\n\n"
+                    yield sse_data(line)
                 except TimeoutError:
                     yield ": keepalive\n\n"
         finally:

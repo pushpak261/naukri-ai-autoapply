@@ -70,6 +70,7 @@ class JobApplier:
                 - status: ApplicationStatus constant
                 - error_message: Error details if failed
         """
+        apply_started = False
         try:
             # Step 1: Close any blocking popups/chatbots
             await self._detail_page.close_popups()
@@ -88,33 +89,19 @@ class JobApplier:
             is_external = await self._detail_page.is_external_apply()
             if is_external:
                 log_warning(f"External apply detected: {job.title}")
-                if not getattr(self._settings.application, "skip_external_apply", True):
-                    log_info(f"Attempting external apply: {job.title} @ {job.company}")
-                    apply_clicked = await self._detail_page.click_external_apply_button()
-                    if apply_clicked:
-                        with contextlib.suppress(Exception):
-                            await self._detail_page._interactions.wait_for_navigation_complete(timeout=15000)
-                        await asyncio.sleep(3)
-                        if await self._detail_page.is_external_apply_successful():
-                            log_info(f"External apply assumed successful: {job.title}")
-                            return {
-                                "status": ApplicationStatus.APPLIED,
-                                "error_message": "",
-                            }
-                        result = await self._handle_apply_flow(job)
-                        return result
                 external_url = None
                 if getattr(self._settings.application, "collect_external_jobs", False):
                     external_url = await self._detail_page.get_external_apply_url()
                 return {
                     "status": ApplicationStatus.SKIPPED_EXTERNAL,
-                    "error_message": "External application — skipped and extracted link",
+                    "error_message": "External employer form requires separate handling; no native application was submitted",
                     "external_url": external_url,
                 }
 
             # Step 4: Find and click the Apply button
             log_info(f"Applying to: {job.title} @ {job.company}")
 
+            apply_started = True
             apply_clicked = await self._detail_page.click_apply_button()
             if not apply_clicked:
                 log_error("Could not find or click Apply button")
@@ -136,8 +123,8 @@ class JobApplier:
             log_error(f"Application failed: {e}")
             logger.exception("Application error details")
             return {
-                "status": ApplicationStatus.ERROR,
-                "error_message": str(e),
+                "status": ApplicationStatus.UNCERTAIN if apply_started else ApplicationStatus.ERROR,
+                "error_message": 'Application state needs review after a connection error.' if apply_started else str(e),
             }
 
     async def _handle_apply_flow(self, job: Job) -> dict:
@@ -180,6 +167,7 @@ class JobApplier:
             log_success(f"Applied successfully (direct): {job.title}")
             return {"status": ApplicationStatus.APPLIED, "error_message": ""}
 
+        submit_clicked = False
         # Check for screening questions
         has_questions = await self._detail_page.detect_screening_questions()
         if has_questions:
@@ -199,6 +187,7 @@ class JobApplier:
                 answered = await self._fill_screening_questions(job)
                 if not answered:
                     log_warning("Could not fill all screening questions")
+                    return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Required screening answers could not be verified. Update the profile or review this form."}
 
                 # Let framework reactivity settle before submit
                 await asyncio.sleep(1)
@@ -218,7 +207,8 @@ class JobApplier:
                     ]
                     if unfilled:
                         logger.info(f"{len(unfilled)} more questions appeared after Save — filling them...")
-                        await self._fill_screening_questions(job)
+                        if not await self._fill_screening_questions(job):
+                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Additional required screening answers need review."}
                         await asyncio.sleep(1)
                         # Re-save after filling new questions
                         await self._detail_page.click_intermediate_save_button()
@@ -230,7 +220,7 @@ class JobApplier:
                 await self._detail_page._trigger_form_validation()
 
                 # Submit
-                await self._detail_page.submit_application()
+                submit_clicked = await self._detail_page.submit_application()
                 await asyncio.sleep(2)
 
                 # Check for failure indicators
@@ -263,10 +253,11 @@ class JobApplier:
                 return {"status": ApplicationStatus.APPLIED, "error_message": ""}
 
             # For chatbot flows, make one final explicit Save attempt
-            if await self._detail_page.is_chatbot_flow():
+            if not submit_clicked and await self._detail_page.is_chatbot_flow():
                 logger.info("Final chatbot Save attempt after screening loop...")
                 final_save = await self._detail_page.click_chatbot_save_button()
                 if final_save:
+                    submit_clicked = True
                     await asyncio.sleep(2)
                     if await self._detail_page.check_application_success():
                         log_success(f"Applied successfully (chatbot final save): {job.title}")
@@ -280,8 +271,9 @@ class JobApplier:
                     "error_message": f"Application rejected: {failure_msg}",
                 }
 
-        # Try submitting any visible form
-        submit_clicked = await self._detail_page.submit_application()
+        # Do not re-click after a submit attempt or when the native form has disappeared.
+        if not submit_clicked and await self._detail_page._is_apply_modal_visible():
+            submit_clicked = await self._detail_page.submit_application()
 
         # Final success check with robust polling (up to 10 seconds)
         for _ in range(20):
@@ -316,16 +308,6 @@ class JobApplier:
         # If we get here, we're not sure if the application went through
         # Use state-change detection as a fallback:
 
-        # 1. Apply modal is gone → application was processed (modal closed after submit)
-        if not await self._detail_page._is_apply_modal_visible():
-            log_success(f"Application assumed successful (modal closed): {job.title}")
-            return {"status": ApplicationStatus.APPLIED, "error_message": ""}
-
-        # 2. Apply button is no longer clickable → it changed to "Applied" state
-        if not await self._detail_page._is_apply_button_present():
-            log_success(f"Application confirmed (apply button gone): {job.title}")
-            return {"status": ApplicationStatus.APPLIED, "error_message": ""}
-
         # 3. Button text now says "Applied"
         if await self._detail_page.is_already_applied():
             log_success(f"Application confirmed (button changed): {job.title}")
@@ -340,10 +322,6 @@ class JobApplier:
             if await self._detail_page.is_already_applied():
                 log_success(f"Application confirmed (delayed button check): {job.title}")
                 return {"status": ApplicationStatus.APPLIED, "error_message": ""}
-            if not await self._detail_page._is_apply_modal_visible():
-                log_success(f"Application assumed successful (modal closed after delay): {job.title}")
-                return {"status": ApplicationStatus.APPLIED, "error_message": ""}
-
         # 5. If answer_questions_with_pdf is False and a form is still visible → screening form we couldn't parse
         if not getattr(self._settings.application, "answer_questions_with_pdf", True):
             log_warning(
@@ -370,123 +348,8 @@ class JobApplier:
         )
 
     def _generate_safe_fallback_for_question(self, question: dict) -> str:
-        q_text = question.get("question", "").lower()
-        q_type = question.get("type", "text")
-        options = [o.get("text", "") for o in question.get("options", [])]
-
-        # Helper to pick closest choice
-        def pick_option(keywords, default):
-            for kw in keywords:
-                for opt in options:
-                    if kw in opt.lower():
-                        return opt
-            return options[0] if options else default
-
-        def has_any_keyword(kws):
-            return any(kw in q_text for kw in kws)
-
-        import re
-        is_exp_q = has_any_keyword(["experience", "years", "month"]) or re.search(r"\bexp\b", q_text) is not None
-        is_ctc_q = has_any_keyword(["ctc", "salary", "package", "compensation", "lpa"])
-        is_notice_q = has_any_keyword(["notice", "joining", "join", "available"])
-        is_location_q = has_any_keyword(["location", "city", "reside", "based", "place"])
-        is_reloc_q = has_any_keyword(["reloc", "relocation", "travel", "shift", "willing", "work from office", "onsite"])
-        is_yes_no_q = has_any_keyword(["agree", "consent", "accept", "confirm", "authorize", "declare", "certify", "willing"])
-        is_qual_q = has_any_keyword(["qualification", "degree", "education"])
-        is_name_q = has_any_keyword(["name", "full name", "candidate name"])
-        is_email_q = has_any_keyword(["email"])
-        is_phone_q = has_any_keyword(["phone", "mobile", "contact number"])
-        is_lang_q = has_any_keyword(["language", "english"])
-        is_prof_q = has_any_keyword(["rate yourself", "proficiency", "skill level"])
-        is_why_q = has_any_keyword(["why", "reason for change", "reason for leaving", "why leaving"])
-
-        if q_type in ("radio", "dropdown", "checkbox"):
-            if is_exp_q:
-                return pick_option(["1 year", "1-2", "0-1", "1"], options[0] if options else "1 year")
-            if is_notice_q:
-                return pick_option(["immediate", "0 days", "15 days", "serving"], "Immediate")
-            if is_ctc_q:
-                return pick_option(["4", "5", "6"], options[0] if options else "6 LPA")
-            if is_location_q:
-                return pick_option(["pune"], "Pune")
-            if is_reloc_q or is_yes_no_q:
-                return pick_option(["yes", "agree", "true", "y"], "Yes")
-            if "gender" in q_text:
-                return pick_option(["male"], "Male")
-            if is_qual_q:
-                return pick_option(["pg-dac", "bachelor", "graduate"], options[0] if options else "PG-DAC")
-            if is_lang_q:
-                return pick_option(["fluent", "english", "professional"], options[0] if options else "Fluent")
-            if "marital" in q_text:
-                return pick_option(["single", "unmarried"], "Single")
-            if "birth" in q_text or "dob" in q_text:
-                return pick_option(["2001", "02/06"], options[0] if options else "02/06/2001")
-            return pick_option(["yes", "agree", "true", "y"], options[0] if options else "Yes")
-        else:
-            # Text / number / date / textarea fields
-            if is_exp_q:
-                return "1" if (q_type == "number" or "digit" in q_text) else "1 year"
-            if is_ctc_q:
-                if "expected" in q_text:
-                    return (
-                        "600000" if "rupee" in q_text or "rs" in q_text or "annual" in q_text else "6 LPA"
-                    )
-                return (
-                    "450000" if "rupee" in q_text or "rs" in q_text or "annual" in q_text else "4.5 LPA"
-                )
-            if is_notice_q:
-                return "Immediate"
-            if is_location_q:
-                return self._settings.profile.current_location or "Pune"
-            if is_name_q:
-                return self._settings.naukri.name or self._qa._profile.name or "Candidate"
-            if is_email_q:
-                return self._settings.naukri.email or ""
-            if is_phone_q:
-                return self._settings.naukri.mobile_number or "9999999999"
-            if is_qual_q:
-                return "PG-DAC / Bachelor of Mechanical Engineering"
-            if "graduation" in q_text or "passing" in q_text or "degree year" in q_text:
-                return "2023"
-            if is_lang_q:
-                return "Fluent"
-            if is_prof_q:
-                return "8"
-            if "date of birth" in q_text or "dob" in q_text or "birth date" in q_text:
-                return self._settings.profile.date_of_birth or "02/06/2001"
-            if "marital" in q_text:
-                return self._settings.profile.marital_status or "Single"
-            if "github" in q_text or "portfolio" in q_text or "linkedin" in q_text:
-                return self._settings.profile.github_url or self._settings.profile.linkedin_url or "N/A"
-            if "strength" in q_text:
-                return "Strong problem-solving skills and ability to deliver high-quality code"
-            if "weakness" in q_text:
-                return "I focus heavily on code quality and sometimes need to balance speed with perfection"
-            if is_why_q:
-                return self._settings.profile.reason_for_change or "Seeking challenging role with growth opportunities in a product-based company"
-            if "project" in q_text or "describe" in q_text:
-                work = self._qa._profile.work_experience
-                if work and work[0].get("highlights"):
-                    return work[0]["highlights"][0]
-                return "Developed full-stack web applications and microservices using Spring Boot, React, and MySQL with CI/CD"
-            if "achievement" in q_text or "accomplish" in q_text:
-                achievements = self._qa._profile.key_achievements
-                if achievements:
-                    return achievements[0]
-                return "Built production-grade autonomous RPA agent using Python, Playwright, and Google Gemini API"
-            if "availability" in q_text or "start" in q_text or "available from" in q_text:
-                return "Immediate"
-            if "certification" in q_text or "certified" in q_text:
-                certs = self._qa._profile.certifications
-                if certs:
-                    return certs[0]
-                return "Full Stack Development"
-            if "date" in q_text:
-                from datetime import date
-                return date.today().strftime("%d/%m/%Y")
-            if "url" in q_text or "link" in q_text or "website" in q_text:
-                return self._settings.profile.linkedin_url or "N/A"
-            return "Yes"
+        from libs.common.screening import evidence_answer
+        return evidence_answer(question, self._settings, getattr(self._qa, '_profile', None))
 
     async def _fill_screening_questions(self, job: Job) -> bool:
         """
@@ -624,6 +487,8 @@ class JobApplier:
                     q_text = ans.get("question", "")
                     q_id = ans.get("id") or ""
                     a_val = str(ans.get("answer", "")).strip()
+                    if ans.get("confidence") in ("low", "unknown"):
+                        a_val = ""
 
                     # Find matching question in unfilled
                     matching_q = next(
@@ -933,8 +798,8 @@ class JobApplier:
                                                 o.text.toLowerCase() === ans.toLowerCase() ||
                                                 o.value.toLowerCase() === ans.toLowerCase()
                                             );
-                                            if (opt) { inp.value = opt.value; }
-                                            else if (inp.options.length > 0) { inp.value = inp.options[0].value; }
+                                            if (opt) { inp.value = opt.value; } else { return false; }
+
                                             inp.dispatchEvent(new Event('change', { bubbles: true }));
                                             return true;
                                         }
@@ -959,8 +824,8 @@ class JobApplier:
                                             o.text.toLowerCase() === ans.toLowerCase() ||
                                             o.value.toLowerCase() === ans.toLowerCase()
                                         );
-                                        if (opt) { inp.value = opt.value; }
-                                        else if (inp.options.length > 0) { inp.value = inp.options[0].value; }
+                                        if (opt) { inp.value = opt.value; } else { return false; }
+
                                         inp.dispatchEvent(new Event('change', { bubbles: true }));
                                         return true;
                                     }
@@ -993,32 +858,8 @@ class JobApplier:
                                         o.text.toLowerCase() === ans.toLowerCase() ||
                                         o.value.toLowerCase() === ans.toLowerCase()
                                     );
-                                    if (opt) { inp.value = opt.value; }
-                                    else if (inp.options.length > 0) { inp.value = inp.options[0].value; }
-                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
-                                    return true;
-                                }
-                                const nativeSetter = Object.getOwnPropertyDescriptor(
-                                    window.HTMLInputElement.prototype, 'value'
-                                ).set;
-                                inp.focus();
-                                nativeSetter.call(inp, '');
-                                nativeSetter.call(inp, ans);
-                                inp.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-                                inp.dispatchEvent(new Event('change', { bubbles: true }));
-                                inp.blur();
-                                inp.dispatchEvent(new Event('blur', { bubbles: true }));
-                                return true;
-                            }
-                        }
+                                    if (opt) { inp.value = opt.value; } else { return false; }
 
-                        // 3. Find any visible empty input (last resort)
-                        for (const inp of inputs) {
-                            if (inp.offsetParent === null) continue;
-                            const val = (inp.value || '').trim();
-                            if (val === '' || val === 'Select' || val === '--Select--') {
-                                if (inp.tagName.toLowerCase() === 'select') {
-                                    if (inp.options.length > 0) { inp.value = inp.options[0].value; }
                                     inp.dispatchEvent(new Event('change', { bubbles: true }));
                                     return true;
                                 }
@@ -1045,169 +886,9 @@ class JobApplier:
             logger.debug(f"JS force fill failed for '{q_text}': {e}")
             return False
 
-    async def _force_fill_all_required_via_js(self) -> bool:
-        """
-        Ultimate fallback: use JS to find ALL empty required form fields
-        and fill them with sensible defaults, directly manipulating DOM values.
-        """
-        page = self._detail_page._engine.page
-        try:
-            # Build profile-based defaults
-            default_ctc = self._settings.profile.current_ctc or "440000"
-            default_exp = self._settings.profile.total_experience or "1"
-            default_notice = self._settings.profile.notice_period or "Immediate"
-            default_location = self._settings.profile.current_location or "Pune"
-            default_name = self._qa._profile.name or self._settings.naukri.name or "Candidate"
-            default_email = self._qa._profile.email or self._settings.naukri.email or ""
-            default_phone = self._qa._profile.phone or self._settings.naukri.mobile_number or "9999999999"
-            default_github = self._settings.profile.github_url or ""
-            default_linkedin = self._settings.profile.linkedin_url or ""
-
-            result = await page.evaluate(
-                r"""({ defaultCtc, defaultExp, defaultNotice, defaultLocation, defaultName, defaultEmail, defaultPhone, defaultGithub, defaultLinkedin }) => {
-                    if (!CSS.escape) {
-                        CSS.escape = function(value) {
-                            if (typeof value !== 'string') return '';
-                            var result = '';
-                            for (var i = 0; i < value.length; i++) {
-                                var ch = value.charAt(i);
-                                if (ch === '\\') result += '\\\\';
-                                else if (/[ !"#$%&'()*+,./:;<=>?@\[\]^`{|}~]/.test(ch) || ch.charCodeAt(0) <= 0x1f) {
-                                    result += '\\' + ch.charCodeAt(0).toString(16) + ' ';
-                                } else result += ch;
-                            }
-                            return result;
-                        };
-                    }
-                    const applyArea = document.querySelector(
-                        '[class*="apply-modal"], [class*="apply-form"], [class*="chatbot"], ' +
-                        '[class*="modal" i], form, body'
-                    ) || document;
-                    let filled = 0;
-
-                    // Fill selects
-                    const selects = applyArea.querySelectorAll('select:not([style*="display: none"])');
-                    for (const sel of selects) {
-                        if (sel.offsetParent === null) continue;
-                        const val = (sel.value || '').trim();
-                        if (!val || val === 'Select' || val === '--Select--') {
-                            if (sel.options.length > 0) {
-                                // Skip first placeholder option
-                                let chosen = false;
-                                for (let i = 1; i < sel.options.length; i++) {
-                                    const opt = sel.options[i];
-                                    const ot = opt.text.toLowerCase();
-                                    if (ot.includes('immediate') || ot.includes('0 day') || ot.includes('yes') || ot.includes('male')) {
-                                        sel.value = opt.value;
-                                        sel.dispatchEvent(new Event('change', { bubbles: true }));
-                                        filled++;
-                                        chosen = true;
-                                        break;
-                                    }
-                                }
-                                if (!chosen && sel.options.length > 1) {
-                                    sel.value = sel.options[1].value;
-                                    sel.dispatchEvent(new Event('change', { bubbles: true }));
-                                    filled++;
-                                } else if (!chosen && sel.options.length === 1) {
-                                    sel.value = sel.options[0].value;
-                                    sel.dispatchEvent(new Event('change', { bubbles: true }));
-                                    filled++;
-                                }
-                            }
-                        }
-                    }
-
-                    // Fill text inputs
-                    const inputs = applyArea.querySelectorAll(
-                        'input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="file"]):not([style*="display: none"]), ' +
-                        'textarea:not([style*="display: none"])'
-                    );
-                    for (const inp of inputs) {
-                        if (inp.offsetParent === null) continue;
-                        const val = (inp.value || '').trim();
-                        if (val === '' || val === 'Select' || val === '--Select--') {
-                            const ph = (inp.getAttribute('placeholder') || '').toLowerCase();
-                            const ariaLabel = (inp.getAttribute('aria-label') || '').toLowerCase();
-                            const ctx = (inp.parentElement ? inp.parentElement.innerText || '' : '').toLowerCase();
-
-                            let fillVal = '';
-                            if (ph.includes('ctc') || ph.includes('salary') || ctx.includes('ctc') || ctx.includes('salary')) {
-                                fillVal = defaultCtc;
-                            } else if (ph.includes('experience') || ph.includes('year') || ctx.includes('experience') || ctx.includes('year')) {
-                                fillVal = defaultExp;
-                            } else if (ph.includes('notice') || ctx.includes('notice')) {
-                                fillVal = defaultNotice;
-                            } else if (ph.includes('location') || ph.includes('city') || ctx.includes('location') || ctx.includes('city')) {
-                                fillVal = defaultLocation;
-                            } else if (ph.includes('phone') || ph.includes('mobile') || ctx.includes('phone') || ctx.includes('mobile')) {
-                                fillVal = defaultPhone;
-                            } else if (ph.includes('name') || ctx.includes('name')) {
-                                fillVal = defaultName;
-                            } else if (ph.includes('email') || ctx.includes('email')) {
-                                fillVal = defaultEmail;
-                            } else if (ph.includes('github') || ph.includes('portfolio') || ctx.includes('github') || ctx.includes('portfolio')) {
-                                fillVal = defaultGithub;
-                            } else if (ph.includes('linkedin') || ctx.includes('linkedin')) {
-                                fillVal = defaultLinkedin;
-                            } else {
-                                fillVal = '1';
-                            }
-
-                            const nativeSetter = Object.getOwnPropertyDescriptor(
-                                window.HTMLInputElement.prototype, 'value'
-                            ).set;
-                            inp.focus();
-                            nativeSetter.call(inp, '');
-                            nativeSetter.call(inp, fillVal);
-                            inp.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
-                            inp.dispatchEvent(new Event('change', { bubbles: true }));
-                            inp.blur();
-                            inp.dispatchEvent(new Event('blur', { bubbles: true }));
-                            filled++;
-                        }
-                    }
-
-                    // Check visible radio/checkbox in apply area
-                    const choices = applyArea.querySelectorAll(
-                        'input[type="radio"]:not([style*="display: none"]), ' +
-                        'input[type="checkbox"]:not([style*="display: none"])'
-                    );
-                    for (const ch of choices) {
-                        if (ch.offsetParent === null) continue;
-                        if (!ch.checked) {
-                            // Check if it's a "consent/agree" type
-                            const lbl = ch.closest('label') || (ch.id && document.querySelector('label[for="' + CSS.escape(ch.id) + '"]'));
-                            const ctxText = lbl ? (lbl.innerText || '').toLowerCase() : '';
-                            if (ctxText.includes('agree') || ctxText.includes('consent') || ctxText.includes('accept') || ctxText.includes('yes') || ctxText.includes('notify') || ctxText.includes('callback')) {
-                                ch.click();
-                                ch.checked = true;
-                                ch.dispatchEvent(new Event('change', { bubbles: true }));
-                                filled++;
-                            }
-                        }
-                    }
-
-                    return filled > 0;
-                }""",
-                {
-                    "defaultCtc": default_ctc,
-                    "defaultExp": default_exp,
-                    "defaultNotice": default_notice,
-                    "defaultLocation": default_location,
-                    "defaultName": default_name,
-                    "defaultEmail": default_email,
-                    "defaultPhone": default_phone,
-                    "defaultGithub": default_github,
-                    "defaultLinkedin": default_linkedin,
-                }
-            )
-            if result:
-                logger.info("JS force fill completed for remaining required questions")
-            return result
-        except Exception as e:
-            logger.debug(f"JS force fill all failed: {e}")
-            return False
+    async def _force_fill_all_required_via_js(self) -> None:
+        """Never populate unidentified required fields with invented defaults."""
+        logger.warning('Unanswered required fields need profile evidence; generic autofill is disabled.')
 
     async def _detect_questions_via_playwright(self) -> list[dict]:
         """

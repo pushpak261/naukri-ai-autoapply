@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Save, RotateCcw, AlertCircle, CheckCircle, Bell, Gauge } from 'lucide-react';
 import { api, type ConfigResponse } from '../lib/api';
 
@@ -77,22 +78,33 @@ function configToForm(config: ConfigResponse): ConfigForm {
 }
 
 export default function Config() {
+  const queryClient = useQueryClient();
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [config, setConfig] = useState<ConfigResponse | null>(null);
   const [form, setForm] = useState<ConfigForm | null>(null);
+  const [aiKey, setAIKey] = useState('');
+  const [testingAI, setTestingAI] = useState(false);
+  const [savingKey, setSavingKey] = useState(false);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let active = true;
+    setLoading(true);
     api.config().then((c) => {
+      if (!active) return;
       setConfig(c);
       setForm(configToForm(c));
-    }).finally(() => setLoading(false));
-  }, []);
+    }).catch(error => {
+      if (active) setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to load preferences' });
+    }).finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [loadAttempt]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form) return;
+    if (!form || savingKey || testingAI || saving) return;
     setSaving(true);
     setMessage(null);
     try {
@@ -110,7 +122,7 @@ export default function Config() {
         match_score_threshold: form.match_score_threshold,
         delay_between_applies_min: form.delay_between_applies_min,
         delay_between_applies_max: form.delay_between_applies_max,
-        skip_external_apply: form.skip_external_apply,
+        skip_external_apply: true,
         dry_run: form.dry_run,
         answer_questions_with_pdf: form.answer_questions_with_pdf,
         use_gemini: form.use_gemini,
@@ -131,14 +143,38 @@ export default function Config() {
         rate_limit_capacity: form.rate_limit_capacity,
         rate_limit_refill_rate: form.rate_limit_refill_rate,
       };
+      if (aiKey.trim()) payload.gemini_api_key = aiKey.trim();
       await api.updateConfig(payload);
+      setAIKey('');
       setMessage({ type: 'success', text: 'Configuration saved successfully!' });
       const fresh = await api.config();
       setConfig(fresh);
+      setForm(configToForm(fresh));
+      queryClient.setQueryData(['config'], fresh);
+      await queryClient.invalidateQueries({ queryKey: ['stats'] });
     } catch (err) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Failed to save' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const saveGeminiKey = async () => {
+    if (!form || !aiKey.trim() || savingKey || saving) return;
+    setSavingKey(true);
+    setMessage(null);
+    try {
+      await api.updateConfig({ gemini_api_key: aiKey.trim(), use_gemini: true, enable_matching: true, ai_model: form.ai_model.trim() || 'gemini-2.5-flash' });
+      setAIKey('');
+      const fresh = await api.config();
+      setConfig(fresh);
+      setForm(current => current ? { ...current, use_gemini: fresh.ai.use_gemini, enable_matching: fresh.ai.enable_matching, ai_model: fresh.ai.model } : current);
+      queryClient.setQueryData(['config'], fresh);
+      setMessage({ type: 'success', text: 'Gemini API key saved. Click Test saved AI connection to verify it.' });
+    } catch (error) {
+      setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to save Gemini key' });
+    } finally {
+      setSavingKey(false);
     }
   };
 
@@ -150,28 +186,28 @@ export default function Config() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
       </div>
     );
   }
 
-  if (!form) return <div className="text-red-400">Failed to load configuration</div>;
+  if (!form) return <div role="alert" className="notice-error"><p>{message?.text || 'Failed to load configuration'}</p><button className="secondary-button" onClick={() => setLoadAttempt(value => value + 1)}>Retry preferences</button></div>;
 
-  const inputClass = "w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8] transition-colors";
-  const labelClass = "block text-xs font-medium text-[#94a3b8] mb-1.5";
-  const sectionClass = "bg-[#1e293b] rounded-xl border border-[#334155] p-5";
+  const inputClass = "w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)] transition-colors";
+  const labelClass = "block text-xs font-medium text-[var(--color-text-secondary)] mb-1.5";
+  const sectionClass = "bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5";
 
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white">Configuration</h1>
-          <p className="text-[#94a3b8] mt-1">Manage agent settings</p>
+          <h1 className="text-2xl font-bold text-[var(--color-text)]">Configuration</h1>
+          <p className="text-[var(--color-text-secondary)] mt-1">Manage agent settings</p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={resetForm}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[#334155] text-sm text-[#94a3b8] hover:bg-[#334155] transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-lg border border-[var(--color-border)] text-sm text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] transition-colors"
           >
             <RotateCcw className="w-4 h-4" />
             Reset
@@ -189,8 +225,32 @@ export default function Config() {
       )}
 
       <form onSubmit={handleSubmit} className="space-y-6">
+        <div id="ai-settings" className={sectionClass}>
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4">Gemini AI Settings</h2>
+          <p className="text-sm mb-3 text-[var(--color-text-secondary)]">Shared by Naukri and LinkedIn. Save your key before testing. Existing statistics and evidence scores remain data-based.</p>
+          <label className={labelClass} htmlFor="gemini-key">Gemini API key {config?.ai.has_api_key ? '(saved)' : '(required for AI)'}</label>
+          <input id="gemini-key" type="password" autoComplete="new-password" value={aiKey} onChange={e => { setAIKey(e.target.value); if (e.target.value.trim()) setForm({ ...form, use_gemini: true }); }} className={inputClass} disabled={savingKey || saving || testingAI} placeholder={config?.ai.has_api_key ? "Leave blank to keep the saved key" : "Paste your Gemini API key here"} />
+          <button type="button" className="primary-button my-3 mr-3" disabled={!aiKey.trim() || savingKey || saving || testingAI} onClick={saveGeminiKey}>{savingKey ? 'Saving key…' : 'Save Gemini key'}</button>
+          <button type="button" className="secondary-button my-3" disabled={testingAI || saving || savingKey || !!aiKey || !config?.ai.has_api_key} onClick={async () => { setTestingAI(true); try { const r = await api.testAI(); setMessage({type:'success', text:r.message + ' Model: ' + r.model}); } catch (e) { setMessage({type:'error',text:e instanceof Error ? e.message : 'AI test failed'}); } finally { setTestingAI(false); } }}>{testingAI ? 'Testing AIâ€¦' : 'Test saved AI connection'}</button>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex items-center gap-3">
+              <input type="checkbox" id="use_gemini" checked={form.use_gemini} onChange={(e) => setForm({ ...form, use_gemini: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
+              <label htmlFor="use_gemini" className="text-sm text-[var(--color-text-secondary)]">Use Gemini AI</label>
+            </div>
+            <div className="flex items-center gap-3">
+              <input type="checkbox" id="enable_matching" checked={form.enable_matching} onChange={(e) => setForm({ ...form, enable_matching: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
+              <label htmlFor="enable_matching" className="text-sm text-[var(--color-text-secondary)]">Enable AI Matching</label>
+            </div>
+            <div className="md:col-span-2">
+              <label className={labelClass}>AI Model</label>
+              <input type="text" value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })} className={inputClass} placeholder="gemini-2.5-flash" />
+            </div>
+          </div>
+        </div>
+
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4">Search Settings</h2>
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4">Search Settings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="md:col-span-2">
               <label className={labelClass}>Keywords (comma-separated)</label>
@@ -228,14 +288,14 @@ export default function Config() {
               </select>
             </div>
             <div className="flex items-center gap-3">
-              <input type="checkbox" id="enable_heuristics" checked={form.enable_heuristics} onChange={(e) => setForm({ ...form, enable_heuristics: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-              <label htmlFor="enable_heuristics" className="text-sm text-[#94a3b8]">Enable Heuristics (priority ranking)</label>
+              <input type="checkbox" id="enable_heuristics" checked={form.enable_heuristics} onChange={(e) => setForm({ ...form, enable_heuristics: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
+              <label htmlFor="enable_heuristics" className="text-sm text-[var(--color-text-secondary)]">Enable Heuristics (priority ranking)</label>
             </div>
           </div>
         </div>
 
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4">Application Settings</h2>
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4">Application Settings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Daily Cap</label>
@@ -259,41 +319,22 @@ export default function Config() {
             </div>
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
-                <input type="checkbox" id="skip_external" checked={form.skip_external_apply} onChange={(e) => setForm({ ...form, skip_external_apply: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-                <label htmlFor="skip_external" className="text-sm text-[#94a3b8]">Skip External Apply</label>
+                <p className="text-sm text-[var(--color-text-secondary)]">External employer forms require manual review. Automatic submission supports Naukri native forms and LinkedIn Easy Apply.</p>
               </div>
               <div className="flex items-center gap-3">
-                <input type="checkbox" id="dry_run" checked={form.dry_run} onChange={(e) => setForm({ ...form, dry_run: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-                <label htmlFor="dry_run" className="text-sm text-[#94a3b8]">Dry Run (score only, no apply)</label>
+                <input type="checkbox" id="dry_run" checked={form.dry_run} onChange={(e) => setForm({ ...form, dry_run: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
+                <label htmlFor="dry_run" className="text-sm text-[var(--color-text-secondary)]">Dry Run (score only, no apply)</label>
               </div>
               <div className="flex items-center gap-3">
-                <input type="checkbox" id="answer_pdf" checked={form.answer_questions_with_pdf} onChange={(e) => setForm({ ...form, answer_questions_with_pdf: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-                <label htmlFor="answer_pdf" className="text-sm text-[#94a3b8]">Answer Questions with PDF</label>
+                <input type="checkbox" id="answer_pdf" checked={form.answer_questions_with_pdf} onChange={(e) => setForm({ ...form, answer_questions_with_pdf: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
+                <label htmlFor="answer_pdf" className="text-sm text-[var(--color-text-secondary)]">Answer Questions with PDF</label>
               </div>
             </div>
           </div>
         </div>
 
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4">AI Settings</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="flex items-center gap-3">
-              <input type="checkbox" id="use_gemini" checked={form.use_gemini} onChange={(e) => setForm({ ...form, use_gemini: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-              <label htmlFor="use_gemini" className="text-sm text-[#94a3b8]">Use Gemini AI</label>
-            </div>
-            <div className="flex items-center gap-3">
-              <input type="checkbox" id="enable_matching" checked={form.enable_matching} onChange={(e) => setForm({ ...form, enable_matching: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-              <label htmlFor="enable_matching" className="text-sm text-[#94a3b8]">Enable AI Matching</label>
-            </div>
-            <div className="md:col-span-2">
-              <label className={labelClass}>AI Model</label>
-              <input type="text" value={form.ai_model} onChange={(e) => setForm({ ...form, ai_model: e.target.value })} className={inputClass} placeholder="gemini-3.5-flash" />
-            </div>
-          </div>
-        </div>
-
-        <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4">Profile Settings</h2>
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4">Profile Settings</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Current CTC</label>
@@ -323,32 +364,32 @@ export default function Config() {
         </div>
 
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Bell className="w-5 h-5 text-[#38bdf8]" />
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4 flex items-center gap-2">
+            <Bell className="w-5 h-5 text-[var(--color-primary)]" />
             Notification Settings
           </h2>
           <div className="space-y-4">
             <div className="flex items-center gap-3">
-              <input type="checkbox" id="email_notifications" checked={form.email_notifications_enabled} onChange={(e) => setForm({ ...form, email_notifications_enabled: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8] focus:ring-[#38bdf8]" />
-              <label htmlFor="email_notifications" className="text-sm text-[#94a3b8]">Enable Email Notifications</label>
+              <input type="checkbox" id="email_notifications" checked={form.email_notifications_enabled} onChange={(e) => setForm({ ...form, email_notifications_enabled: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
+              <label htmlFor="email_notifications" className="text-sm text-[var(--color-text-secondary)]">Enable Email Notifications</label>
             </div>
             {form.email_notifications_enabled && (
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3 pl-6">
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="notify_apply" checked={form.notify_on_apply} onChange={(e) => setForm({ ...form, notify_on_apply: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
-                  <label htmlFor="notify_apply" className="text-xs text-[#94a3b8]">On Apply</label>
+                  <input type="checkbox" id="notify_apply" checked={form.notify_on_apply} onChange={(e) => setForm({ ...form, notify_on_apply: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)]" />
+                  <label htmlFor="notify_apply" className="text-xs text-[var(--color-text-secondary)]">On Apply</label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="notify_failure" checked={form.notify_on_failure} onChange={(e) => setForm({ ...form, notify_on_failure: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
-                  <label htmlFor="notify_failure" className="text-xs text-[#94a3b8]">On Failure</label>
+                  <input type="checkbox" id="notify_failure" checked={form.notify_on_failure} onChange={(e) => setForm({ ...form, notify_on_failure: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)]" />
+                  <label htmlFor="notify_failure" className="text-xs text-[var(--color-text-secondary)]">On Failure</label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="notify_scam" checked={form.notify_on_scam} onChange={(e) => setForm({ ...form, notify_on_scam: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
-                  <label htmlFor="notify_scam" className="text-xs text-[#94a3b8]">On Scam</label>
+                  <input type="checkbox" id="notify_scam" checked={form.notify_on_scam} onChange={(e) => setForm({ ...form, notify_on_scam: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)]" />
+                  <label htmlFor="notify_scam" className="text-xs text-[var(--color-text-secondary)]">On Scam</label>
                 </div>
                 <div className="flex items-center gap-2">
-                  <input type="checkbox" id="notify_match" checked={form.notify_on_match} onChange={(e) => setForm({ ...form, notify_on_match: e.target.checked })} className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
-                  <label htmlFor="notify_match" className="text-xs text-[#94a3b8]">On High Match</label>
+                  <input type="checkbox" id="notify_match" checked={form.notify_on_match} onChange={(e) => setForm({ ...form, notify_on_match: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)]" />
+                  <label htmlFor="notify_match" className="text-xs text-[var(--color-text-secondary)]">On High Match</label>
                 </div>
               </div>
             )}
@@ -356,20 +397,20 @@ export default function Config() {
         </div>
 
         <div className={sectionClass}>
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Gauge className="w-5 h-5 text-[#38bdf8]" />
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4 flex items-center gap-2">
+            <Gauge className="w-5 h-5 text-[var(--color-primary)]" />
             Rate Limit Settings
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className={labelClass}>Token Bucket Capacity</label>
               <input type="number" min="1" value={form.rate_limit_capacity} onChange={(e) => setForm({ ...form, rate_limit_capacity: Number(e.target.value) })} className={inputClass} />
-              <p className="text-[10px] text-[#64748b] mt-1">Max requests per second burst</p>
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Max requests per second burst</p>
             </div>
             <div>
               <label className={labelClass}>Refill Rate (tokens/sec)</label>
               <input type="number" min="0.1" step="0.1" value={form.rate_limit_refill_rate} onChange={(e) => setForm({ ...form, rate_limit_refill_rate: Number(e.target.value) })} className={inputClass} />
-              <p className="text-[10px] text-[#64748b] mt-1">Tokens added per second</p>
+              <p className="text-[10px] text-[var(--color-text-muted)] mt-1">Tokens added per second</p>
             </div>
           </div>
         </div>

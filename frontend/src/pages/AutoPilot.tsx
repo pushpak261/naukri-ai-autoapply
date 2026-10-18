@@ -70,8 +70,8 @@ export default function AutoPilot() {
     return (
       <div className="space-y-6">
         <div>
-          <div className="h-8 w-48 bg-[#334155] rounded animate-pulse" />
-          <div className="h-4 w-64 bg-[#334155] rounded animate-pulse mt-2" />
+          <div className="h-8 w-48 bg-[var(--color-surface-hover)] rounded animate-pulse" />
+          <div className="h-4 w-64 bg-[var(--color-surface-hover)] rounded animate-pulse mt-2" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => <CardSkeleton key={i} />)}
@@ -120,7 +120,7 @@ export default function AutoPilot() {
         <button
           onClick={toggleEnabled}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            cfg.enabled ? 'bg-green-600 text-white' : 'bg-[#334155] text-[#94a3b8]'
+            cfg.enabled ? 'bg-green-600 text-[var(--color-text)]' : 'bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)]'
           }`}
           aria-label={cfg.enabled ? 'Disable auto-pilot' : 'Enable auto-pilot'}
         >
@@ -203,8 +203,8 @@ export default function AutoPilot() {
                         }
                       }}
                       className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
-                        active ? 'bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/30'
-                        : 'bg-[#0f172a] text-[#64748b] border border-[#334155]'
+                        active ? 'bg-[#38bdf8]/10 text-[var(--color-primary)] border border-[var(--color-primary)]/30'
+                        : 'bg-[var(--color-bg)] text-[var(--color-text-muted)] border border-[var(--color-border)]'
                       }`}
                       disabled={!editing}
                       style={active ? { borderColor: 'var(--color-primary)' } : undefined}
@@ -300,7 +300,7 @@ export default function AutoPilot() {
                     className="p-0.5"
                     disabled={!editing}
                   >
-                    {rule.enabled ? <ToggleRight className="w-3 h-3 text-green-400" /> : <ToggleLeft className="w-3 h-3 text-[#64748b]" />}
+                    {rule.enabled ? <ToggleRight className="w-3 h-3 text-green-400" /> : <ToggleLeft className="w-3 h-3 text-[var(--color-text-muted)]" />}
                   </button>
                 </div>
                 <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>{rule.condition}</p>
@@ -320,16 +320,16 @@ export default function AutoPilot() {
               <Shield className="w-4 h-4" style={{ color: 'var(--color-primary)' }} />
               Company Management
             </h2>
-            <div className="flex bg-[#0f172a] rounded-lg border border-[#334155] p-0.5">
+            <div className="flex bg-[var(--color-bg)] rounded-lg border border-[var(--color-border)] p-0.5">
               <button
                 onClick={() => setListType('blacklist')}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${listType === 'blacklist' ? 'bg-red-500/10 text-red-400' : 'text-[#64748b]'}`}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${listType === 'blacklist' ? 'bg-red-500/10 text-red-400' : 'text-[var(--color-text-muted)]'}`}
               >
                 Blacklist
               </button>
               <button
                 onClick={() => setListType('whitelist')}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${listType === 'whitelist' ? 'bg-green-500/10 text-green-400' : 'text-[#64748b]'}`}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${listType === 'whitelist' ? 'bg-green-500/10 text-green-400' : 'text-[var(--color-text-muted)]'}`}
               >
                 Whitelist
               </button>
@@ -353,7 +353,7 @@ export default function AutoPilot() {
             <button
               onClick={() => companyInput.trim() && addMutation.mutate({ company: companyInput.trim(), list: listType })}
               disabled={!companyInput.trim()}
-              className="px-3 py-2 rounded-lg text-sm font-medium bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/30 hover:bg-[#38bdf8]/20 transition-colors disabled:opacity-50"
+              className="px-3 py-2 rounded-lg text-sm font-medium bg-[#38bdf8]/10 text-[var(--color-primary)] border border-[var(--color-primary)]/30 hover:bg-[#38bdf8]/20 transition-colors disabled:opacity-50"
               aria-label={`Add to ${listType}`}
             >
               <Plus className="w-4 h-4" />
@@ -365,7 +365,7 @@ export default function AutoPilot() {
                 <span className="text-sm" style={{ color: 'var(--color-text)' }}>{company}</span>
                 <button
                   onClick={() => removeMutation.mutate({ company, list: listType })}
-                  className="p-1 rounded hover:bg-red-500/10 text-[#64748b] hover:text-red-400 transition-colors"
+                  className="p-1 rounded hover:bg-red-500/10 text-[var(--color-text-muted)] hover:text-red-400 transition-colors"
                   aria-label={`Remove ${company}`}
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -383,7 +383,7 @@ export default function AutoPilot() {
           <Zap className="w-12 h-12 mb-3" style={{ color: 'var(--color-primary)' }} />
           <h3 className="text-lg font-semibold" style={{ color: 'var(--color-text)' }}>Auto-Pilot Status</h3>
           <div className={`flex items-center gap-2 mt-2 px-4 py-1.5 rounded-full text-sm font-medium ${
-            cfg.enabled ? 'bg-green-500/10 text-green-400 border border-green-500/30' : 'bg-[#0f172a] text-[#64748b] border border-[#334155]'
+            cfg.enabled ? 'bg-green-500/10 text-green-400 border border-green-500/30' : 'bg-[var(--color-bg)] text-[var(--color-text-muted)] border border-[var(--color-border)]'
           }`}>
             <span className={`w-2 h-2 rounded-full ${cfg.enabled ? 'bg-green-500 animate-pulse' : 'bg-gray-500'}`} />
             {cfg.enabled ? 'Active — Agent will run on schedule' : 'Inactive'}
@@ -406,7 +406,7 @@ export default function AutoPilot() {
                 </button>
                 <button
                   onClick={() => localConfig && saveMutation.mutate(localConfig as unknown as Record<string, unknown>)}
-                  className="px-4 py-2 rounded-lg text-sm font-medium bg-[#38bdf8] text-white hover:bg-[#38bdf8]/90 transition-colors"
+                  className="px-4 py-2 rounded-lg text-sm font-medium bg-[#38bdf8] text-[var(--color-text)] hover:bg-[#38bdf8]/90 transition-colors"
                   disabled={saveMutation.isPending}
                 >
                   {saveMutation.isPending ? 'Saving...' : 'Save Changes'}
@@ -415,7 +415,7 @@ export default function AutoPilot() {
             ) : (
               <button
                 onClick={startEdit}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-[#334155] hover:bg-[#475569] transition-colors"
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-[var(--color-surface-hover)] hover:bg-[var(--color-border)] transition-colors"
                 style={{ color: 'var(--color-text)' }}
               >
                 Edit Configuration

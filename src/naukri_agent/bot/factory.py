@@ -6,6 +6,7 @@ the Dependency Inversion Principle.
 
 from __future__ import annotations
 
+
 from src.naukri_agent.database.manager import DatabaseManager
 
 from src.naukri_agent.ai.job_matcher import JobMatcher

@@ -13,7 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 
 import yaml  # type: ignore[import-untyped]
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 # ---------------------------------------------------------------------------
 # Project root (LinkedIn agent sits under src/linked_agent/)
@@ -56,7 +56,7 @@ class AISettings(BaseModel):
 
     use_gemini: bool = True
     gemini_api_key: str = ""
-    model: str = "gemini-3.5-flash"
+    model: str = "gemini-2.5-flash"
     fallback_model: str | None = None
 
 
@@ -209,6 +209,19 @@ class Settings(BaseModel):
     db_path: Path = PROJECT_ROOT / "data" / "linkedin" / "linkedin_agent.db"
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def derive_workspace_paths(cls, values):
+        if not isinstance(values, dict):
+            return values
+        values = dict(values)
+        root = Path(values.setdefault("project_root", PROJECT_ROOT))
+        data = Path(values.setdefault("data_dir", root / "data" / "linkedin"))
+        values.setdefault("sessions_dir", data / "sessions")
+        values.setdefault("resumes_dir", root / "data" / "resumes")
+        values.setdefault("db_path", data / "linkedin_agent.db")
+        return values
 
     def ensure_dirs(self) -> None:
         """Create required data directories if they don't exist."""

@@ -130,14 +130,14 @@ export default function LinkedIn() {
           <div className="space-y-4">
             <div>
               <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--color-text-secondary)' }}>
-                Email {config?.email && <span className="text-[#64748b]">(current: {config.email})</span>}
+                Email {config?.email && <span className="text-[var(--color-text-muted)]">(current: {config.email})</span>}
               </label>
               <input
                 type="email"
                 placeholder="your@email.com"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#0077b5] transition-colors"
+                className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[#0077b5] transition-colors"
               />
             </div>
             <div>
@@ -149,13 +149,13 @@ export default function LinkedIn() {
                 placeholder={config?.has_password ? '•••••••• (leave blank to keep)' : 'Enter password'}
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#0077b5] transition-colors"
+                className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[#0077b5] transition-colors"
               />
             </div>
             <button
               onClick={handleSaveCredentials}
               disabled={saving}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0077b5] hover:bg-[#005e93] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0077b5] hover:bg-[#005e93] text-[var(--color-text)] rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
               Save Credentials
@@ -170,35 +170,35 @@ export default function LinkedIn() {
             Agent Capabilities
           </h2>
           <div className="space-y-3">
-            <div className="flex items-center justify-between p-3 rounded-lg bg-[#0f172a] border border-[#334155]">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
               <span className="text-sm" style={{ color: 'var(--color-text)' }}>LinkedIn Module</span>
               <span className="flex items-center gap-1.5 text-xs text-green-400">
                 <CheckCircle className="w-3.5 h-3.5" />
                 Available
               </span>
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-[#0f172a] border border-[#334155]">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
               <span className="text-sm" style={{ color: 'var(--color-text)' }}>Easy Apply Support</span>
               <span className="flex items-center gap-1.5 text-xs text-green-400">
                 <CheckCircle className="w-3.5 h-3.5" />
                 Enabled
               </span>
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-[#0f172a] border border-[#334155]">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
               <span className="text-sm" style={{ color: 'var(--color-text)' }}>Anti-Bot Stealth</span>
               <span className="flex items-center gap-1.5 text-xs text-green-400">
                 <CheckCircle className="w-3.5 h-3.5" />
                 Active (14 patches)
               </span>
             </div>
-            <div className="flex items-center justify-between p-3 rounded-lg bg-[#0f172a] border border-[#334155]">
+            <div className="flex items-center justify-between p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)]">
               <span className="text-sm" style={{ color: 'var(--color-text)' }}>AI Matching</span>
-              <span className={`flex items-center gap-1.5 text-xs ${config?.ai.enable_matching ? 'text-green-400' : 'text-[#64748b]'}`}>
+              <span className={`flex items-center gap-1.5 text-xs ${config?.ai.enable_matching ? 'text-green-400' : 'text-[var(--color-text-muted)]'}`}>
                 {config?.ai.enable_matching ? <CheckCircle className="w-3.5 h-3.5" /> : <AlertCircle className="w-3.5 h-3.5" />}
                 {config?.ai.enable_matching ? 'Enabled' : 'Disabled'}
               </span>
             </div>
-            <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-[#0f172a] border border-[#334155] min-w-0">
+            <div className="flex items-center justify-between gap-2 p-3 rounded-lg bg-[var(--color-bg)] border border-[var(--color-border)] min-w-0">
               <span className="text-sm shrink-0" style={{ color: 'var(--color-text)' }}>Resume</span>
               <span className={`flex items-center gap-1.5 text-xs min-w-0 ${config?.resume.exists ? 'text-green-400' : 'text-yellow-400'}`}>
                 {config?.resume.exists ? <CheckCircle className="w-3.5 h-3.5 shrink-0" /> : <AlertCircle className="w-3.5 h-3.5 shrink-0" />}
@@ -232,7 +232,7 @@ export default function LinkedIn() {
               placeholder="python developer, react engineer"
               value={keywords}
               onChange={e => setKeywords(e.target.value)}
-              className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#0077b5] transition-colors"
+              className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[#0077b5] transition-colors"
             />
           </div>
           <div>
@@ -242,7 +242,7 @@ export default function LinkedIn() {
               placeholder="Bangalore, Mumbai, Remote"
               value={locations}
               onChange={e => setLocations(e.target.value)}
-              className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#0077b5] transition-colors"
+              className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[#0077b5] transition-colors"
             />
           </div>
           <div>
@@ -250,7 +250,7 @@ export default function LinkedIn() {
             <select
               value={workType}
               onChange={e => setWorkType(e.target.value)}
-              className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#0077b5] transition-colors"
+              className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] focus:outline-none focus:border-[#0077b5] transition-colors"
             >
               <option value="">Any</option>
               <option value="remote">Remote</option>
@@ -263,7 +263,7 @@ export default function LinkedIn() {
             <select
               value={freshness}
               onChange={e => setFreshness(e.target.value)}
-              className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#0077b5] transition-colors"
+              className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text-secondary)] focus:outline-none focus:border-[#0077b5] transition-colors"
             >
               <option value="past_week">Past Week</option>
               <option value="past_24h">Past 24 Hours</option>
@@ -279,7 +279,7 @@ export default function LinkedIn() {
               max={50}
               value={maxPages}
               onChange={e => setMaxPages(Number(e.target.value))}
-              className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#0077b5] transition-colors"
+              className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-[#0077b5] transition-colors"
             />
           </div>
           <div>
@@ -290,7 +290,7 @@ export default function LinkedIn() {
               max={500}
               value={dailyCap}
               onChange={e => setDailyCap(Number(e.target.value))}
-              className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#0077b5] transition-colors"
+              className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-[#0077b5] transition-colors"
             />
           </div>
           <div>
@@ -301,7 +301,7 @@ export default function LinkedIn() {
               max={100}
               value={matchThreshold}
               onChange={e => setMatchThreshold(Number(e.target.value))}
-              className="w-full bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#0077b5] transition-colors"
+              className="w-full bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-2 text-sm text-[var(--color-text)] focus:outline-none focus:border-[#0077b5] transition-colors"
             />
           </div>
           <div className="flex items-center gap-4">
@@ -310,7 +310,7 @@ export default function LinkedIn() {
                 type="checkbox"
                 checked={dryRun}
                 onChange={e => setDryRun(e.target.checked)}
-                className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#0077b5] focus:ring-[#0077b5]"
+                className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[#0077b5] focus:ring-[#0077b5]"
               />
               <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Dry Run</span>
             </label>
@@ -319,7 +319,7 @@ export default function LinkedIn() {
                 type="checkbox"
                 checked={easyApplyOnly}
                 onChange={e => setEasyApplyOnly(e.target.checked)}
-                className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#0077b5] focus:ring-[#0077b5]"
+                className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[#0077b5] focus:ring-[#0077b5]"
               />
               <span className="text-sm" style={{ color: 'var(--color-text-secondary)' }}>Easy Apply Only</span>
             </label>
@@ -329,7 +329,7 @@ export default function LinkedIn() {
           <button
             onClick={handleSaveSearch}
             disabled={saving}
-            className="flex items-center gap-2 px-4 py-2 bg-[#0077b5] hover:bg-[#005e93] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2 bg-[#0077b5] hover:bg-[#005e93] text-[var(--color-text)] rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Save Configuration

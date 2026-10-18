@@ -17,10 +17,13 @@ export default function Accounts() {
 
   const fetchAccounts = async () => {
     setLoading(true);
+    setError('');
     try {
       const r = await api.accounts.list();
       setAccounts(r.items);
-    } catch {} finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load accounts. Please retry.');
+    } finally { setLoading(false); }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -66,7 +69,7 @@ export default function Accounts() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
       </div>
     );
   }
@@ -75,11 +78,11 @@ export default function Accounts() {
     <div className="space-y-6 max-w-4xl">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Users className="w-6 h-6 text-[#38bdf8]" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2">
+            <Users className="w-6 h-6 text-[var(--color-primary)]" />
             Naukri Accounts
           </h1>
-          <p className="text-[#94a3b8] mt-1">Manage multiple Naukri accounts for the agent</p>
+          <p className="text-[var(--color-text-secondary)] mt-1">Manage multiple Naukri accounts for the agent</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -90,35 +93,36 @@ export default function Accounts() {
         </button>
       </div>
 
+      {error && !showForm && <div role="alert" className="text-red-400"><p>{error}</p><button onClick={fetchAccounts}>Retry loading accounts</button></div>}
       {showForm && (
-        <form onSubmit={handleCreate} className="bg-[#1e293b] rounded-xl border border-[#334155] p-5 space-y-4">
-          <h2 className="text-lg font-semibold text-white">New Account</h2>
+        <form onSubmit={handleCreate} className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5 space-y-4">
+          <h2 className="text-lg font-semibold text-[var(--color-text)]">New Account</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input
               type="email" placeholder="Naukri Email" value={email}
               onChange={e => setEmail(e.target.value)}
-              className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white text-sm placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
+              className="w-full px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)]"
             />
             <input
               type="password" placeholder="Password" value={password}
               onChange={e => setPassword(e.target.value)}
-              className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white text-sm placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
+              className="w-full px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)]"
             />
             <input
               type="text" placeholder="Display Name (optional)" value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white text-sm placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
+              className="w-full px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)]"
             />
-            <label className="flex items-center gap-2 text-sm text-[#94a3b8]">
+            <label className="flex items-center gap-2 text-sm text-[var(--color-text-secondary)]">
               <input type="checkbox" checked={isPrimary} onChange={e => setIsPrimary(e.target.checked)}
-                className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
+                className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)]" />
               Set as primary
             </label>
           </div>
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex flex-wrap gap-2 justify-end">
             <button type="button" onClick={() => setShowForm(false)}
-              className="px-3 py-2 text-sm text-[#94a3b8] border border-[#334155] rounded-lg hover:bg-[#334155]">Cancel</button>
+              className="px-3 py-2 text-sm text-[var(--color-text-secondary)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-surface-hover)]">Cancel</button>
             <button type="submit" disabled={saving}
               className="px-4 py-2 text-sm bg-[#38bdf8] text-[#0f172a] rounded-lg font-medium hover:bg-[#7dd3fc] disabled:opacity-50 flex items-center gap-1.5">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -130,19 +134,19 @@ export default function Accounts() {
 
       <div className="grid gap-4">
         {accounts.map(acc => (
-          <div key={acc.id} className="bg-[#1e293b] rounded-xl border border-[#334155] p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div key={acc.id} className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-4 min-w-0">
-              <div className={`p-2.5 rounded-lg ${acc.is_active ? 'bg-green-500/10' : 'bg-[#334155]'}`}>
-                <Users className={`w-5 h-5 ${acc.is_active ? 'text-green-400' : 'text-[#64748b]'}`} />
+              <div className={`p-2.5 rounded-lg ${acc.is_active ? 'bg-green-500/10' : 'bg-[var(--color-surface-hover)]'}`}>
+                <Users className={`w-5 h-5 ${acc.is_active ? 'text-green-400' : 'text-[var(--color-text-muted)]'}`} />
               </div>
               <div>
-                <p className="text-sm font-medium text-white flex items-center gap-2">
+                <p className="text-sm font-medium text-[var(--color-text)] flex items-center gap-2">
                   {acc.name || acc.email}
                   {acc.is_primary && <Star className="w-3.5 h-3.5 text-yellow-400" />}
                 </p>
-                <p className="text-xs text-[#94a3b8]">{acc.email}</p>
+                <p className="text-xs text-[var(--color-text-secondary)]">{acc.email}</p>
                 {acc.last_used_at && (
-                  <p className="text-xs text-[#64748b] mt-0.5">Last used: {new Date(acc.last_used_at).toLocaleDateString()}</p>
+                  <p className="text-xs text-[var(--color-text-muted)] mt-0.5">Last used: {new Date(acc.last_used_at).toLocaleDateString()}</p>
                 )}
               </div>
             </div>
@@ -151,7 +155,7 @@ export default function Accounts() {
                 onClick={() => handleActivate(acc.id)}
                 disabled={acc.is_active}
                 className={`p-2 rounded-lg transition-colors ${
-                  acc.is_active ? 'bg-green-500/20 text-green-400' : 'text-[#64748b] hover:text-white hover:bg-[#334155]'
+                  acc.is_active ? 'bg-green-500/20 text-green-400' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
                 }`}
                 title={acc.is_active ? 'Active' : 'Activate'}
               >
@@ -160,7 +164,7 @@ export default function Accounts() {
               {!acc.is_primary && (
                 <button
                   onClick={() => handleDelete(acc.id)}
-                  className="p-2 text-[#64748b] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+                  className="p-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                   title="Delete"
                 >
                   <Trash2 className="w-4 h-4" />
@@ -170,7 +174,7 @@ export default function Accounts() {
           </div>
         ))}
         {accounts.length === 0 && (
-          <div className="text-center py-12 text-[#64748b]">
+          <div className="text-center py-12 text-[var(--color-text-muted)]">
             <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>No accounts configured. Add your first Naukri account.</p>
           </div>

@@ -1,284 +1,189 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  Briefcase, CheckCircle, XCircle, SkipForward, Clock, TrendingUp,
-  BarChart3, Target, Activity, Shield, Bot, Download,
-} from 'lucide-react';
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid,
-  PieChart, Pie, Cell, Legend,
-} from 'recharts';
-import StatCard from '../components/StatCard';
-import StatusBadge from '../components/StatusBadge';
-import { CardSkeleton, ChartSkeleton } from '../components/Skeleton';
+import { useQuery } from '@tanstack/react-query';
+import { ArrowRight,ArrowUpRight,Briefcase,Check,CheckCircle2,Download,FileText,RefreshCw,Search,ShieldCheck,SlidersHorizontal,TrendingUp,XCircle } from 'lucide-react';
+import { BarChart,Bar,XAxis,YAxis,Tooltip,ResponsiveContainer,CartesianGrid } from 'recharts';
+import { api,downloadExport } from '../lib/api';
 import { useDashboard } from '../lib/hooks';
-import { downloadExport } from '../lib/api';
-
+import StatusBadge from '../components/StatusBadge';
+import { CardSkeleton } from '../components/Skeleton';
 export default function Dashboard() {
-  const { stats, session, metrics } = useDashboard();
-  const [exportError, setExportError] = useState('');
-  const [exporting, setExporting] = useState(false);
-  const handleExport = async (path: string, name: string) => {
-    setExportError('');
-    setExporting(true);
-    try { await downloadExport(path, name); }
-    catch (error) { setExportError(error instanceof Error ? error.message : 'Export failed'); }
-    finally { setExporting(false); }
-  };
-
-  if (stats.isLoading) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <div className="h-8 w-48 bg-[#334155] rounded animate-pulse" />
-          <div className="h-4 w-72 bg-[#334155] rounded animate-pulse mt-2" />
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => <CardSkeleton key={i} />)}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => <CardSkeleton key={i} />)}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {[1, 2].map((i) => <ChartSkeleton key={i} />)}
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {[1, 2].map((i) => <ChartSkeleton key={i} />)}
-        </div>
-      </div>
-    );
+  const { stats,session,metrics }=useDashboard();
+  const config=useQuery({ queryKey: ['config'],queryFn: api.config,staleTime: 30000 });
+  const resume=useQuery({ queryKey: ['resume-profile'],queryFn: api.resumeProfile,staleTime: 30000 });
+  const [exporting,setExporting]=useState(false);
+  const [exportError,setExportError]=useState('');
+  async function exportData(path: string,name: string) {
+    setExporting(true); setExportError(''); try {
+      await downloadExport(path,name);
+    }
+      catch(e) {
+        setExportError(e instanceof Error? e.message:'Export failed. Please try again.');
+      }
+      finally {
+      setExporting(false);
+    }
   }
-
-  if (stats.isError) {
-    return <div className="text-red-400">Failed to load dashboard data: {stats.error.message}</div>;
-  }
-
-  const data = stats.data!;
-  const pieData = [
-    { name: 'Applied', value: data.stats.applied, color: '#22c55e' },
-    { name: 'Skipped', value: data.stats.skipped, color: '#eab308' },
-    { name: 'Failed', value: data.stats.failed, color: '#ef4444' },
-  ];
-
-  const runChartData = data.recent_runs.slice(0, 10).reverse().map((r) => ({
-    date: r.started_at.slice(0, 10),
-    Applied: r.applied,
-    Skipped: r.skipped,
-    Failed: r.failed,
-  }));
-
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+  const milestones=[{ title: 'Add your resume',text: 'Give matching a foundation.',to: '/resume',icon: FileText,done: resume.data?.exists,loading: resume.isLoading,error: resume.isError },{ title: 'Set your preferences',text: 'Choose roles and locations.',to: '/config',icon: Search,done: config.data? config.data.search.keywords.length>0&&config.data.search.locations.length>0:undefined,loading: config.isLoading,error: config.isError },{ title: 'Connect Naukri',text: 'Check your platform session.',to: '/agent-control',icon: ShieldCheck,done: session.data?.valid,loading: session.isLoading,error: session.isError },{ title: 'Review run settings',text: 'Check daily cap and dry run.',to: '/config',icon: SlidersHorizontal,done: undefined,loading: config.isLoading,error: config.isError }];
+  const completed=milestones.slice(0,3).filter(m => m.done).length;
+  const data=stats.data;
+  const chart=data?.recent_runs.slice(0,10).reverse().map(r => ({ date: r.started_at.slice(5,10),Applied: r.applied,Skipped: r.skipped,Failed: r.failed }))||[];
+  return <div className="overview space-y-6">
+    <section className="overview-intro">
+      <div>
+        <p className="eyebrow">YOUR SEARCH, AT A GLANCE</p>
+        <h1>Make room for your next opportunity.</h1>
+        <p className="muted">A clear view of your progress. A considered next step.</p>
+      </div>
+      <Link to="/jobs" className="primary-button">Explore jobs <ArrowUpRight size={17} />
+      </Link>
+    </section>
+    <section className="setup-panel">
+      <div className="section-heading">
         <div>
-          <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Dashboard</h1>
-          <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Overview of your AI job application agent</p>
+          <p className="eyebrow">START WITH A STRONG FOUNDATION</p>
+          <h2>Your workspace, ready for action.</h2>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => handleExport('/export/applications/csv', 'applications.csv')}
-            disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-            style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export CSV
-          </button>
-          <button
-            onClick={() => handleExport('/export/stats/json', 'stats.json')}
-            disabled={exporting}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors"
-            style={{ backgroundColor: 'var(--color-surface)', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)' }}
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export JSON
-          </button>
-        </div>
+        <Link to="/help" className="text-link">Setup guide <ArrowUpRight size={15} />
+        </Link>
       </div>
-
-      {exportError && <p role="alert" className="text-red-400 text-sm">{exportError}</p>}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard title="Total Jobs Found" value={data.total_jobs_found} icon={Briefcase} color="#38bdf8" />
-        <StatCard title="Total Applied" value={data.total_applied} icon={CheckCircle} color="#22c55e" subtitle={`${data.today_applied} today (cap: ${data.daily_cap})`} />
-        <StatCard title="Skipped" value={data.total_skipped} icon={SkipForward} color="#eab308" />
-        <StatCard title="Failed" value={data.total_failed} icon={XCircle} color="#ef4444" />
+      <div className="setup-progress">
+        <span style={{ width: `${completed/3*100}%` }} />
       </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-4">
-          <h3 className="text-xs font-medium text-[#94a3b8] flex items-center gap-1.5 mb-2">
-            <Shield className="w-3.5 h-3.5" />
-            Session Health
-          </h3>
-          {session.isLoading ? (
-            <div className="space-y-2">
-              <div className="h-4 w-20 bg-[#334155] rounded animate-pulse" />
-              <div className="h-3 w-32 bg-[#334155] rounded animate-pulse" />
-            </div>
-          ) : session.data ? (
-            <div>
-              <div className="flex items-center gap-2">
-                <div className={`w-2 h-2 rounded-full ${session.data.valid ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-sm" style={{ color: session.data.valid ? 'var(--color-success)' : 'var(--color-danger)' }}>
-                  {session.data.valid ? 'Active' : 'Invalid/Expired'}
-                </span>
-              </div>
-              <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>
-                {session.data.message || (session.data.valid ? `${session.data.cookie_count} cookies` : 'No valid cookies')}
-              </p>
-              {session.data.last_modified && (
-                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>Updated: {new Date(session.data.last_modified).toLocaleDateString()}</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-[#64748b]">No session</p>
-          )}
-        </div>
-
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-4">
-          <h3 className="text-xs font-medium text-[#94a3b8] flex items-center gap-1.5 mb-2">
-            <Activity className="w-3.5 h-3.5" />
-            Model Health
-          </h3>
-          {metrics.isLoading ? (
-            <div className="space-y-2">
-              <div className="h-4 w-24 bg-[#334155] rounded animate-pulse" />
-              <div className="h-3 w-20 bg-[#334155] rounded animate-pulse" />
-            </div>
-          ) : metrics.data ? (
-            <div>
-              <p className="text-sm text-white">API Calls: {metrics.data.api_calls}</p>
-              <p className="text-xs text-[#64748b] mt-1">Total runs: {metrics.data.total_runs}</p>
-              {metrics.data.duration_seconds > 0 && (
-                <p className="text-xs text-[#64748b]">Duration: {Math.round(metrics.data.duration_seconds / 60)} min</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-sm text-[#64748b]">No metrics</p>
-          )}
-        </div>
-
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-4">
-          <h3 className="text-xs font-medium text-[#94a3b8] flex items-center gap-1.5 mb-2">
-            <Bot className="w-3.5 h-3.5" />
-            Quick Actions
-          </h3>
-          <div className="flex flex-wrap gap-1.5">
-            <Link to="/agent-control" className="text-xs px-2 py-1 rounded bg-[#334155] hover:bg-[#475569] text-[#94a3b8] hover:text-white transition-colors">Agent</Link>
-            <Link to="/analytics" className="text-xs px-2 py-1 rounded bg-[#334155] hover:bg-[#475569] text-[#94a3b8] hover:text-white transition-colors">Analytics</Link>
-            <Link to="/skills-gap" className="text-xs px-2 py-1 rounded bg-[#334155] hover:bg-[#475569] text-[#94a3b8] hover:text-white transition-colors">Skills</Link>
-            <Link to="/scam-detector" className="text-xs px-2 py-1 rounded bg-[#334155] hover:bg-[#475569] text-[#94a3b8] hover:text-white transition-colors">Scams</Link>
-            <Link to="/cache-explorer" className="text-xs px-2 py-1 rounded bg-[#334155] hover:bg-[#475569] text-[#94a3b8] hover:text-white transition-colors">Cache</Link>
-            <Link to="/log-viewer" className="text-xs px-2 py-1 rounded bg-[#334155] hover:bg-[#475569] text-[#94a3b8] hover:text-white transition-colors">Logs</Link>
-            <Link to="/backups" className="text-xs px-2 py-1 rounded bg-[#334155] hover:bg-[#475569] text-[#94a3b8] hover:text-white transition-colors">Backups</Link>
+      <p className="setup-caption">{completed} of 3 setup checks confirmed · Review run settings before starting</p>
+      <div className="milestones">{milestones.map((m,i) => <Link key={m.title} to={m.to} className="milestone">
+        <div className={`milestone-icon ${m.done? 'done':''}`}>{m.done? <Check size={19} />:<m.icon size={19} />}</div>
+        <small>0{i+1} / {m.loading? 'CHECKING':m.error? 'UNAVAILABLE':m.done? 'CONFIRMED':i===3? 'REVIEW':'TO DO'}</small>
+        <strong>{m.title}<ArrowUpRight size={15} />
+        </strong>
+        <p>{i===3&&config.data? `${config.data.application.dry_run? 'Dry run enabled':'Live applications'} · ${config.data.application.daily_cap} daily cap`:m.text}</p>
+      </Link>)}</div>
+    </section>
+    <div className="section-heading">
+      <h2>Search performance</h2>
+      <span className="subtle-label">Application totals · All time</span>
+    </div>
+    {stats.isLoading? <div className="metric-grid">{[1,2,3,4].map(n => <CardSkeleton key={n} />)}</div>:stats.isError? <div className="notice-error" role="alert">
+      <strong>We couldn’t load your activity.</strong>
+      <p>{stats.error.message}</p>
+      <button className="secondary-button" onClick={() => stats.refetch()}>
+        <RefreshCw size={15} />Try again</button>
+    </div>:data&&<div className="metric-grid">{[{ label: 'Jobs discovered',value: data.total_jobs_found,icon: Briefcase,note: 'Across the last 10 runs' },{ label: 'Applications sent',value: data.total_applied,icon: CheckCircle2,note: `${data.today_applied} today · ${data.daily_cap} daily cap` },{ label: 'Skipped',value: data.total_skipped,icon: ArrowRight,note: 'Filtered or passed over' },{ label: 'Needs attention',value: data.total_failed,icon: XCircle,note: 'Failed application attempts' }].map((m,i) => <article className={`overview-metric metric-${i}`} key={m.label}>
+      <div>
+        <span>{m.label}</span>
+        <m.icon size={18} />
+      </div>
+      <strong>{m.value.toLocaleString()}</strong>
+      <p>{m.note}</p>
+    </article>)}</div>}
+    <div className="overview-columns">
+      <section className="workspace-panel">
+        <div className="section-heading">
+          <div>
+            <h2>Application activity</h2>
+            <p className="muted text-sm mt-1">Applied, skipped, and failed · Last 10 runs</p>
           </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <BarChart3 className="w-5 h-5 text-[#38bdf8]" />
-            Application Trend (Last 10 Runs)
-          </h2>
-          {runChartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={runChartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                <YAxis tick={{ fill: '#94a3b8', fontSize: 12 }} />
-                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#f1f5f9' }} />
-                <Bar dataKey="Applied" fill="#22c55e" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Skipped" fill="#eab308" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="Failed" fill="#ef4444" radius={[4, 4, 0, 0]} />
+          <TrendingUp size={20} className="accent" />
+        </div>{chart.length? <>
+          <div className="chart-legend">
+            <span>
+              <i style={{ background: '#319482' }} />Applied</span>
+            <span>
+              <i style={{ background: '#bd954b' }} />Skipped</span>
+            <span>
+              <i style={{ background: '#cc7373' }} />Failed</span>
+          </div>
+          <div className="activity-chart">
+            <ResponsiveContainer width="100%" height={240}>
+              <BarChart data={chart}>
+                <CartesianGrid vertical={false} stroke="var(--color-border)" />
+                <XAxis dataKey="date" tick={{ fill: 'var(--color-text-secondary)',fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis allowDecimals={false} tick={{ fill: 'var(--color-text-secondary)',fontSize: 11 }} axisLine={false} tickLine={false} width={32} />
+                <Tooltip contentStyle={{ background: 'var(--color-surface)',color: 'var(--color-text)',border: '1px solid var(--color-border)',borderRadius: 8 }} />
+                <Bar dataKey="Applied" fill="#319482" radius={[3,3,0,0]} />
+                <Bar dataKey="Skipped" fill="#bd954b" radius={[3,3,0,0]} />
+                <Bar dataKey="Failed" fill="#cc7373" radius={[3,3,0,0]} />
               </BarChart>
             </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-64 text-[#64748b]">No run data yet</div>
-          )}
-        </div>
-
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Target className="w-5 h-5 text-[#38bdf8]" />
-            Application Distribution (7 days)
-          </h2>
-          {data.stats.total > 0 ? (
-            <ResponsiveContainer width="100%" height={250}>
-              <PieChart>
-                <Pie data={pieData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} dataKey="value" stroke="none">
-                  {pieData.map((entry) => <Cell key={entry.name} fill={entry.color} />)}
-                </Pie>
-                <Tooltip contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#f1f5f9' }} />
-                <Legend formatter={(value: string) => <span style={{ color: '#94a3b8' }}>{value}</span>} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-64 text-[#64748b]">No applications yet</div>
-          )}
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Clock className="w-5 h-5 text-[#38bdf8]" />
-              Recent Applications
-            </h2>
-            <Link to="/applications" className="text-sm text-[#38bdf8] hover:underline">View all</Link>
           </div>
-          <div className="space-y-2">
-            {data.recent_applications.length > 0 ? (
-              data.recent_applications.map((app, i) => (
-                <div key={i} className="flex items-center justify-between p-3 rounded-lg bg-[#0f172a] border border-[#334155]">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-white truncate">{app.job_title}</p>
-                    <p className="text-xs text-[#64748b] truncate">{app.company}</p>
-                  </div>
-                  <div className="flex items-center gap-3 ml-3">
-                    <span className={`text-sm font-semibold ${app.match_score >= 80 ? 'text-green-400' : app.match_score >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
-                      {app.match_score.toFixed(0)}
-                    </span>
-                    <StatusBadge status={app.status} />
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-8 text-[#64748b]">No recent applications</div>
-            )}
-          </div>
+        </>:<div className="overview-empty">
+          <TrendingUp size={28} />
+          <h3>{stats.isError? 'Activity is unavailable':'Your progress starts here'}</h3>
+          <p>{stats.isError? 'Retry loading your activity above.':'Run your first search to see application activity here.'}</p>
+          <Link className="text-link" to="/agent-control">Open command center <ArrowRight size={15} />
+          </Link>
+        </div>}</section>
+      <section className="workspace-panel run-brief">
+        <p className="eyebrow">BEFORE YOUR NEXT RUN</p>
+        <h2>Stay in control<br />of every application.</h2>
+        <p className="muted">Review your preferences and use dry run to inspect matches before sending applications.</p>
+        <div className="run-fact">
+          <span>Naukri session</span>
+          <strong>{session.isLoading? 'Checking…':session.isError? 'Unavailable':session.data?.valid? 'Valid':'Connection needed'}</strong>
         </div>
-
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-[#38bdf8]" />
-              Recent Runs
-            </h2>
-            <Link to="/run-logs" className="text-sm text-[#38bdf8] hover:underline">View all</Link>
-          </div>
-          <div className="space-y-2">
-            {data.recent_runs.length > 0 ? (
-              data.recent_runs.map((run) => (
-                <div key={run.id} className="flex items-center justify-between p-3 rounded-lg bg-[#0f172a] border border-[#334155]">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs text-[#94a3b8]">{run.started_at.slice(0, 16).replace('T', ' ')}</p>
-                    <p className="text-sm text-white truncate mt-0.5">{run.keywords.slice(0, 40)}</p>
-                  </div>
-                  <div className="flex items-center gap-3 ml-3">
-                    <span className="text-xs text-[#94a3b8]">+{run.applied} / -{run.skipped}</span>
-                    <StatusBadge status={run.status} />
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-8 text-[#64748b]">No runs yet</div>
-            )}
-          </div>
+        <div className="run-fact">
+          <span>Application mode</span>
+          <strong>{config.isLoading? 'Loading…':config.isError? 'Unavailable':config.data?.application.dry_run? 'Dry run':'Live'}</strong>
         </div>
-      </div>
+        <div className="run-fact">
+          <span>Matching configuration</span>
+          <strong>{config.isLoading ? 'Loading…' : config.isError ? 'Unavailable' : !config.data?.ai.enable_matching ? 'Disabled' : config.data.ai.use_gemini && config.data.ai.has_api_key ? 'Gemini configured' : 'Local matching'}</strong>
+        </div>
+        <div className="run-fact">
+          <span>Recorded runs</span>
+          <strong>{metrics.isLoading? 'Loading…':metrics.isError? 'Unavailable':metrics.data?.total_runs??'—'}</strong>
+        </div>
+        <Link to="/agent-control" className="primary-button">Open command center <ArrowUpRight size={16} />
+        </Link>
+        <Link to="/linkedin" className="text-link mt-3">Manage LinkedIn separately <ArrowUpRight size={14} />
+        </Link>
+      </section>
     </div>
-  );
+    <div className="overview-columns">
+      <section className="workspace-panel">
+        <div className="section-heading">
+          <h2>Recent applications</h2>
+          <Link to="/applications" className="text-link">View all <ArrowUpRight size={14} />
+          </Link>
+        </div>{data?.recent_applications.length? <div className="activity-list">{data.recent_applications.map((a,i) => <div className="activity-row" key={i}>
+          <span className="company-monogram">{a.company?.slice(0,1)||'J'}</span>
+          <div>
+            <strong>{a.job_title}</strong>
+            <p>{a.company} · Match {(a.match_score??0).toFixed(0)}</p>
+          </div>
+          <StatusBadge status={a.status} />
+        </div>)}</div>:<div className="compact-empty">
+          <FileText size={23} />
+          <h3>{stats.isError? 'Applications unavailable':'No applications yet'}</h3>
+          <p>{stats.isError? 'Retry loading your activity above.':'Your application history will appear after your first run.'}</p>
+        </div>}</section>
+      <section className="workspace-panel">
+        <div className="section-heading">
+          <h2>Recent runs</h2>
+          <Link to="/run-logs" className="text-link">View history <ArrowUpRight size={14} />
+          </Link>
+        </div>{data?.recent_runs.length? <div className="activity-list">{data.recent_runs.map(r => <div key={r.id} className="activity-row">
+          <div>
+            <strong>{r.keywords||'Search run'}</strong>
+            <p>{r.started_at.slice(0,16).replace('T',' ')} · {r.applied} applied</p>
+          </div>
+          <StatusBadge status={r.status} />
+        </div>)}</div>:<div className="compact-empty">
+          <Search size={23} />
+          <h3>{stats.isError? 'Run history unavailable':'A fresh start'}</h3>
+          <p>{stats.isError? 'Retry loading your activity above.':'Completed searches and run details will be recorded here.'}</p>
+        </div>}</section>
+    </div>
+    <footer className="overview-export">
+      <div>
+        <strong>Your data, ready to review.</strong>
+        <p className="muted text-sm">Export your application history or a snapshot of your statistics.</p>
+      </div>
+      <div className="flex gap-2 flex-wrap">
+        <button className="secondary-button" disabled={exporting} onClick={() => exportData('/export/applications/csv','applications.csv')}>
+          <Download size={15} />{exporting? 'Exporting…':'Applications CSV'}</button>
+        <button className="secondary-button" disabled={exporting} onClick={() => exportData('/export/stats/json','stats.json')}>
+          <Download size={15} />Statistics JSON</button>
+      </div>{exportError&&<p className="notice-error w-full" role="alert">{exportError}</p>}</footer>
+  </div>;
 }
-

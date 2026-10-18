@@ -5,6 +5,7 @@ Centralizes the instantiation of all interfaces and services.
 
 from __future__ import annotations
 
+
 from typing import TYPE_CHECKING
 
 from src.linked_agent.database.manager import DatabaseManager

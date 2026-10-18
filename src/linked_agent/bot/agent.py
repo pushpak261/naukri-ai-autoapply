@@ -282,7 +282,7 @@ class LinkedInAgent:
             exclusions = self._settings.exclusions
             base_exclusion_spec: JobSpecification = (
                 CompanyExclusionSpecification(exclusions.companies)
-                | TitleExclusionSpecification(exclusions.title_keywords, getattr(exclusions, "legacy_domain_filter", True))
+                | TitleExclusionSpecification(exclusions.title_keywords)
                 | DescriptionExclusionSpecification(exclusions.description_keywords)
                 | AuthenticityExclusionSpecification(
                     exclusions.fake_company_blocklist, exclusions.max_openings_without_logo
@@ -329,6 +329,10 @@ class LinkedInAgent:
         except KeyboardInterrupt:
             log_warning("LinkedIn agent interrupted by user")
             self._interrupted = True
+        except LLMQuotaExceededError as e:
+            self._run_error = True
+            self._interrupted = True
+            log_warning(f'LinkedIn run stopped: {e} No further applications will be attempted.')
         except Exception as e:
             self._run_error = True
             if self._interrupted:
@@ -424,6 +428,11 @@ class LinkedInAgent:
             else:
                 score = 0.0
 
+            # Resume-evidenced skills improve ordering without altering eligibility.
+            from libs.common.opportunity import evidence_priority
+            job._eligibility_score = score
+            job._opportunity_priority = evidence_priority(job, self._resume_profile)
+            score += job._opportunity_priority
             score += company_policy.priority(job.company) + 10 * getattr(job, "_queue_priority", 0)
             heapq.heappush(job_queue, (-score, idx, job))
 
@@ -444,7 +453,7 @@ class LinkedInAgent:
                 break
 
             neg_score, idx, job = heapq.heappop(job_queue)
-            initial_score = -neg_score - company_policy.priority(job.company) - 10 * getattr(job, "_queue_priority", 0)
+            initial_score = job._eligibility_score
             allowed, reason = await company_policy.allowed(job.company, self._repo, "linkedin")
             if not allowed:
                 log_info(f"Skipping {job.company}: {reason}")
@@ -574,36 +583,23 @@ class LinkedInAgent:
                 try:
                     match_result = await matcher.match(resume_profile, job)
                 except (LLMQuotaExceededError, LLMAPIError) as e:
-                    if self._settings.ai.fallback_model:
-                        fallback_model = self._settings.ai.fallback_model
-                        log_warning(f"Primary model failed. Switching to {fallback_model}...")
-                        if hasattr(self._llm, "set_model"):
-                            self._llm.set_model(fallback_model)
-                        self._settings.ai.model = fallback_model
-                        self._settings.ai.fallback_model = None
-                        try:
-                            match_result = await matcher.match(resume_profile, job)
-                        except (LLMQuotaExceededError, LLMAPIError) as e2:
-                            log_error(f"Fallback model also failed: {e2}")
-                            if isinstance(e2, LLMQuotaExceededError) and e2.is_daily_quota and self._settings.ai.abort_on_quota:
-                                self._interrupted = True
-                                break
-                            # Both models exhausted — disable AI matching for rest of run
-                            log_warning("Both AI models exhausted — falling back to local matching")
-                            self._settings.ai.enable_matching = False
-                            match_result = await matcher.match(resume_profile, job)
-                        except Exception:
-                            log_error("Fallback model failed unexpectedly — falling back to local matching")
-                            self._settings.ai.enable_matching = False
-                            match_result = await matcher.match(resume_profile, job)
-                    else:
-                        if isinstance(e, LLMQuotaExceededError) and e.is_daily_quota and self._settings.ai.abort_on_quota:
-                            self._interrupted = True
-                            break
-                        # AI model exhausted — fall back to local matching for rest of run
-                        log_warning("AI model exhausted — falling back to local matching")
-                        self._settings.ai.enable_matching = False
+                    if isinstance(e, LLMQuotaExceededError) and e.is_daily_quota and self._settings.ai.abort_on_quota:
+                        self._interrupted = True
+                        break
+                    fallback_model = self._settings.ai.fallback_model
+                    if not fallback_model:
+                        log_error('AI assessment unavailable; skipping without disabling matching.')
+                        self._jobs_failed += 1
+                        continue
+                    self._llm.set_model(fallback_model)
+                    self._settings.ai.model = fallback_model
+                    self._settings.ai.fallback_model = None
+                    try:
                         match_result = await matcher.match(resume_profile, job)
+                    except Exception:
+                        log_error('Fallback AI assessment unavailable; job was not approved.')
+                        self._jobs_failed += 1
+                        continue
                 except Exception as e:
                     logger.error(f"AI Match failed: {e}")
                     self._jobs_failed += 1
@@ -633,10 +629,10 @@ class LinkedInAgent:
             threshold = self._settings.application.match_score_threshold
 
             # Enforce the match score threshold configured via the UI/settings.
-            if match_score < threshold:
+            if not match_result.should_apply or match_score < threshold:
                 log_info(
                     f"Skipping: {job.title} @ {job.company} "
-                    f"(score: {match_score:.1f}) below threshold ({threshold}%)"
+                    f"(score: {match_score:.1f}, threshold: {threshold}%, approved: {match_result.should_apply})"
                 )
                 if self._repo and db_job and db_job.id is not None:
                     await self._repo.save_application(
@@ -674,6 +670,12 @@ class LinkedInAgent:
                 self._jobs_skipped += 1
                 continue
 
+            # Persist the claim before a browser submission so a crash cannot silently reapply.
+            if self._repo and db_job and db_job.id is not None:
+                await self._repo.save_application(job_id=db_job.id, match_score=match_score,
+                    status='applying', match_reasoning=match_result.match_reasoning,
+                    matching_skills=match_result.matching_skills, missing_skills=match_result.missing_skills)
+
             # Apply from sidebar
             apply_result = await applier.apply_to_job(job, sidebar_already_applied=sidebar_already_applied)
             status = apply_result.get("status", ApplicationStatus.FAILED)
@@ -687,6 +689,11 @@ class LinkedInAgent:
                     missing_skills=match_result.missing_skills,
                     error_message=error_msg,
                 )
+
+            if status == ApplicationStatus.UNCERTAIN:
+                log_warning('Submission could not be confirmed. Stopping this run for review in Applications.')
+                self._interrupted = True
+                break
 
             if status == ApplicationStatus.APPLIED:
                 self._jobs_applied += 1

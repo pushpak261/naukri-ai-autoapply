@@ -37,15 +37,15 @@ export default function SkillsGap() {
     return (
       <div className="space-y-6">
         <div>
-          <div className="h-8 w-56 bg-[#334155] rounded animate-pulse" />
-          <div className="h-4 w-72 bg-[#334155] rounded animate-pulse mt-2" />
+          <div className="h-8 w-56 bg-[var(--color-surface-hover)] rounded animate-pulse" />
+          <div className="h-4 w-72 bg-[var(--color-surface-hover)] rounded animate-pulse mt-2" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => (
-            <div key={i} className="bg-[#1e293b] rounded-xl border border-[#334155] p-4 animate-pulse">
-              <div className="h-3 w-20 bg-[#334155] rounded mb-3" />
-              <div className="h-6 w-16 bg-[#334155] rounded mb-2" />
-              <div className="h-3 w-24 bg-[#334155] rounded" />
+            <div key={i} className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-4 animate-pulse">
+              <div className="h-3 w-20 bg-[var(--color-surface-hover)] rounded mb-3" />
+              <div className="h-6 w-16 bg-[var(--color-surface-hover)] rounded mb-2" />
+              <div className="h-3 w-24 bg-[var(--color-surface-hover)] rounded" />
             </div>
           ))}
         </div>
@@ -57,16 +57,16 @@ export default function SkillsGap() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <RadarIcon className="w-6 h-6 text-[#38bdf8]" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2">
+            <RadarIcon className="w-6 h-6 text-[var(--color-primary)]" />
             Resume Optimization Engine
           </h1>
-          <p className="text-[#94a3b8] mt-1">Gamified skill analysis, ATS scoring, and keyword optimization</p>
+          <p className="text-[var(--color-text-secondary)] mt-1">Gamified skill analysis, ATS scoring, and keyword optimization</p>
         </div>
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-8 text-center">
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-8 text-center">
           <AlertTriangle className="w-12 h-12 text-red-400 mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-white mb-2">Failed to load analysis</h2>
-          <p className="text-[#94a3b8] mb-4">{error}</p>
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-2">Failed to load analysis</h2>
+          <p className="text-[var(--color-text-secondary)] mb-4">{error}</p>
           <button onClick={fetchAnalysis} className="inline-flex items-center gap-2 px-4 py-2 bg-[#38bdf8] text-[#0f172a] rounded-lg hover:bg-[#7dd3fc] transition-colors font-medium">
             <RefreshCw className="w-4 h-4" /> Retry
           </button>
@@ -79,23 +79,23 @@ export default function SkillsGap() {
     return (
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <RadarIcon className="w-6 h-6 text-[#38bdf8]" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2">
+            <RadarIcon className="w-6 h-6 text-[var(--color-primary)]" />
             Resume Optimization Engine
           </h1>
-          <p className="text-[#94a3b8] mt-1">Gamified skill analysis, ATS scoring, and keyword optimization</p>
+          <p className="text-[var(--color-text-secondary)] mt-1">Gamified skill analysis, ATS scoring, and keyword optimization</p>
         </div>
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-12 text-center">
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-12 text-center">
           <Upload className="w-16 h-16 text-[#475569] mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-white mb-2">Get Started with Resume Optimization</h2>
-          <p className="text-[#94a3b8] max-w-md mx-auto mb-6">
+          <h2 className="text-xl font-semibold text-[var(--color-text)] mb-2">Get Started with Resume Optimization</h2>
+          <p className="text-[var(--color-text-secondary)] max-w-md mx-auto mb-6">
             Upload your resume and run an agent search session to unlock skill analysis, ATS scoring,
             keyword density analysis, and personalized optimization recommendations.
           </p>
-          <div className="flex flex-col items-center gap-2 text-sm text-[#64748b]">
-            <p className="flex items-center gap-2"><Upload className="w-4 h-4 text-[#38bdf8]" /> Go to the <strong>Resume</strong> page to upload your resume</p>
-            <p className="flex items-center gap-2"><RefreshCw className="w-4 h-4 text-[#38bdf8]" /> Then run an agent session to collect job listings</p>
-            <p className="flex items-center gap-2"><RefreshCw className="w-4 h-4 text-[#38bdf8]" /> Return here and refresh to see your analysis</p>
+          <div className="flex flex-col items-center gap-2 text-sm text-[var(--color-text-muted)]">
+            <p className="flex items-center gap-2"><Upload className="w-4 h-4 text-[var(--color-primary)]" /> Go to the <strong>Resume</strong> page to upload your resume</p>
+            <p className="flex items-center gap-2"><RefreshCw className="w-4 h-4 text-[var(--color-primary)]" /> Then run an agent session to collect job listings</p>
+            <p className="flex items-center gap-2"><RefreshCw className="w-4 h-4 text-[var(--color-primary)]" /> Return here and refresh to see your analysis</p>
           </div>
           <button onClick={fetchAnalysis} className="mt-6 inline-flex items-center gap-2 px-4 py-2 bg-[#38bdf8] text-[#0f172a] rounded-lg hover:bg-[#7dd3fc] transition-colors font-medium">
             <RefreshCw className="w-4 h-4" /> Refresh Analysis
@@ -110,20 +110,20 @@ export default function SkillsGap() {
       <div className="space-y-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-              <RadarIcon className="w-6 h-6 text-[#38bdf8]" />
+            <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2">
+              <RadarIcon className="w-6 h-6 text-[var(--color-primary)]" />
               Resume Optimization Engine
             </h1>
-            <p className="text-[#94a3b8] mt-1">Gamified skill analysis, ATS scoring, and keyword optimization</p>
+            <p className="text-[var(--color-text-secondary)] mt-1">Gamified skill analysis, ATS scoring, and keyword optimization</p>
           </div>
-          <button onClick={fetchAnalysis} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-[#334155] text-[#94a3b8] rounded-lg hover:bg-[#475569] transition-colors">
+          <button onClick={fetchAnalysis} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)] rounded-lg hover:bg-[var(--color-border)] transition-colors">
             <RefreshCw className="w-3.5 h-3.5" /> Refresh
           </button>
         </div>
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-8 text-center">
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-8 text-center">
           <Upload className="w-12 h-12 text-[#475569] mx-auto mb-4" />
-          <h2 className="text-lg font-semibold text-white mb-2">{summary.has_resume ? 'No Job Skills to Compare Yet' : 'No Resume Uploaded'}</h2>
-          <p className="text-[#94a3b8] max-w-md mx-auto">
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-2">{summary.has_resume ? 'No Job Skills to Compare Yet' : 'No Resume Uploaded'}</h2>
+          <p className="text-[var(--color-text-secondary)] max-w-md mx-auto">
             {summary.has_resume
               ? 'Your resume is uploaded. Run an agent search to collect job listings and compare their skills with your resume.'
               : <>Upload your resume on the <strong>Resume</strong> page to enable skill gap analysis,
@@ -141,20 +141,20 @@ export default function SkillsGap() {
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <RadarIcon className="w-6 h-6 text-[#38bdf8]" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2">
+            <RadarIcon className="w-6 h-6 text-[var(--color-primary)]" />
             Resume Optimization Engine
           </h1>
-          <p className="text-[#94a3b8] mt-1">Gamified skill analysis, ATS scoring, and keyword optimization</p>
+          <p className="text-[var(--color-text-secondary)] mt-1">Gamified skill analysis, ATS scoring, and keyword optimization</p>
         </div>
-        <button onClick={fetchAnalysis} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-[#334155] text-[#94a3b8] rounded-lg hover:bg-[#475569] transition-colors">
+        <button onClick={fetchAnalysis} className="inline-flex items-center gap-2 px-3 py-1.5 text-sm bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)] rounded-lg hover:bg-[var(--color-border)] transition-colors">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
         </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-4">
-          <h3 className="text-xs font-medium flex items-center gap-1.5 mb-2 text-[#94a3b8]">
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-4">
+          <h3 className="text-xs font-medium flex items-center gap-1.5 mb-2 text-[var(--color-text-secondary)]">
             <Award className="w-3.5 h-3.5" />
             ATS Compatibility Score
           </h3>
@@ -170,19 +170,19 @@ export default function SkillsGap() {
                   strokeLinecap="round"
                 />
               </svg>
-              <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-white">
+              <span className="absolute inset-0 flex items-center justify-center text-sm font-bold text-[var(--color-text)]">
                 {atsScore.score}
               </span>
             </div>
             <div>
-              <p className="text-sm font-medium text-white">{atsScore.label}</p>
-              <p className="text-xs text-[#64748b]">Based on {skillsData.length} skills</p>
+              <p className="text-sm font-medium text-[var(--color-text)]">{atsScore.label}</p>
+              <p className="text-xs text-[var(--color-text-muted)]">Based on {skillsData.length} skills</p>
             </div>
           </div>
         </div>
 
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-4">
-          <h3 className="text-xs font-medium flex items-center gap-1.5 mb-2 text-[#94a3b8]">
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-4">
+          <h3 className="text-xs font-medium flex items-center gap-1.5 mb-2 text-[var(--color-text-secondary)]">
             <TrendingUp className="w-3.5 h-3.5" />
             Skill Coverage
           </h3>
@@ -196,38 +196,38 @@ export default function SkillsGap() {
               {skillBreakdown.map(s => (
                 <div key={s.name} className="flex items-center gap-2 text-xs">
                   <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: s.color }} />
-                  <span className="text-[#94a3b8]">{s.name}: {s.count}</span>
+                  <span className="text-[var(--color-text-secondary)]">{s.name}: {s.count}</span>
                 </div>
               ))}
             </div>
           </div>
         </div>
 
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-4">
-          <h3 className="text-xs font-medium flex items-center gap-1.5 mb-2 text-[#94a3b8]">
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-4">
+          <h3 className="text-xs font-medium flex items-center gap-1.5 mb-2 text-[var(--color-text-secondary)]">
             <Percent className="w-3.5 h-3.5" />
             Keyword Density
           </h3>
-          <p className="text-2xl font-bold text-white">{keywordDensity.length}</p>
-          <p className="text-xs text-[#64748b]">Keywords with significant gaps</p>
+          <p className="text-2xl font-bold text-[var(--color-text)]">{keywordDensity.length}</p>
+          <p className="text-xs text-[var(--color-text-muted)]">Keywords with significant gaps</p>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 rounded-lg border border-[#334155] bg-[#1e293b] px-4 py-2 max-w-md">
-        <Search className="w-5 h-5 text-[#64748b]" />
+      <div className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 max-w-md">
+        <Search className="w-5 h-5 text-[var(--color-text-muted)]" />
         <input
           type="text"
           placeholder="Filter by skill name..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="bg-transparent border-none outline-none w-full text-sm text-white"
+          className="bg-transparent border-none outline-none w-full text-sm text-[var(--color-text)]"
           aria-label="Filter skills"
         />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-          <h2 className="text-lg font-semibold text-white mb-4">Skills Radar</h2>
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5">
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4">Skills Radar</h2>
           {skillsData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <RadarChart data={skillsData}>
@@ -240,12 +240,12 @@ export default function SkillsGap() {
               </RadarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex items-center justify-center h-64 text-[#64748b]">No skill data available</div>
+            <div className="flex items-center justify-center h-64 text-[var(--color-text-muted)]">No skill data available</div>
           )}
         </div>
 
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-          <h2 className="text-lg font-semibold text-white mb-4">Match Rate by Skill</h2>
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5">
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4">Match Rate by Skill</h2>
           {skillsData.length > 0 ? (
             <ResponsiveContainer width="100%" height={400}>
               <BarChart data={skillsData} layout="vertical">
@@ -257,22 +257,22 @@ export default function SkillsGap() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex items-center justify-center h-64 text-[#64748b]">No skill data available</div>
+            <div className="flex items-center justify-center h-64 text-[var(--color-text-muted)]">No skill data available</div>
           )}
         </div>
       </div>
 
       {keywordDensity.length > 0 && (
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-          <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-[#38bdf8]" />
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5">
+          <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4 flex items-center gap-2">
+            <FileText className="w-5 h-5 text-[var(--color-primary)]" />
             Keyword Density Analyzer
           </h2>
-          <p className="text-xs mb-4 text-[#64748b]">Keywords appearing frequently in job listings but under-represented in your resume</p>
+          <p className="text-xs mb-4 text-[var(--color-text-muted)]">Keywords appearing frequently in job listings but under-represented in your resume</p>
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
-                <tr className="text-[#94a3b8] border-b border-[#334155]">
+                <tr className="text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
                   <th className="text-left py-2 px-3">Keyword</th>
                   <th className="text-right py-2 px-3">In Listings</th>
                   <th className="text-right py-2 px-3">Listing Frequency</th>
@@ -283,10 +283,10 @@ export default function SkillsGap() {
               </thead>
               <tbody>
                 {keywordDensity.map((kd, i) => (
-                  <tr key={i} className="border-b border-[#334155]/50 hover:bg-[#334155]/30">
-                    <td className="py-2 px-3 font-medium text-white">{kd.keyword}</td>
-                    <td className="py-2 px-3 text-right text-white">{kd.count}x</td>
-                    <td className="py-2 px-3 text-right text-[#94a3b8]">{kd.avgInListings}%</td>
+                  <tr key={i} className="border-b border-[var(--color-border)]/50 hover:bg-[var(--color-surface-hover)]/30">
+                    <td className="py-2 px-3 font-medium text-[var(--color-text)]">{kd.keyword}</td>
+                    <td className="py-2 px-3 text-right text-[var(--color-text)]">{kd.count}x</td>
+                    <td className="py-2 px-3 text-right text-[var(--color-text-secondary)]">{kd.avgInListings}%</td>
                     <td className="py-2 px-3 text-right">
                       <span className={kd.yourCount > 0 ? 'text-green-400' : 'text-red-400'}>
                         {kd.yourCount > 0 ? 'Yes' : 'No'}
@@ -297,7 +297,7 @@ export default function SkillsGap() {
                         {kd.gap}%
                       </span>
                     </td>
-                    <td className="py-2 px-3 text-xs text-[#64748b]">
+                    <td className="py-2 px-3 text-xs text-[var(--color-text-muted)]">
                       {kd.gap > 50 ? `Add "${kd.keyword}" to your resume` : kd.gap > 20 ? `Consider mentioning "${kd.keyword}"` : 'Good coverage'}
                     </td>
                   </tr>
@@ -308,13 +308,13 @@ export default function SkillsGap() {
         </div>
       )}
 
-      <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-        <h2 className="text-lg font-semibold text-white mb-4">Top Skills Breakdown</h2>
+      <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5">
+        <h2 className="text-lg font-semibold text-[var(--color-text)] mb-4">Top Skills Breakdown</h2>
         {skillsData.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm min-w-[640px]">
               <thead>
-                <tr className="text-[#94a3b8] border-b border-[#334155]">
+                <tr className="text-[var(--color-text-secondary)] border-b border-[var(--color-border)]">
                   <th className="text-left py-2 px-3">Skill</th>
                   <th className="text-right py-2 px-3">Matching</th>
                   <th className="text-right py-2 px-3">Missing</th>
@@ -324,11 +324,11 @@ export default function SkillsGap() {
               </thead>
               <tbody>
                 {skillsData.map((s) => (
-                  <tr key={s.skill} className="border-b border-[#334155]/50 hover:bg-[#334155]/30">
-                    <td className="py-2 px-3 font-medium text-white">{s.skill}</td>
+                  <tr key={s.skill} className="border-b border-[var(--color-border)]/50 hover:bg-[var(--color-surface-hover)]/30">
+                    <td className="py-2 px-3 font-medium text-[var(--color-text)]">{s.skill}</td>
                     <td className="py-2 px-3 text-right text-green-400">{s.matching}</td>
                     <td className="py-2 px-3 text-right text-red-400">{s.missing}</td>
-                    <td className="py-2 px-3 text-right text-[#94a3b8]">{s.total}</td>
+                    <td className="py-2 px-3 text-right text-[var(--color-text-secondary)]">{s.total}</td>
                     <td className="py-2 px-3 text-right">
                       <span className={`font-semibold ${s.matchRate >= 70 ? 'text-green-400' : s.matchRate >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>
                         {s.matchRate}%
@@ -340,7 +340,7 @@ export default function SkillsGap() {
             </table>
           </div>
         ) : (
-          <div className="text-center py-8 text-[#64748b]">No data</div>
+          <div className="text-center py-8 text-[var(--color-text-muted)]">No data</div>
         )}
       </div>
     </div>

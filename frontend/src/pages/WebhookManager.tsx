@@ -26,10 +26,13 @@ export default function WebhookManager() {
 
   const fetchWebhooks = async () => {
     setLoading(true);
+    setError('');
     try {
       const r = await api.webhooks.list();
       setWebhooks(r.items);
-    } catch {} finally { setLoading(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not load webhooks. Please retry.');
+    } finally { setLoading(false); }
   };
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -82,7 +85,7 @@ export default function WebhookManager() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
       </div>
     );
   }
@@ -91,11 +94,11 @@ export default function WebhookManager() {
     <div className="space-y-6 max-w-4xl">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
-            <Webhook className="w-6 h-6 text-[#38bdf8]" />
+          <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2">
+            <Webhook className="w-6 h-6 text-[var(--color-primary)]" />
             Webhooks
           </h1>
-          <p className="text-[#94a3b8] mt-1">Send event notifications to external services</p>
+          <p className="text-[var(--color-text-secondary)] mt-1">Send event notifications to external services</p>
         </div>
         <button
           onClick={() => setShowForm(!showForm)}
@@ -106,24 +109,25 @@ export default function WebhookManager() {
         </button>
       </div>
 
+      {error && !showForm && <div role="alert" className="text-red-400"><p>{error}</p><button onClick={fetchWebhooks}>Retry loading webhooks</button></div>}
       {showForm && (
-        <form onSubmit={handleCreate} className="bg-[#1e293b] rounded-xl border border-[#334155] p-5 space-y-4">
-          <h2 className="text-lg font-semibold text-white">New Webhook</h2>
+        <form onSubmit={handleCreate} className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5 space-y-4">
+          <h2 className="text-lg font-semibold text-[var(--color-text)]">New Webhook</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <input type="text" placeholder="Webhook Name" value={name} onChange={e => setName(e.target.value)}
-              className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white text-sm placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]" />
+              className="w-full px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)]" />
             <input type="url" placeholder="URL (https://...)" value={url} onChange={e => setUrl(e.target.value)}
-              className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white text-sm placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]" />
+              className="w-full px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)]" />
             <input type="text" placeholder="Secret (optional, for HMAC signing)" value={secret} onChange={e => setSecret(e.target.value)}
-              className="w-full px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white text-sm placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]" />
+              className="w-full px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)]" />
           </div>
           <div>
-            <p className="text-sm text-[#94a3b8] mb-2">Events to subscribe to:</p>
+            <p className="text-sm text-[var(--color-text-secondary)] mb-2">Events to subscribe to:</p>
             <div className="flex flex-wrap gap-2">
               {EVENT_OPTIONS.map(opt => (
-                <label key={opt.value} className="flex items-center gap-1.5 text-sm text-[#94a3b8] cursor-pointer">
+                <label key={opt.value} className="flex items-center gap-1.5 text-sm text-[var(--color-text-secondary)] cursor-pointer">
                   <input type="checkbox" checked={events.includes(opt.value)} onChange={() => toggleEvent(opt.value)}
-                    className="w-4 h-4 rounded border-[#334155] bg-[#0f172a] text-[#38bdf8]" />
+                    className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)]" />
                   {opt.label}
                 </label>
               ))}
@@ -132,7 +136,7 @@ export default function WebhookManager() {
           {error && <p className="text-sm text-red-400">{error}</p>}
           <div className="flex flex-wrap gap-2 justify-end">
             <button type="button" onClick={() => setShowForm(false)}
-              className="px-3 py-2 text-sm text-[#94a3b8] border border-[#334155] rounded-lg hover:bg-[#334155]">Cancel</button>
+              className="px-3 py-2 text-sm text-[var(--color-text-secondary)] border border-[var(--color-border)] rounded-lg hover:bg-[var(--color-surface-hover)]">Cancel</button>
             <button type="submit" disabled={saving}
               className="px-4 py-2 text-sm bg-[#38bdf8] text-[#0f172a] rounded-lg font-medium hover:bg-[#7dd3fc] disabled:opacity-50 flex items-center gap-1.5">
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
@@ -144,29 +148,29 @@ export default function WebhookManager() {
 
       <div className="grid gap-4">
         {webhooks.map(wh => (
-          <div key={wh.id} className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+          <div key={wh.id} className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-3">
               <div className="flex items-center gap-3 min-w-0">
-                <div className={`p-2 rounded-lg ${wh.is_active ? 'bg-[#38bdf8]/10' : 'bg-[#334155]'}`}>
-                  <Webhook className={`w-5 h-5 ${wh.is_active ? 'text-[#38bdf8]' : 'text-[#64748b]'}`} />
+                <div className={`p-2 rounded-lg ${wh.is_active ? 'bg-[#38bdf8]/10' : 'bg-[var(--color-surface-hover)]'}`}>
+                  <Webhook className={`w-5 h-5 ${wh.is_active ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-muted)]'}`} />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-white">{wh.name}</p>
-                  <p className="text-xs text-[#94a3b8] font-mono truncate max-w-md">{wh.url}</p>
+                  <p className="text-sm font-medium text-[var(--color-text)]">{wh.name}</p>
+                  <p className="text-xs text-[var(--color-text-secondary)] font-mono truncate max-w-md">{wh.url}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => handleTest(wh.id)} disabled={testing === wh.id}
-                  className="p-2 text-[#64748b] hover:text-[#38bdf8] hover:bg-[#38bdf8]/10 rounded-lg transition-colors" title="Test">
+                  className="p-2 text-[var(--color-text-muted)] hover:text-[var(--color-primary)] hover:bg-[#38bdf8]/10 rounded-lg transition-colors" title="Test">
                   {testing === wh.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <TestTube className="w-4 h-4" />}
                 </button>
                 <button onClick={() => handleDelete(wh.id)}
-                  className="p-2 text-[#64748b] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete">
+                  className="p-2 text-[var(--color-text-muted)] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors" title="Delete">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             </div>
-            <div className="flex items-center gap-4 text-xs text-[#64748b]">
+            <div className="flex items-center gap-4 text-xs text-[var(--color-text-muted)]">
               <span className={`flex items-center gap-1 ${wh.is_active ? 'text-green-400' : ''}`}>
                 {wh.is_active ? <Power className="w-3 h-3" /> : <PowerOff className="w-3 h-3" />}
                 {wh.is_active ? 'Active' : 'Inactive'}
@@ -178,7 +182,7 @@ export default function WebhookManager() {
           </div>
         ))}
         {webhooks.length === 0 && (
-          <div className="text-center py-12 text-[#64748b]">
+          <div className="text-center py-12 text-[var(--color-text-muted)]">
             <Webhook className="w-12 h-12 mx-auto mb-3 opacity-50" />
             <p>No webhooks configured. Add one to receive event notifications.</p>
           </div>

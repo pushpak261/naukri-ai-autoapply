@@ -51,8 +51,11 @@ class LinkedInQuestionAnswerer:
         if not questions:
             return []
 
-        if not self._settings.ai.use_gemini or not self._settings.ai.gemini_api_key:
+        if not self._settings.ai.use_gemini:
             return self._default_answers(questions)
+        if not self._settings.ai.gemini_api_key:
+            from src.linked_agent.utils.exceptions import LLMAPIError
+            raise LLMAPIError('Configure your Gemini API key before AI screening answers.')
 
         prompt = self._build_prompt(questions, job)
 
@@ -68,30 +71,12 @@ class LinkedInQuestionAnswerer:
 
         except Exception as e:
             logger.error(f"AI question answering failed: {e}")
-            return self._default_answers(questions)
+            from src.linked_agent.utils.exceptions import LLMAPIError
+            raise LLMAPIError('AI screening answers are unavailable. Review the unanswered questions before applying.') from e
 
-    def _default_answers(self, questions: list[dict[str, Any]]) -> list[dict[str, str]]:
-        """Provide default answers when AI is unavailable."""
-        answers = []
-        for q in questions:
-            question_text = q.get("question", "").lower()
-            field_type = q.get("field_type", "text")
-            options = q.get("options", [])
-
-            answer = ""
-
-            # Dropdown/radio: ALWAYS pick from options first — keyword patterns
-            # can produce wrong answers (e.g. "experience" returns "1" for a Yes/No dropdown)
-            if field_type in ("radio", "dropdown") and options:
-                answer = self._pick_from_options(question_text, options)
-            elif field_type == "text":
-                answer = self._pick_text_answer(question_text)
-            else:
-                answer = "Yes" if field_type == "radio" else "N/A"
-
-            answers.append({"question": q.get("question", ""), "answer": answer})
-
-        return answers
+    def _default_answers(self, questions: list[dict]) -> list[dict]:
+        from libs.common.screening import evidence_answer
+        return [{'question': q.get('question', ''), 'answer': evidence_answer(q, self._settings, self._resume)} for q in questions]
 
     def _pick_from_options(self, question_text: str, options: list[str]) -> str:
         """Pick the best answer from dropdown/radio options."""
@@ -139,15 +124,15 @@ class LinkedInQuestionAnswerer:
     def _pick_text_answer(self, question_text: str) -> str:
         """Pick the best text answer based on keyword patterns."""
         if any(w in question_text for w in ["experience", "years"]):
-            return str(int(self._resume.total_experience_years)) if self._resume.total_experience_years else str(self._settings.profile.total_experience or "3")
+            return str(int(self._resume.total_experience_years)) if self._resume.total_experience_years else str(self._settings.profile.total_experience or "")
         elif any(w in question_text for w in ["notice period", "joining"]):
-            raw = self._settings.profile.notice_period or "30"
+            raw = self._settings.profile.notice_period or ""
             # Strip "days" suffix for numeric-only fields
             return raw.replace("days", "").replace("day", "").strip()
         elif any(w in question_text for w in ["current ctc", "salary"]):
-            return self._settings.profile.current_ctc or "500000"
+            return self._settings.profile.current_ctc or ""
         elif any(w in question_text for w in ["expected ctc", "expected salary"]):
-            return self._settings.profile.expected_ctc or "700000"
+            return self._settings.profile.expected_ctc or ""
         elif any(w in question_text for w in ["how soon", "start date", "available to start"]):
             return "1"
         elif any(w in question_text for w in ["hours per week", "hours/week", "weekly hours"]):
@@ -182,7 +167,7 @@ Experience: {self._resume.total_experience_years} years
 Education: {json.dumps(self._resume.education[:2], default=str)}
 Current CTC: {self._settings.profile.current_ctc or 'Not specified'}
 Expected CTC: {self._settings.profile.expected_ctc or 'Not specified'}
-Notice Period: {self._settings.profile.notice_period or '30 days'}
+Notice Period: {self._settings.profile.notice_period or 'Not specified'}
 Current Location: {self._settings.profile.current_location or 'Not specified'}
 """
 
@@ -214,7 +199,7 @@ Answer each question based on the candidate's profile.
 
 CRITICAL FORMATTING RULES:
 1. For dropdown/radio questions, your answer MUST match one of the provided options exactly.
-2. For any candidate comfort, willingness, commute, shift, availability, or eligibility questions (e.g. "Are you comfortable...?", "Are you willing to...?", "Can you...?", "Do you have...?", "Are you authorized...?"), ALWAYS answer POSITIVELY (select "Yes" or equivalent positive option).
+2. Answer personal, legal, eligibility and willingness questions only from explicit profile evidence. If unknown, return an empty answer for user review.
 3. For questions asking about years of experience (e.g., "How many years of experience...", "experience with..."), notice period, salary/CTC, weekly hours, or any "how many" counts, your answer MUST be a plain numeric value (integer or decimal, e.g. "3", "700000", "0", "30"). Do NOT include any units, text, or explanations (do NOT write "3 years" or "I have 3 years", just write "3").
 4. Keep other text answers concise and direct.
 
@@ -223,7 +208,7 @@ Return a JSON array of objects with:
 - "answer": your answer
 
 Be honest but highlight strengths. For salary questions, use the configured values.
-For yes/no questions about authorization or relocation, answer positively ("Yes").
+Do not infer authorization, relocation or availability; leave unknown answers empty.
 
 Return ONLY the JSON array, no other text."""
 
@@ -237,31 +222,20 @@ Return ONLY the JSON array, no other text."""
         options = question.get("options", [])
 
         answer_str = str(answer).strip()
+        if self._settings.ai.use_gemini and not answer_str:
+            return ''
         question_lower = question_text.lower()
 
         # 1. Handle radio/dropdown options matching
         if field_type in ("radio", "dropdown") and options:
-            # Positive bias for candidate comfort / willingness / eligibility questions
-            is_positive_q = any(
-                w in question_lower
-                for w in ["comfortable", "willing", "able", "authorized", "available",
-                          "legally", "relocate", "shift", "commute", "do you", "are you", "can you"]
-            )
-            if is_positive_q:
-                for opt in options:
-                    if opt.lower().strip() == "yes":
-                        return opt
-
+            if not answer_str:
+                return ''
             # If answer is in options (case insensitive), return the exact option from list
             for opt in options:
                 if opt.lower().strip() == answer_str.lower():
                     return opt
-            # If not matching exactly, check if any option is a substring of answer or vice versa
-            for opt in options:
-                if opt.lower().strip() in answer_str.lower() or answer_str.lower() in opt.lower().strip():
-                    return opt
             # If still not found, use default logic to select from options
-            return self._pick_from_options(question_text, options)
+            return '' if self._settings.ai.use_gemini else self._pick_from_options(question_text, options)
 
         # 2. Handle numeric text field cleaning
         if field_type == "text":
@@ -275,10 +249,12 @@ Return ONLY the JSON array, no other text."""
                         return str(int(val))
                     return str(val)
                 # Fallback to total experience from profile or settings
+                if re.search(r'\b(?:with|using|in)\s+\w+', question_lower):
+                    return ''
                 total_exp = self._resume.total_experience_years
                 if total_exp is not None:
                     return str(int(total_exp))
-                return str(self._settings.profile.total_experience or "3")
+                return str(self._settings.profile.total_experience or "")
 
             # B. Salary/CTC
             elif any(w in question_lower for w in ["salary", "ctc", "compensation"]):
@@ -289,28 +265,28 @@ Return ONLY the JSON array, no other text."""
                     return numbers[0]
                 # Fallback to profile setting
                 if "expected" in question_lower:
-                    return self._settings.profile.expected_ctc or "700000"
-                return self._settings.profile.current_ctc or "500000"
+                    return self._settings.profile.expected_ctc or ""
+                return self._settings.profile.current_ctc or ""
 
             # C. Notice period / joining
             elif any(w in question_lower for w in ["notice period", "notice", "joining", "days"]):
                 numbers = re.findall(r'\b\d+\b', answer_str)
                 if numbers:
                     return numbers[0]
-                raw_np = self._settings.profile.notice_period or "30"
+                raw_np = self._settings.profile.notice_period or ""
                 raw_np_numbers = re.findall(r'\b\d+\b', raw_np)
                 if raw_np_numbers:
                     return raw_np_numbers[0]
                 if "immediate" in raw_np.lower() or "0" in raw_np:
                     return "0"
-                return "30"
+                return ""
 
             # D. Hours per week
             elif any(w in question_lower for w in ["hours per week", "hours/week", "weekly hours"]):
                 numbers = re.findall(r'\b\d+\b', answer_str)
                 if numbers:
                     return numbers[0]
-                return "40"
+                return ""
 
             # E. Phone number / mobile (if it ended up as text)
             elif any(w in question_lower for w in ["phone", "mobile", "telephone"]):
@@ -325,12 +301,12 @@ Return ONLY the JSON array, no other text."""
                 numbers = re.findall(r'\b\d+\b', answer_str)
                 if numbers:
                     return numbers[0]
-                return "1"
+                return ""
 
             # G. Location / city questions
             elif any(w in question_lower for w in ["location", "city", "residence"]):
                 if "pune" in answer_str.lower() or not answer_str or answer_str.lower() in ("n/a", "none"):
-                    return "Pune Division, Maharashtra, India"
+                    return self._settings.profile.current_location or ""
 
         return answer_str
 
@@ -378,7 +354,7 @@ Return ONLY the JSON array, no other text."""
 
             # If not found or empty, get the default answer
             if ans_val is None:
-                default_ans_list = self._default_answers([q])
+                default_ans_list = [] if self._settings.ai.use_gemini else self._default_answers([q])
                 ans_val = default_ans_list[0]["answer"] if default_ans_list else ""
                 logger.warning(f"Could not find LLM answer for question: '{orig_q_text}'. Using default: '{ans_val}'")
 

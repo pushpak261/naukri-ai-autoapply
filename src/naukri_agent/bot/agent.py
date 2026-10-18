@@ -547,6 +547,11 @@ class NaukriAgent:
                 logger.debug(f"Heuristics DISABLED for job: {job.title}. Defaulting score to 0.0")
                 score = 0.0
 
+            # Resume-evidenced skills improve ordering without altering eligibility.
+            from libs.common.opportunity import evidence_priority
+            job._eligibility_score = score
+            job._opportunity_priority = evidence_priority(job, self._resume_profile)
+            score += job._opportunity_priority
             score += company_policy.priority(job.company) + 10 * getattr(job, "_queue_priority", 0)
             heapq.heappush(job_queue, (-score, idx, job))
 
@@ -571,7 +576,7 @@ class NaukriAgent:
             self._daily_applied = await self._repo.get_today_application_count() if self._repo else self._daily_applied
 
             neg_score, idx, job = heapq.heappop(job_queue)
-            initial_score = -neg_score - company_policy.priority(job.company) - 10 * getattr(job, "_queue_priority", 0)
+            initial_score = job._eligibility_score
             allowed, reason = await company_policy.allowed(job.company, self._repo, "naukri")
             if not allowed:
                 log_info(f"Skipping {job.company}: {reason}")
@@ -847,6 +852,11 @@ class NaukriAgent:
                         missing_skills=match_result.missing_skills,
                         error_message=error_msg,
                     )
+
+            if status == ApplicationStatus.UNCERTAIN:
+                log_warning('Submission could not be confirmed. Stopping this run for review in Applications.')
+                self._interrupted = True
+                break
 
             if status == ApplicationStatus.APPLIED:
                 self._jobs_applied += 1

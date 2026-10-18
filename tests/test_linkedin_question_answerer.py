@@ -51,9 +51,9 @@ def test_clean_and_validate_answer_numeric_experience(mock_settings, sample_resu
     ans1_int = answerer._clean_and_validate_answer(q1, "3 years")
     assert ans1_int == "3"
 
-    # 2. Answer has no numbers, should fallback to profile total experience
+    # Skill-specific tenure cannot be inferred from total career experience.
     ans2 = answerer._clean_and_validate_answer(q1, "I have experience with Python in my projects.")
-    assert ans2 == "3"  # Fallback to total_experience_years (3) from profile
+    assert ans2 == ""
 
 
 def test_clean_and_validate_answer_salary(mock_settings, sample_resume):
@@ -90,10 +90,11 @@ def test_clean_and_validate_answer_dropdown_radio(mock_settings, sample_resume):
     }
     # Exact match case insensitive
     assert answerer._clean_and_validate_answer(q_radio, "yes") == "Yes"
-    # Substring match
-    assert answerer._clean_and_validate_answer(q_radio, "I am comfortable working remotely: Yes") == "Yes"
+    # Choice answers must match an offered option, not a substring of free text.
+    assert answerer._clean_and_validate_answer(q_radio, "I am comfortable working remotely: Yes") == ""
+    assert answerer._clean_and_validate_answer(q_radio, "Unknown") == ""
     # Fallback to defaults
-    assert answerer._clean_and_validate_answer(q_radio, "Maybe") == "Yes"
+    assert answerer._clean_and_validate_answer(q_radio, "Maybe") == ""
 
 
 @pytest.mark.asyncio
@@ -131,4 +132,4 @@ async def test_parse_response_alignment(mock_settings, sample_resume):
     assert aligned[1]["answer"] == "700000"  # cleaned from "7,00,000 INR"
     
     assert aligned[2]["question"] == questions[2]["question"]
-    assert aligned[2]["answer"] == "Yes"  # fallback default choice
+    assert aligned[2]["answer"] == ""  # missing evidence requires review

@@ -65,6 +65,7 @@ async def runtime_for(user):
         if not config_path.exists():
             config_path.write_text(yaml.safe_dump({
                 'naukri': {'email': '', 'password': ''}, 'ai': {'use_gemini': False},
+                'search': {'keywords': [], 'locations': []},
                 'application': {'dry_run': True, 'enable_project_indexer': False},
                 'resume': {'path': ''},
                 'exclusions': {'legacy_domain_filter': False, 'enable_scam_filter': True},

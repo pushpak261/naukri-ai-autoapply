@@ -19,7 +19,8 @@ def validate_schedule(schedule):
     try:
         if schedule.get('type') not in ('daily', 'weekdays', 'weekly', 'custom'):
             raise ValueError('Unknown schedule type')
-        datetime.strptime(schedule['time'], '%H:%M')
+        # Store a canonical time: lexicographic comparisons require zero padding.
+        schedule['time'] = datetime.strptime(schedule['time'], '%H:%M').strftime('%H:%M')
         ZoneInfo(schedule.get('timezone', 'Asia/Kolkata'))
         days = schedule.get('days', [])
         if not isinstance(days, list) or any(day not in DAYS for day in days):

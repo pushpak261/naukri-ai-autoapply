@@ -116,7 +116,7 @@ class SQLAlchemyRepository(IRepository):
                         DBJob.company,
                         DBApplication.applied_at,
                     ).join(DBApplication, DBApplication.job_id == DBJob.id).where(
-                        DBApplication.status.notin_(["failed", "error", "pending_retry"])
+                        DBApplication.status.in_(["applied", "applying", "uncertain", "skipped_already_applied"])
                     )
                 )
                 rows = result.all()
@@ -280,7 +280,7 @@ class SQLAlchemyRepository(IRepository):
             # Update O(1) cache
             job_result = await session.execute(select(DBJob).filter(DBJob.id == job_id))
             job = job_result.scalar_one_or_none()
-            if job:
+            if job and status in ("applied", "applying", "uncertain", "skipped_already_applied"):
                 applied_at = self._normalize_date(app.applied_at, datetime.now(UTC))
                 if job.naukri_job_id:
                     self._applied_jobs_cache[job.naukri_job_id] = applied_at
@@ -330,7 +330,7 @@ class SQLAlchemyRepository(IRepository):
                 .order_by(DBApplication.applied_at.desc())
             )
             prior = existing.scalars().first()
-            if prior and prior.status not in ("failed", "error", "pending_retry"):
+            if prior and prior.status in ("applied", "applying", "uncertain", "skipped_already_applied"):
                 return prior.id
 
             app = prior if prior and prior.status == "pending_retry" else DBApplication(job_id=job_id)
@@ -392,7 +392,7 @@ class SQLAlchemyRepository(IRepository):
 
     @with_failover
     async def recover_stuck_applications(self, timeout_minutes: int = 15) -> int:
-        """Flip ``applying`` rows older than ``timeout_minutes`` to ``failed``.
+        """Flip ``applying`` rows older than ``timeout_minutes`` to ``uncertain``.
 
         A row stuck in ``applying`` means the apply crashed between the network
         call and persistence. Marking it ``failed`` lets the cooldown-based
@@ -411,9 +411,9 @@ class SQLAlchemyRepository(IRepository):
                 )
             )
             for app in result.scalars().all():
-                app.status = "failed"
+                app.status = "uncertain"
                 app.error_message = (
-                    app.error_message or "Recovered from stuck 'applying' state"
+                    app.error_message or "Submission state unknown after interruption; review before retrying"
                 )
                 recovered += 1
         return recovered

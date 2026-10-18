@@ -21,6 +21,7 @@ try {
     try {
         $env:VITE_API_BASE_URL = ''
         $env:VERCEL = '1' # Build all requests relative to this local server.
+        $env:APPLYOS_LOCAL_BUILD = '1' # Local runs require the live API, not an offline app shell.
         if (-not (Test-Path 'node_modules')) { Run-Checked 'npm.cmd' @('ci') }
         Run-Checked 'npm.cmd' @('run', 'build')
     } finally { Pop-Location }

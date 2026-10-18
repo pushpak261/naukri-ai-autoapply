@@ -35,7 +35,7 @@ def sample_resume():
     )
 
 
-def test_positive_answer_bias_for_comfortable_questions(mock_settings, sample_resume):
+def test_preserves_negative_or_unknown_comfort_answers(mock_settings, sample_resume):
     """Verify that questions asking about comfort/willingness select 'Yes'."""
     answerer = LinkedInQuestionAnswerer(AsyncMock(), mock_settings, sample_resume)
 
@@ -46,7 +46,7 @@ def test_positive_answer_bias_for_comfortable_questions(mock_settings, sample_re
     }
     # Regardless of LLM raw string, validation should select "Yes"
     ans1 = answerer._clean_and_validate_answer(q1, "No")
-    assert ans1 == "Yes"
+    assert ans1 == "No"
 
     q2 = {
         "question": "Are you willing to work in EST shift?",
@@ -54,7 +54,7 @@ def test_positive_answer_bias_for_comfortable_questions(mock_settings, sample_re
         "options": ["Yes", "No"]
     }
     ans2 = answerer._clean_and_validate_answer(q2, "Unsure")
-    assert ans2 == "Yes"
+    assert ans2 == ""
 
 
 def test_notice_period_zero_cleaning(mock_settings, sample_resume):

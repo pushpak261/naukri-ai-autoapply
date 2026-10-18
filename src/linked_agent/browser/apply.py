@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import os
 
 
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
@@ -54,6 +53,7 @@ class LinkedInJobApplier:
         """
         if retries is None:
             retries = self._settings.application.max_retries
+        self._submission_attempted = False
         last_error = ""
         page = self._detail_page.page
 
@@ -121,15 +121,7 @@ class LinkedInJobApplier:
                         else:
                             # Handle multi-step application form
                             result = await self._handle_easy_apply_flow(job)
-                            if result.get("status") == ApplicationStatus.UNCERTAIN:
-                                await self._detail_page.close_apply_modal()
-                                await asyncio.sleep(2)
-                                # One retry of the entire flow
-                                result = await self._handle_easy_apply_flow(job)
-                                if result.get("status") != ApplicationStatus.UNCERTAIN:
-                                    return result
-                            else:
-                                return result
+                            return result
 
                 # No Easy Apply — try clicking ANY Apply button (may open Easy Apply modal or external site)
                 # Set up popup listener before clicking
@@ -177,10 +169,7 @@ class LinkedInJobApplier:
                         if modal_appeared:
                             logger.info(f"Apply button opened modal — treating as Easy Apply: {job.title}")
                             result = await self._handle_easy_apply_flow(job)
-                            if result.get("status") != ApplicationStatus.UNCERTAIN:
-                                return result
-                            logger.info(f"Easy Apply flow UNCERTAIN for {job.title} — external")
-                            return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": current_url}
+                            return result
 
                         # Double-check for late-opening tabs
                         if new_page_url and new_page_url != page.url:
@@ -199,6 +188,8 @@ class LinkedInJobApplier:
                         listener_active = False
 
             except Exception as e:
+                if self._submission_attempted:
+                    return {"status": ApplicationStatus.UNCERTAIN, "error_message": "Connection failed during submission; review before retrying."}
                 last_error = str(e)
                 logger.error(f"Apply error (attempt {attempt}/{retries}) for {job.title} @ {job.company}: {e}")
                 if attempt < retries:
@@ -211,120 +202,24 @@ class LinkedInJobApplier:
             "error_message": f"Failed after {retries} attempts: {last_error}",
         }
 
-    async def _answer_screening_questions_locally(self, questions: list[dict[str, str]], job: Job) -> list[dict]:
-        """Answer screening questions locally without AI when models are exhausted.
+    async def _answer_screening_questions_locally(self, questions: list[dict], job: Job) -> list[dict]:
+        from libs.common.screening import evidence_answer
+        candidate = getattr(self._question_answerer, '_resume', None)
+        return [{'question': q.get('question', ''), 'answer': evidence_answer(q, self._settings, candidate)} for q in questions]
 
-        Uses heuristics based on the question text, field type, and available options.
-        Handles location/country/city dropdowns by using the user's configured location.
-        """
-        location = ""
-        try:
-            location = self._settings.search.locations[0] if self._settings.search.locations else "India"
-        except Exception:
-            location = "India"
-
-        # Pull profile fields from settings
-        profile = self._settings.profile if hasattr(self._settings, 'profile') else None
-        first_name = (getattr(profile, 'first_name', '') or '').strip()
-        last_name = (getattr(profile, 'last_name', '') or '').strip()
-        phone = (getattr(profile, 'phone', '') or '').strip()
-        profile_email = (getattr(profile, 'email', '') or '').strip()
-        current_ctc = (getattr(profile, 'current_ctc', '') or '').strip()
-        expected_ctc = (getattr(profile, 'expected_ctc', '') or '').strip()
-        notice_period = (getattr(profile, 'notice_period', '') or '').strip()
-        total_exp = (getattr(profile, 'total_experience', '') or '').strip()
-
-        import re as _re
-        answers = []
-        for q in questions:
-            question_lower = q.get("question", "").lower()
-            field_type = q.get("field_type", "text")
-            options: list[str] = q.get("options", [])  # type: ignore[assignment]
-            answer = ""
-
-            # Name fields
-            if field_type == "text" and any(kw in question_lower for kw in ["first name", "firstname", "given name"]):
-                answer = first_name or "Candidate"
-            elif field_type == "text" and any(kw in question_lower for kw in ["last name", "lastname", "family name", "surname"]):
-                answer = last_name or "Unknown"
-            elif field_type == "text" and any(kw in question_lower for kw in ["phone", "mobile", "telephone", "contact number"]):
-                answer = phone or "Not specified"
-            elif field_type == "text" and any(kw in question_lower for kw in ["email", "e-mail", "email address"]):
-                answer = profile_email or "Not specified"
-
-            # Location/Country/City dropdown — auto-select user's location
-            elif field_type == "dropdown" and any(kw in question_lower for kw in ["location", "country", "city", "state", "province"]):
-                loc_parts = location.split(",")
-                priority = [loc_parts[0].strip(), location.strip(), loc_parts[-1].strip()] if len(loc_parts) > 1 else [location.strip()]
-                if location.lower() != "india":
-                    priority.append("India")
-                for candidate in priority:
-                    if candidate in options:
-                        answer = candidate
-                        break
-                if not answer:
-                    for opt in options:
-                        opt_lower = opt.lower()
-                        if any(kw in opt_lower for kw in ["india", "any", "remote", "global", "worldwide"]):
-                            answer = opt
-                            break
-                if not answer:
-                    answer = options[0] if options else "India"
-
-            # Yes/No radio — default to "Yes" for positive questions
-            elif field_type == "radio" and options:
-                if any(kw in question_lower for kw in ["comfortable", "willing", "able", "authorize", "sponsor", "visa", "work permit", "legally", "eligible", "right to work", "commute", "shift", "remote", "work from home", "hybrid", "relocate", "relocation"]):
-                    answer = next((opt for opt in options if opt.lower().strip() == "yes"), "")
-                    if not answer:
-                        answer = next((opt for opt in options if any(p in opt.lower() for p in ("yes", "i am", "willing", "agree", "confirm"))), options[0])
-                elif "salary" in question_lower or "compensation" in question_lower or "gender" in question_lower or "ethnicity" in question_lower or "veteran" in question_lower or "disability" in question_lower:
-                    pass
-                else:
-                    positives = [opt for opt in options if opt.lower().strip() in ("yes", "true", "i agree", "confirm", "i accept", "agree")]
-                    answer = positives[0] if positives else ("Yes" if any(o.lower().strip() == "yes" for o in options) else options[0])
-
-            # Dropdown with specific patterns
-            elif field_type == "dropdown" and options:
-                if any(kw in question_lower for kw in ["how many", "years", "experience", "month"]):
-                    sorted_opts = sorted(options, key=lambda o: float(_re.sub(r'[^0-9.]', '', o)) if _re.sub(r'[^0-9.]', '', o) else 999)
-                    answer = sorted_opts[0] if sorted_opts else ""
-                elif any(kw in question_lower for kw in ["education", "degree", "qualification"]):
-                    for edu in ["bachelor", "bachelor's", "be", "b.tech", "master", "master's", "m.tech", "phd"]:
-                        match = next((opt for opt in options if edu in opt.lower()), None)
-                        if match:
-                            answer = match
-                            break
-                elif any(kw in question_lower for kw in ["language", "english", "proficiency"]):
-                    for lang in ["fluent", "native", "professional", "advanced", "intermediate", "basic"]:
-                        match = next((opt for opt in options if lang in opt.lower()), None)
-                        if match:
-                            answer = match
-                            break
-                elif any(kw in question_lower for kw in ["current ctc", "salary", "compensation", "annual"]):
-                    if current_ctc:
-                        answer = current_ctc
-                elif any(kw in question_lower for kw in ["expected ctc", "expect"]):
-                    if expected_ctc:
-                        answer = expected_ctc
-                elif any(kw in question_lower for kw in ["notice", "notice period"]):
-                    if notice_period:
-                        answer = notice_period
-
-            # Text fields for profile data
-            elif field_type == "text":
-                if any(kw in question_lower for kw in ["location", "city", "current location"]):
-                    answer = "Pune Division, Maharashtra, India" if ("pune" in location.lower() or not location) else location
-                elif any(kw in question_lower for kw in ["current ctc", "current salary"]):
-                    answer = current_ctc
-                elif any(kw in question_lower for kw in ["expected ctc", "expected salary"]):
-                    answer = expected_ctc
-                elif any(kw in question_lower for kw in ["notice", "notice period"]):
-                    answer = notice_period
-                elif any(kw in question_lower for kw in ["experience", "years of experience", "total exp"]):
-                    answer = total_exp
-
-            answers.append({"answer": answer, "question": q.get("question", "")})
-        return answers
+    async def _submit_once_and_confirm(self) -> dict:
+        if getattr(self, '_submission_attempted', False):
+            return {"status": ApplicationStatus.UNCERTAIN, "error_message": "Submission was already attempted; review before retrying."}
+        self._submission_attempted = True
+        clicked = await self._detail_page.submit_application()
+        if not clicked:
+            self._submission_attempted = False
+            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Submit is unavailable or disabled. Check required fields."}
+        for _ in range(6):
+            await asyncio.sleep(1)
+            if await self._detail_page.has_submit_success():
+                return {"status": ApplicationStatus.APPLIED}
+        return {"status": ApplicationStatus.UNCERTAIN, "error_message": "Submission was attempted once but platform confirmation is missing. Review before retrying."}
 
     async def _handle_easy_apply_flow(self, job: Job) -> dict[str, str]:
         """
@@ -343,21 +238,13 @@ class LinkedInJobApplier:
         stuck_count = 0
         page = self._detail_page.page
 
-        # Find resume file path for uploads
-        resume_path = ""
-        try:
-            rp = self._settings.resume.path
-            if rp:
-                from pathlib import Path
-                resume_path = str(Path(self._settings.project_root) / rp)
-        except Exception:
-            pass
-        if not resume_path:
-            for candidate in ["resume.pdf", "data/resumes/resume.pdf"]:
-                full = os.path.join(str(self._settings.project_root), candidate)
-                if os.path.isfile(full):
-                    resume_path = full
-                    break
+        from pathlib import Path
+        resume_path = ''
+        if self._settings.resume.path:
+            root = Path(self._settings.project_root).resolve()
+            selected = (root / self._settings.resume.path).resolve()
+            if selected.is_relative_to(root) and selected.is_file():
+                resume_path = str(selected)
 
         while step < max_steps:
             step += 1
@@ -407,16 +294,7 @@ class LinkedInJobApplier:
                 }
                 """)
                 if has_submit:
-                    logger.info(f"Step {step}: No questions + Submit available — clicking Submit")
-                    await self._detail_page.submit_application()
-                    await asyncio.sleep(3)
-                    if await self._detail_page.has_submit_success():
-                        logger.info(f"Successfully applied to: {job.title} @ {job.company}")
-                        return {"status": ApplicationStatus.APPLIED}
-                    modal_still_open = await self._detail_page.wait_for_apply_modal(timeout=3000)
-                    if not modal_still_open:
-                        logger.info(f"Application modal closed after submit: {job.title}")
-                        return {"status": ApplicationStatus.APPLIED}
+                    return await self._submit_once_and_confirm()
 
             # Build step signature for loop detection
             step_sig = "|".join(f"{q.get('question','')[:30]}:{q.get('field_type','')}" for q in questions)
@@ -429,31 +307,6 @@ class LinkedInJobApplier:
                     if count >= 2:
                         stuck_count += 1
                         logger.warning(f"Step {step}: stuck in loop ({stuck_count}x) — signature repeated {count}x in last {len(recent)} steps")
-                        # Try Submit instead of Next when stuck
-                        has_submit = await page.evaluate("""
-                        () => {
-                            const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
-                            if (!modal) return false;
-                            const btns = modal.querySelectorAll('button');
-                            for (const b of btns) {
-                                const text = (b.innerText || '').trim().toLowerCase();
-                                const label = (b.getAttribute('aria-label') || '').toLowerCase();
-                                if ((text.includes('submit') || label.includes('submit')) && b.offsetParent !== null && !b.disabled) return true;
-                            }
-                            return false;
-                        }
-                        """)
-                        if has_submit:
-                            logger.info(f"Step {step}: Trying Submit to break loop")
-                            await self._detail_page.submit_application()
-                            await asyncio.sleep(3)
-                            if await self._detail_page.has_submit_success():
-                                logger.info(f"Successfully applied to: {job.title} @ {job.company}")
-                                return {"status": ApplicationStatus.APPLIED}
-                            modal_still_open = await self._detail_page.wait_for_apply_modal(timeout=3000)
-                            if not modal_still_open:
-                                logger.info(f"Application modal closed after loop-submit: {job.title}")
-                                return {"status": ApplicationStatus.APPLIED}
                         if stuck_count >= 2:
                             logger.error("Form stuck in loop — aborting")
                             break
@@ -464,28 +317,34 @@ class LinkedInJobApplier:
 
             logger.info(f"Step {step} questions: {len(questions)} — {[(q.get('question','')[:40], q.get('field_type',''), q.get('current_value','')[:20]) for q in questions]}")
 
-            # Handle file upload questions
-            file_uploads = [q for q in questions if q.get("field_type") == "file"]
-            if file_uploads:
-                for fq in file_uploads:
-                    if fq.get("current_value"):
-                        logger.info(f"Step {step}: File already uploaded: {fq['current_value']}")
-                    elif resume_path:
-                        uploaded = await self._detail_page.upload_resume_file(resume_path)
-                        logger.info(f"Step {step}: Resume upload attempt: {uploaded}")
-                        await asyncio.sleep(2)
-                    else:
-                        logger.warning(f"Step {step}: No resume file configured — skipping upload")
+            # Only a resume/CV field may receive the selected resume.
+            for fq in (q for q in questions if q.get('field_type') == 'file'):
+                if fq.get('current_value'):
+                    continue
+                label = str(fq.get('question', '')).casefold()
+                is_resume = 'resume' in label or 'résumé' in label or 'cv' in label.split()
+                if not is_resume:
+                    if fq.get('required', fq.get('is_required', True)):
+                        return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "A required non-resume attachment needs review."}
+                    continue
+                if not resume_path:
+                    if fq.get('required', fq.get('is_required', True)):
+                        return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Select an available resume before applying."}
+                    continue
+                if not await self._detail_page.upload_resume_file(resume_path, field_id=fq.get('input_id')):
+                    return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Resume upload failed; submission was blocked."}
+                await asyncio.sleep(2)
 
             # Handle text/dropdown/radio/checkbox questions
             SKIP_PATTERNS = ["deselect resume", "select resume", "follow ", "remove resume"]
             non_file_questions = [
                 q for q in questions
                 if q.get("field_type") != "file"
+                and str(q.get('current_value') or '').strip().casefold() in ('', 'select', 'select an option', '--select--', 'choose')
                 and not any(q.get("question", "").lower().startswith(p) for p in SKIP_PATTERNS)
             ]
             if non_file_questions:
-                if self._settings.ai.enable_matching:
+                if self._settings.ai.use_gemini:
                     answers = await self._question_answerer.answer_questions(non_file_questions, job)
                 else:
                     answers = await self._answer_screening_questions_locally(non_file_questions, job)
@@ -493,11 +352,15 @@ class LinkedInJobApplier:
                     answer_text = a.get("answer", "")
                     field_type = q.get("field_type", "text")
                     # For radio buttons, only fill the "Yes" or best answer, skip if answer is empty
-                    if field_type == "radio" and not answer_text:
+                    if field_type == "radio" and not answer_text and not q.get("required", q.get("is_required", True)):
                         logger.debug(f"Step {step}: Skipping radio with no answer: {q.get('question','')[:30]}")
                         continue
+                    if not answer_text and q.get('required', q.get('is_required', True)):
+                        return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "A required screening answer is missing from the profile. Review the question before applying."}
                     if answer_text:
                         filled = await self._detail_page.fill_answer(q, answer_text)
+                        if not filled and q.get('required', q.get('is_required', True)):
+                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a required screening field. Review the application form."}
                         logger.info(f"Step {step} fill '{q.get('question','')[:30]}' = '{answer_text[:30]}': {filled}")
                         await asyncio.sleep(0.5)
                     else:
@@ -526,19 +389,7 @@ class LinkedInJobApplier:
             }
             """)
             if has_submit:
-                logger.info(f"Step {step}: Submit button found — clicking")
-                await self._detail_page.submit_application()
-                await asyncio.sleep(3)
-                if await self._detail_page.has_submit_success():
-                    logger.info(f"Successfully applied to: {job.title} @ {job.company}")
-                    return {"status": ApplicationStatus.APPLIED}
-                modal_still_open = await self._detail_page.wait_for_apply_modal(timeout=3000)
-                if not modal_still_open:
-                    logger.info(f"Application modal closed (likely success): {job.title}")
-                    return {"status": ApplicationStatus.APPLIED}
-                # Log modal content after failed submit for debugging
-                modal_text = await self._detail_page.get_modal_text()
-                logger.info(f"Step {step}: Modal after submit: {modal_text[:200]}")
+                return await self._submit_once_and_confirm()
 
             has_review = await page.evaluate("""
             () => {
@@ -560,6 +411,7 @@ class LinkedInJobApplier:
                 await asyncio.sleep(3)
 
                 # Dump modal state after Review for debugging
+                review_state = {}
                 try:
                     review_state = await page.evaluate("""() => {
                         const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
@@ -618,37 +470,7 @@ class LinkedInJobApplier:
                         logger.warning(f"Step {step}: Review button still present — validation may have failed, skipping job")
                         break
 
-                # On the review page, look for Submit button with retries
-                for submit_attempt in range(3):
-                    submitted = await self._detail_page.submit_application()
-                    if submitted:
-                        logger.info(f"Step {step}: Submit clicked on review page (attempt {submit_attempt+1})")
-                        await asyncio.sleep(3)
-                        if await self._detail_page.has_submit_success():
-                            logger.info(f"Successfully applied to: {job.title} @ {job.company}")
-                            return {"status": ApplicationStatus.APPLIED}
-                        modal_still_open = await self._detail_page.wait_for_apply_modal(timeout=3000)
-                        if not modal_still_open:
-                            logger.info(f"Application modal closed after submit: {job.title}")
-                            return {"status": ApplicationStatus.APPLIED}
-                        modal_text = await self._detail_page.get_modal_text()
-                        logger.info(f"Step {step}: Modal after review submit ({submit_attempt+1}): {modal_text[:200]}")
-                    # Maybe the review page has additional questions — try Next
-                    clicked_next = await self._detail_page.click_next()
-                    if clicked_next:
-                        logger.info(f"Step {step}: Clicked Next on review page (attempt {submit_attempt+1})")
-                        await asyncio.sleep(2)
-                        break
-                    break
-
-                # Final check: maybe it was submitted and modal is closing
-                await asyncio.sleep(2)
-                if await self._detail_page.has_submit_success():
-                    return {"status": ApplicationStatus.APPLIED}
-                modal_still_open = await self._detail_page.wait_for_apply_modal(timeout=3000)
-                if not modal_still_open:
-                    logger.info(f"Application modal closed (likely success): {job.title}")
-                    return {"status": ApplicationStatus.APPLIED}
+                return await self._submit_once_and_confirm()
 
             # Try Next/Continue
             clicked_next = await self._detail_page.click_next()
@@ -661,8 +483,7 @@ class LinkedInJobApplier:
                     return {"status": ApplicationStatus.APPLIED}
                 modal_still = await self._detail_page.wait_for_apply_modal(timeout=3000)
                 if not modal_still:
-                    logger.info(f"Modal closed without Next/Submit — likely success: {job.title}")
-                    return {"status": ApplicationStatus.APPLIED}
+                    return {"status": ApplicationStatus.UNCERTAIN, "error_message": "No platform confirmation; review before retrying."}
                 logger.warning(f"No Next button at step {step} — form may be complete or stuck")
                 break
 
@@ -676,8 +497,7 @@ class LinkedInJobApplier:
             return {"status": ApplicationStatus.APPLIED}
         modal_open = await self._detail_page.wait_for_apply_modal(timeout=3000)
         if not modal_open:
-            logger.info(f"Modal gone after exhausting steps — treating as success: {job.title}")
-            return {"status": ApplicationStatus.APPLIED}
+            return {"status": ApplicationStatus.UNCERTAIN, "error_message": "No platform confirmation; review before retrying."}
 
         await self._detail_page.close_apply_modal()
         return {

@@ -66,14 +66,14 @@ function Skeleton() {
   return (
     <div className="space-y-3 animate-pulse">
       <div className="flex gap-2">
-        <div className="h-8 bg-[#334155] rounded-lg flex-1" />
-        <div className="h-8 w-20 bg-[#334155] rounded-lg" />
-        <div className="h-8 w-20 bg-[#334155] rounded-lg" />
+        <div className="h-8 bg-[var(--color-surface-hover)] rounded-lg flex-1" />
+        <div className="h-8 w-20 bg-[var(--color-surface-hover)] rounded-lg" />
+        <div className="h-8 w-20 bg-[var(--color-surface-hover)] rounded-lg" />
       </div>
       {Array.from({ length: 8 }).map((_, i) => (
         <div key={i} className="flex items-center gap-3">
-          <div className="h-4 bg-[#334155] rounded w-24" />
-          <div className="h-4 bg-[#334155] rounded flex-1" />
+          <div className="h-4 bg-[var(--color-surface-hover)] rounded w-24" />
+          <div className="h-4 bg-[var(--color-surface-hover)] rounded flex-1" />
         </div>
       ))}
     </div>
@@ -113,9 +113,9 @@ export default function LocationChart({ data, loading }: Props) {
     const entry = payload[0].payload;
     const pct = totalJobs > 0 ? ((entry.count / totalJobs) * 100).toFixed(1) : '0';
     return (
-      <div className="bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-3 shadow-xl">
-        <p className="text-white font-medium text-sm">{entry.location}</p>
-        <p className="text-[#94a3b8] text-xs mt-1">
+      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-4 py-3 shadow-xl">
+        <p className="text-[var(--color-text)] font-medium text-sm">{entry.location}</p>
+        <p className="text-[var(--color-text-secondary)] text-xs mt-1">
           {entry.count} job{entry.count !== 1 ? 's' : ''} — {pct}%
         </p>
       </div>
@@ -124,8 +124,8 @@ export default function LocationChart({ data, loading }: Props) {
 
   if (loading) {
     return (
-      <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
-        <div className="h-5 w-40 bg-[#334155] rounded mb-4 animate-pulse" />
+      <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5">
+        <div className="h-5 w-40 bg-[var(--color-surface-hover)] rounded mb-4 animate-pulse" />
         <Skeleton />
       </div>
     );
@@ -133,12 +133,12 @@ export default function LocationChart({ data, loading }: Props) {
 
   if (!data.length) {
     return (
-      <div className="bg-[#1e293b] rounded-xl border border-[#334155] p-5">
+      <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5">
         <div className="flex items-center gap-2 mb-4">
-          <MapPin className="w-5 h-5 text-[#38bdf8]" />
-          <h2 className="text-lg font-semibold text-white">Location Distribution</h2>
+          <MapPin className="w-5 h-5 text-[var(--color-primary)]" />
+          <h2 className="text-lg font-semibold text-[var(--color-text)]">Tracked records by location</h2>
         </div>
-        <div className="flex flex-col items-center justify-center h-64 text-[#64748b] gap-3">
+        <div className="flex flex-col items-center justify-center h-64 text-[var(--color-text-muted)] gap-3">
           <BugOff className="w-10 h-10" />
           <p className="text-sm">No location data available</p>
         </div>
@@ -151,26 +151,26 @@ export default function LocationChart({ data, loading }: Props) {
   return (
     <div
       ref={containerRef}
-      className={`bg-[#1e293b] rounded-xl border border-[#334155] p-5 transition-all ${
+      className={`bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-5 transition-all ${
         fullscreen ? 'fixed inset-0 z-50 rounded-none overflow-auto' : ''
       }`}
     >
       <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <MapPin className="w-5 h-5 text-[#38bdf8]" />
-          Location Distribution
+        <h2 className="text-lg font-semibold text-[var(--color-text)] flex items-center gap-2">
+          <MapPin className="w-5 h-5 text-[var(--color-primary)]" />
+          Tracked records by location
         </h2>
         <div className="flex items-center gap-1.5">
           <button
             onClick={toggleFullscreen}
-            className="p-1.5 rounded-lg hover:bg-[#334155] text-[#64748b] hover:text-white transition-colors"
+            className="p-1.5 rounded-lg hover:bg-[var(--color-surface-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
             aria-label="Toggle fullscreen"
           >
             <Expand className="w-4 h-4" />
           </button>
           <button
             onClick={() => exportCSV(expanded ? chart : data, totalJobs)}
-            className="p-1.5 rounded-lg hover:bg-[#334155] text-[#64748b] hover:text-white transition-colors"
+            className="p-1.5 rounded-lg hover:bg-[var(--color-surface-hover)] text-[var(--color-text-muted)] hover:text-[var(--color-text)] transition-colors"
             aria-label="Export CSV"
           >
             <Download className="w-4 h-4" />
@@ -178,27 +178,27 @@ export default function LocationChart({ data, loading }: Props) {
         </div>
       </div>
 
-      <div className="flex items-center gap-2 text-xs text-[#64748b] mb-4">
+      <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)] mb-4">
         <span>{totalItemsDisplay} location{totalItemsDisplay !== 1 ? 's' : ''}</span>
         <span>&middot;</span>
-        <span>{totalJobs} job{totalJobs !== 1 ? 's' : ''}</span>
+        <span>{totalJobs} tracked record{totalJobs !== 1 ? 's' : ''}</span>
       </div>
 
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <div className="flex items-center gap-2 bg-[#0f172a] border border-[#334155] rounded-lg px-3 py-1.5 flex-1 min-w-[160px]">
-          <Search className="w-4 h-4 text-[#64748b] shrink-0" />
+        <div className="flex items-center gap-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-1.5 flex-1 min-w-[160px]">
+          <Search className="w-4 h-4 text-[var(--color-text-muted)] shrink-0" />
           <input
             type="text"
             placeholder="Filter locations..."
             value={search}
             onChange={e => { setSearch(e.target.value); setHighlighted(null); }}
-            className="bg-transparent border-none outline-none text-white placeholder-[#64748b] w-full text-sm"
+            className="bg-transparent border-none outline-none text-[var(--color-text)] placeholder-[var(--color-text-muted)] w-full text-sm"
             aria-label="Filter locations"
           />
         </div>
         <button
           onClick={() => setSortBy(s => (s === 'count' ? 'name' : 'count'))}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0f172a] border border-[#334155] rounded-lg text-xs text-[#94a3b8] hover:text-white hover:border-[#475569] transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:border-[var(--color-border)] transition-colors"
           aria-label={`Sort by ${sortBy === 'count' ? 'name' : 'count'}`}
         >
           <ArrowUpDown className="w-3.5 h-3.5" />
@@ -207,7 +207,7 @@ export default function LocationChart({ data, loading }: Props) {
         {!search && chart.some(c => c.location.startsWith('Others')) && (
           <button
             onClick={() => setExpanded(e => !e)}
-            className="text-xs text-[#38bdf8] hover:underline"
+            className="text-xs text-[var(--color-primary)] hover:underline"
           >
             {expanded ? 'Collapse' : `Show all (${data.length})`}
           </button>
@@ -225,13 +225,13 @@ export default function LocationChart({ data, loading }: Props) {
               if (label != null) setHighlighted(h => (h === String(label) ? null : String(label)));
             }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-            <XAxis type="number" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+            <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border)" horizontal={false} />
+            <XAxis type="number" tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }} />
             <YAxis
               type="category"
               dataKey="location"
               width={Math.max(80, Math.min(180, Math.max(...chart.map(c => c.location.length)) * 8))}
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              tick={{ fill: 'var(--color-text-secondary)', fontSize: 11 }}
               tickFormatter={(val: string) => val.length > 20 ? val.slice(0, 20) + '…' : val}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(56, 189, 248, 0.08)' }} />
@@ -260,7 +260,7 @@ export default function LocationChart({ data, loading }: Props) {
           </BarChart>
         </ResponsiveContainer>
       ) : (
-        <div className="flex flex-col items-center justify-center h-64 text-[#64748b] gap-2">
+        <div className="flex flex-col items-center justify-center h-64 text-[var(--color-text-muted)] gap-2">
           <Search className="w-8 h-8" />
           <p className="text-sm">No locations match your search</p>
         </div>
@@ -268,15 +268,15 @@ export default function LocationChart({ data, loading }: Props) {
 
       {!search && others.length > 0 && !expanded && (
         <details className="mt-3 group">
-          <summary className="text-xs text-[#94a3b8] cursor-pointer hover:text-white transition-colors select-none">
-            {others.length} hidden location{others.length !== 1 ? 's' : ''} ({others.reduce((s, l) => s + l.count, 0)} jobs)
+          <summary className="text-xs text-[var(--color-text-secondary)] cursor-pointer hover:text-[var(--color-text)] transition-colors select-none">
+            {others.length} hidden location{others.length !== 1 ? 's' : ''} ({others.reduce((s, l) => s + l.count, 0)} tracked records)
           </summary>
           <div className="mt-2 flex flex-wrap gap-1.5">
             {others.map(l => (
               <span
                 key={l.location}
-                className="px-2 py-0.5 rounded-full text-xs bg-[#334155] text-[#94a3b8]"
-                title={`${l.count} jobs`}
+                className="px-2 py-0.5 rounded-full text-xs bg-[var(--color-surface-hover)] text-[var(--color-text-secondary)]"
+                title={`${l.count} tracked records`}
               >
                 {l.location} ({l.count})
               </span>

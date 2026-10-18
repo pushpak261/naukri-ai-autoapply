@@ -16,23 +16,24 @@ export function BackendBanner() {
 
   useEffect(() => {
     let active = true;
-    const ctrl = new AbortController();
-    // Increased timeout from 5s to 15s to handle cold starts better
-    const timer = setTimeout(() => ctrl.abort(), 15000);
-    fetch(HEALTH_URL, { signal: ctrl.signal, cache: 'no-store' })
-      .then(async (res) => {
+    let ctrl: AbortController | null = null;
+    let retry: ReturnType<typeof setTimeout>;
+    const check = async () => {
+      ctrl = new AbortController();
+      const timeout = setTimeout(() => ctrl?.abort(), 15000);
+      try {
+        const res = await fetch(HEALTH_URL, { signal: ctrl.signal, cache: 'no-store' });
         const health = res.ok ? await res.json().catch(() => null) : null;
         if (active) setDown(!health || !['ok', 'healthy'].includes(health.status));
-      })
-      .catch(() => {
+      } catch {
         if (active) setDown(true);
-      })
-      .finally(() => clearTimeout(timer));
-    return () => {
-      active = false;
-      clearTimeout(timer);
-      ctrl.abort();
+      } finally {
+        clearTimeout(timeout);
+        if (active) retry = setTimeout(check, 10000);
+      }
     };
+    void check();
+    return () => { active = false; clearTimeout(retry); ctrl?.abort(); };
   }, []);
 
   if (!down) return null;
@@ -42,8 +43,7 @@ export function BackendBanner() {
       role="alert"
       className="fixed inset-x-0 top-0 z-[100] bg-red-600 px-4 py-2 text-center text-sm font-medium text-white shadow-lg"
     >
-      Unable to connect to the job agent. Please try again shortly or contact the
-      deployment administrator if the problem continues.
+      The application backend is unavailable. Reconnecting automatically. For local use, keep start-local.cmd running.
     </div>
   );
 }

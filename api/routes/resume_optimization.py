@@ -24,7 +24,7 @@ def _parse_skills(skills_val: str | list | None) -> list[str]:
     if not skills_val:
         return []
     if isinstance(skills_val, list):
-        return [s.strip() for s in skills_val if s and s.strip()]
+        return [s.strip() for s in skills_val if isinstance(s, str) and s.strip()]
     if isinstance(skills_val, str):
         skills_val = skills_val.strip()
         if not skills_val:
@@ -34,7 +34,7 @@ def _parse_skills(skills_val: str | list | None) -> list[str]:
             try:
                 parsed = json.loads(skills_val)
                 if isinstance(parsed, list):
-                    return [s.strip() for s in parsed if s and s.strip()]
+                    return [s.strip() for s in parsed if isinstance(s, str) and s.strip()]
             except (json.JSONDecodeError, TypeError):
                 pass
         # Try comma-separated
@@ -53,6 +53,8 @@ async def get_resume_optimization():
     if profile_json_path.exists():
         try:
             resume_profile = json.loads(profile_json_path.read_text(encoding="utf-8"))
+            if not isinstance(resume_profile, dict):
+                resume_profile = None
         except Exception:
             pass
 
@@ -60,7 +62,7 @@ async def get_resume_optimization():
     if resume_profile:
         raw_skills = resume_profile.get("skills") or resume_profile.get("technical_skills") or []
         if isinstance(raw_skills, list):
-            resume_skills = [s.strip().lower() for s in raw_skills if s and s.strip()]
+            resume_skills = [s.lower() for s in _parse_skills(raw_skills)]
         elif isinstance(raw_skills, str):
             resume_skills = [s.strip().lower() for s in raw_skills.split(",") if s.strip()]
 
@@ -158,16 +160,16 @@ async def get_resume_optimization():
 
     # 7. Skill coverage breakdown
     level_ranges = [
-        {"name": "Strong", "min": 80, "color": "#22c55e"},
-        {"name": "Moderate", "min": 50, "color": "#eab308"},
-        {"name": "Weak", "min": 0, "color": "#ef4444"},
+        {"name": "Strong", "min": 80, "max": 101, "color": "#22c55e"},
+        {"name": "Moderate", "min": 50, "max": 80, "color": "#eab308"},
+        {"name": "Weak", "min": 0, "max": 50, "color": "#ef4444"},
     ]
     skill_breakdown = []
     for r in level_ranges:
         count = sum(
             1
             for s in skills_data
-            if s["matchRate"] >= r["min"] and (r["min"] == 0 or s["matchRate"] < r["min"] + 30)
+            if r["min"] <= s["matchRate"] < r["max"]
         )
         skill_breakdown.append({"name": r["name"], "count": count, "color": r["color"]})
 

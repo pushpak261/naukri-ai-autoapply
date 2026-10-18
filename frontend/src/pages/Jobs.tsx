@@ -1,62 +1,51 @@
-import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
 import { Search, ExternalLink, Building2, MapPin, DollarSign, ChevronLeft, ChevronRight } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
-import { api, type JobItem } from '../lib/api';
+import { api } from '../lib/api';
 
 export default function Jobs() {
   const navigate = useNavigate();
-  const [jobs, setJobs] = useState<JobItem[]>([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [sourceFilter, setSourceFilter] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const perPage = 20;
 
-  const fetchJobs = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await api.jobs(page, perPage, search, statusFilter, 'newest', 0, 100, sourceFilter);
-      setJobs(data.items);
-      setTotal(data.total);
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to load jobs');
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, statusFilter, sourceFilter]);
-
-  useEffect(() => { fetchJobs(); }, [fetchJobs]);
-  useEffect(() => { setPage(1); }, [search, statusFilter, sourceFilter]);
+  const result = useQuery({
+    queryKey: ['jobs', page, search, statusFilter, sourceFilter],
+    queryFn: () => api.jobs(page, perPage, search, statusFilter, 'newest', 0, 100, sourceFilter),
+  });
+  const jobs = result.data?.items ?? [];
+  const total = result.data?.total ?? 0;
+  const loading = result.isPending;
+  const error = result.error?.message;
 
   const totalPages = Math.ceil(total / perPage);
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white">Jobs</h1>
-        <p className="text-[#94a3b8] mt-1">All jobs discovered by the agent ({total} total)</p>
+        <h1 className="text-2xl font-bold text-[var(--color-text)]">Jobs</h1>
+        <p className="text-[var(--color-text-secondary)] mt-1">All jobs discovered by the agent ({total} total)</p>
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748b]" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
           <input
             type="text"
             placeholder="Search by title, company, location, skills..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="w-full bg-[#1e293b] border border-[#334155] rounded-lg pl-10 pr-4 py-2.5 text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8] transition-colors"
+            onChange={(e) => { setPage(1); setSearch(e.target.value); }}
+            className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg pl-10 pr-4 py-2.5 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)] transition-colors"
           />
         </div>
         <select
           value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="w-full sm:w-auto bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8] transition-colors"
+          onChange={(e) => { setPage(1); setStatusFilter(e.target.value); }}
+          className="w-full sm:w-auto bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-4 py-2.5 text-sm text-[var(--color-text-secondary)] focus:outline-none focus:border-[var(--color-primary)] transition-colors"
         >
           <option value="">All Status</option>
           <option value="applied">Applied</option>
@@ -65,8 +54,8 @@ export default function Jobs() {
         </select>
         <select
           value={sourceFilter}
-          onChange={(e) => setSourceFilter(e.target.value)}
-          className="w-full sm:w-auto bg-[#1e293b] border border-[#334155] rounded-lg px-4 py-2.5 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8] transition-colors"
+          onChange={(e) => { setPage(1); setSourceFilter(e.target.value); }}
+          className="w-full sm:w-auto bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-4 py-2.5 text-sm text-[var(--color-text-secondary)] focus:outline-none focus:border-[var(--color-primary)] transition-colors"
         >
           <option value="">All Platforms</option>
           <option value="naukri">Naukri</option>
@@ -74,29 +63,40 @@ export default function Jobs() {
         </select>
       </div>
 
-      <div className="bg-[#1e293b] rounded-xl border border-[#334155] overflow-hidden">
+      <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] overflow-hidden">
         {error ? (
           <div role="alert" className="text-center py-16 text-red-400">
             <p>{error}</p>
-            <button onClick={fetchJobs} className="mt-3 text-sm underline">Try again</button>
+            <button onClick={() => result.refetch()} className="mt-3 text-sm underline">Try again</button>
           </div>
         ) : loading ? (
           <div className="flex items-center justify-center h-64">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
           </div>
         ) : jobs.length === 0 ? (
-          <div className="text-center py-16 text-[#64748b]">No jobs found</div>
+          <div className="overview-empty px-6 py-12">
+            <Search size={28} aria-hidden="true" />
+            <h3>{search || statusFilter || sourceFilter ? 'No jobs match these filters' : 'Your next opportunity starts with a search'}</h3>
+            <p>{search || statusFilter || sourceFilter
+              ? 'Try a broader keyword or reset your filters to see more opportunities.'
+              : 'Jobs are collected during search runs. Review your preferences, then start a discovery run from Command center.'}</p>
+            {search || statusFilter || sourceFilter ? (
+              <button className="secondary-button" onClick={() => { setSearch(''); setStatusFilter(''); setSourceFilter(''); setPage(1); }}>Reset filters</button>
+            ) : (
+              <Link className="primary-button" to="/agent-control">Open command center <ExternalLink size={15} /></Link>
+            )}
+          </div>
         ) : (
           <div className="divide-y divide-[#334155]">
             {jobs.map((job) => (
               <div
                 key={job.id}
                 onClick={() => navigate(`/jobs/${job.id}`)}
-                className="flex items-start gap-4 p-4 hover:bg-[#0f172a]/50 transition-colors group cursor-pointer"
+                className="flex items-start gap-4 p-4 hover:bg-[var(--color-bg)]/50 transition-colors group cursor-pointer"
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="text-sm font-semibold text-white group-hover:text-[#38bdf8] transition-colors">
+                    <h3 className="text-sm font-semibold text-[var(--color-text)] group-hover:text-[var(--color-primary)] transition-colors">
                       {job.title}
                     </h3>
                     {job.application_status && (
@@ -106,13 +106,13 @@ export default function Jobs() {
                       <span className={`px-2 py-0.5 text-[10px] rounded-full font-medium ${
                         job.source === 'linkedin'
                           ? 'bg-[#0077b5]/10 text-[#0077b5] border border-[#0077b5]/20'
-                          : 'bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/20'
+                          : 'bg-[#38bdf8]/10 text-[var(--color-primary)] border border-[var(--color-primary)]/20'
                       }`}>
                         {job.source === 'linkedin' ? 'LinkedIn' : 'Naukri'}
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 mt-1.5 text-xs text-[#94a3b8]">
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-[var(--color-text-secondary)]">
                     <span className="flex items-center gap-1">
                       <Building2 className="w-3.5 h-3.5" />
                       {job.company}
@@ -124,7 +124,7 @@ export default function Jobs() {
                       </span>
                     )}
                   </div>
-                  <div className="flex items-center gap-3 mt-1.5 text-xs text-[#64748b]">
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-[var(--color-text-muted)]">
                     {job.experience && <span>{job.experience}</span>}
                     {job.salary && (
                       <span className="flex items-center gap-1">
@@ -136,12 +136,12 @@ export default function Jobs() {
                   {job.skills && (
                     <div className="flex flex-wrap gap-1 mt-2">
                       {job.skills.split(',').slice(0, 5).map((skill) => (
-                        <span key={skill} className="px-2 py-0.5 text-[10px] bg-[#38bdf8]/10 text-[#38bdf8] rounded-full">
+                        <span key={skill} className="px-2 py-0.5 text-[10px] bg-[#38bdf8]/10 text-[var(--color-primary)] rounded-full">
                           {skill.trim()}
                         </span>
                       ))}
                       {job.skills.split(',').length > 5 && (
-                        <span className="px-2 py-0.5 text-[10px] text-[#64748b]">
+                        <span className="px-2 py-0.5 text-[10px] text-[var(--color-text-muted)]">
                           +{job.skills.split(',').length - 5}
                         </span>
                       )}
@@ -161,9 +161,9 @@ export default function Jobs() {
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    className="p-1.5 rounded-lg hover:bg-[#334155] transition-colors"
+                    className="p-1.5 rounded-lg hover:bg-[var(--color-surface-hover)] transition-colors"
                   >
-                    <ExternalLink className="w-4 h-4 text-[#64748b]" />
+                    <ExternalLink className="w-4 h-4 text-[var(--color-text-muted)]" />
                   </a>
                 </div>
               </div>
@@ -174,22 +174,22 @@ export default function Jobs() {
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <p className="text-sm text-[#64748b]">
+          <p className="text-sm text-[var(--color-text-muted)]">
             Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, total)} of {total}
           </p>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="p-2 rounded-lg border border-[#334155] text-[#94a3b8] hover:bg-[#334155] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-sm text-[#94a3b8] px-2">{page} / {totalPages}</span>
+            <span className="text-sm text-[var(--color-text-secondary)] px-2">{page} / {totalPages}</span>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="p-2 rounded-lg border border-[#334155] text-[#94a3b8] hover:bg-[#334155] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-2 rounded-lg border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

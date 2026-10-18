@@ -244,6 +244,12 @@ app.include_router(market_intel_router.router)
 app.include_router(accounts_router.router)
 app.include_router(webhooks_router.router)
 app.include_router(multi_agent_router.router)
+from api.routes.ai_advisor import router as ai_advisor_router
+app.include_router(ai_advisor_router)
+from api.routes.career_studio import router as career_studio_router
+app.include_router(career_studio_router)
+from api.routes.copilot import router as copilot_router
+app.include_router(copilot_router)
 from api.remote_verification import router as verification_router
 app.include_router(verification_router)
 

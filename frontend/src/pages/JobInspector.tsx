@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   Filter,
   CheckCircle2,
@@ -19,7 +20,7 @@ import {
   AlertTriangle,
   Info,
 } from 'lucide-react';
-import { api, type InspectorResponse, type InspectorJobItem } from '../lib/api';
+import { api, type InspectorJobItem } from '../lib/api';
 
 const FILTER_KEYS = [
   { key: 'enable_scam_filter', label: 'Scam / Consultancy Filter', icon: ShieldAlert, desc: 'Detects fake placement agencies & spam signals' },
@@ -33,8 +34,6 @@ const FILTER_KEYS = [
 ];
 
 export default function JobInspector() {
-  const [data, setData] = useState<InspectorResponse | null>(null);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusView, setStatusView] = useState<'all' | 'passed' | 'rejected' | 'applied'>('all');
   const [sourceFilter, setSourceFilter] = useState<'all' | 'naukri' | 'linkedin'>('all');
@@ -55,24 +54,17 @@ export default function JobInspector() {
   const [applying, setApplying] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const fetchInspectorData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await api.jobsInspector(page, 20, search, statusView, filterToggles, sourceFilter);
-      setData(res);
-      if (res.active_toggles) {
-        setFilterToggles((prev) => ({ ...prev, ...res.active_toggles }));
-      }
-    } catch (err: any) {
-      console.error('Failed to fetch inspector data:', err);
-    } finally {
-      setLoading(false);
-    }
-  }, [page, search, statusView, filterToggles, sourceFilter]);
-
+  const result = useQuery({
+    queryKey: ['job-inspector', page, search, statusView, filterToggles, sourceFilter],
+    queryFn: () => api.jobsInspector(page, 20, search, statusView, filterToggles, sourceFilter),
+  });
+  const data = result.data ?? null;
+  const loading = result.isPending;
+  const fetchInspectorData = () => result.refetch();
   useEffect(() => {
-    fetchInspectorData();
-  }, [page, search, statusView, sourceFilter]);
+    setPage(1);
+    setSelectedJobIds([]);
+  }, [search, statusView, sourceFilter, filterToggles]);
 
   const handleToggleFilter = (key: string) => {
     const nextVal = !filterToggles[key];
@@ -125,18 +117,20 @@ export default function JobInspector() {
   const perPage = 20;
   const totalPages = data ? Math.ceil(data.total / perPage) : 1;
 
+  if (result.isError) return <div role="alert" className="notice-error"><p>{result.error.message}</p><button className="secondary-button" onClick={() => result.refetch()}>Retry job inspection</button></div>;
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-[#38bdf8]/10 rounded-xl border border-[#38bdf8]/20 text-[#38bdf8]">
+            <div className="p-2.5 bg-[#38bdf8]/10 rounded-xl border border-[var(--color-primary)]/20 text-[var(--color-primary)]">
               <Filter className="w-6 h-6" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">Job Filter Inspector & Debugger</h1>
-              <p className="text-[#94a3b8] text-sm mt-0.5">
+              <h1 className="text-2xl font-bold text-[var(--color-text)]">Job Filter Inspector & Debugger</h1>
+              <p className="text-[var(--color-text-secondary)] text-sm mt-0.5">
                 Inspect raw scraped jobs vs filtered jobs, toggle pipeline filters in real-time, and apply to client jobs.
               </p>
             </div>
@@ -146,9 +140,9 @@ export default function JobInspector() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => fetchInspectorData()}
-            className="flex items-center gap-2 px-3.5 py-2 bg-[#1e293b] border border-[#334155] rounded-xl text-sm font-medium text-[#94a3b8] hover:text-white hover:border-[#38bdf8] transition-colors"
+            className="flex items-center gap-2 px-3.5 py-2 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl text-sm font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] hover:border-[var(--color-primary)] transition-colors"
           >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#38bdf8]' : ''}`} />
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[var(--color-primary)]' : ''}`} />
             Refresh
           </button>
           <button
@@ -167,7 +161,7 @@ export default function JobInspector() {
 
       {/* Notification Toast */}
       {toastMessage && (
-        <div className="flex items-center gap-3 p-4 bg-[#0f172a] border border-[#38bdf8]/50 rounded-xl text-sm text-[#38bdf8] shadow-lg animate-fade-in">
+        <div className="flex items-center gap-3 p-4 bg-[var(--color-bg)] border border-[var(--color-primary)]/50 rounded-xl text-sm text-[var(--color-primary)] shadow-lg animate-fade-in">
           <CheckCircle2 className="w-5 h-5 shrink-0" />
           <span>{toastMessage}</span>
         </div>
@@ -176,37 +170,37 @@ export default function JobInspector() {
       {/* Summary KPI Grid */}
       {data && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="p-4 bg-[#1e293b] border border-[#334155] rounded-xl">
-            <div className="text-xs font-medium text-[#94a3b8] uppercase tracking-wider">Scraped Raw Jobs</div>
-            <div className="text-2xl font-bold text-white mt-1">{data.summary.total_scraped_raw}</div>
-            <div className="text-xs text-[#64748b] mt-1">Total jobs discovered before filtering</div>
+          <div className="p-4 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl">
+            <div className="text-xs font-medium text-[var(--color-text-secondary)] uppercase tracking-wider">Scraped Raw Jobs</div>
+            <div className="text-2xl font-bold text-[var(--color-text)] mt-1">{data.summary.total_scraped_raw}</div>
+            <div className="text-xs text-[var(--color-text-muted)] mt-1">Total jobs discovered before filtering</div>
           </div>
-          <div className="p-4 bg-[#1e293b] border border-green-500/30 rounded-xl bg-green-500/5">
+          <div className="p-4 bg-[var(--color-surface)] border border-green-500/30 rounded-xl bg-green-500/5">
             <div className="text-xs font-medium text-green-400 uppercase tracking-wider">Passed Active Filters</div>
             <div className="text-2xl font-bold text-green-400 mt-1">{data.summary.total_passed}</div>
             <div className="text-xs text-green-400/70 mt-1">Ready for AI evaluation & auto-apply</div>
           </div>
-          <div className="p-4 bg-[#1e293b] border border-amber-500/30 rounded-xl bg-amber-500/5">
+          <div className="p-4 bg-[var(--color-surface)] border border-amber-500/30 rounded-xl bg-amber-500/5">
             <div className="text-xs font-medium text-amber-400 uppercase tracking-wider">Filtered Out (Rejected)</div>
             <div className="text-2xl font-bold text-amber-400 mt-1">{data.summary.total_rejected}</div>
             <div className="text-xs text-amber-400/70 mt-1">Blocked by 1 or more active filters</div>
           </div>
-          <div className="p-4 bg-[#1e293b] border border-[#38bdf8]/30 rounded-xl bg-[#38bdf8]/5">
-            <div className="text-xs font-medium text-[#38bdf8] uppercase tracking-wider">Applied Jobs</div>
-            <div className="text-2xl font-bold text-[#38bdf8] mt-1">{data.summary.total_applied}</div>
-            <div className="text-xs text-[#38bdf8]/70 mt-1">Submitted applications</div>
+          <div className="p-4 bg-[var(--color-surface)] border border-[var(--color-primary)]/30 rounded-xl bg-[#38bdf8]/5">
+            <div className="text-xs font-medium text-[var(--color-primary)] uppercase tracking-wider">Applied Jobs</div>
+            <div className="text-2xl font-bold text-[var(--color-primary)] mt-1">{data.summary.total_applied}</div>
+            <div className="text-xs text-[var(--color-primary)]/70 mt-1">Submitted applications</div>
           </div>
         </div>
       )}
 
       {/* Filter Controls Panel */}
-      <div className="p-5 bg-[#1e293b] border border-[#334155] rounded-xl space-y-4">
-        <div className="flex items-center justify-between border-b border-[#334155] pb-3">
+      <div className="p-5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl space-y-4">
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] pb-3">
           <div className="flex items-center gap-2">
-            <Sliders className="w-5 h-5 text-[#38bdf8]" />
-            <h2 className="text-base font-semibold text-white">Pipeline Filter Controls</h2>
+            <Sliders className="w-5 h-5 text-[var(--color-primary)]" />
+            <h2 className="text-base font-semibold text-[var(--color-text)]">Pipeline Filter Controls</h2>
           </div>
-          <span className="text-xs text-[#94a3b8]">
+          <span className="text-xs text-[var(--color-text-secondary)]">
             Toggle filters below to test job outcomes in real-time
           </span>
         </div>
@@ -233,19 +227,19 @@ export default function JobInspector() {
                 onClick={() => handleToggleFilter(key)}
                 className={`p-3.5 rounded-xl border transition-all cursor-pointer flex flex-col justify-between ${
                   isEnabled
-                    ? 'bg-[#0f172a] border-[#38bdf8]/40 hover:border-[#38bdf8]'
-                    : 'bg-[#1e293b]/50 border-[#334155] opacity-60 hover:opacity-100'
+                    ? 'bg-[var(--color-bg)] border-[var(--color-primary)]/40 hover:border-[var(--color-primary)]'
+                    : 'bg-[var(--color-surface)]/50 border-[var(--color-border)] opacity-60 hover:opacity-100'
                 }`}
               >
                 <div>
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Icon className={`w-4 h-4 ${isEnabled ? 'text-[#38bdf8]' : 'text-[#64748b]'}`} />
-                      <span className="text-xs font-semibold text-white">{label}</span>
+                      <Icon className={`w-4 h-4 ${isEnabled ? 'text-[var(--color-primary)]' : 'text-[var(--color-text-muted)]'}`} />
+                      <span className="text-xs font-semibold text-[var(--color-text)]">{label}</span>
                     </div>
                     <div
                       className={`w-9 h-5 rounded-full p-0.5 transition-colors ${
-                        isEnabled ? 'bg-[#38bdf8]' : 'bg-[#334155]'
+                        isEnabled ? 'bg-[#38bdf8]' : 'bg-[var(--color-surface-hover)]'
                       }`}
                     >
                       <div
@@ -255,7 +249,7 @@ export default function JobInspector() {
                       />
                     </div>
                   </div>
-                  <p className="text-[11px] text-[#64748b] mt-1.5 line-clamp-2">{desc}</p>
+                  <p className="text-[11px] text-[var(--color-text-muted)] mt-1.5 line-clamp-2">{desc}</p>
                 </div>
                 {isEnabled && (
                   <div className="mt-2 text-[10px] font-medium text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-md inline-block self-start">
@@ -273,7 +267,7 @@ export default function JobInspector() {
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="relative flex-1 sm:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#64748b]" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--color-text-muted)]" />
               <input
                 type="text"
                 placeholder="Search jobs by title, company..."
@@ -282,7 +276,7 @@ export default function JobInspector() {
                   setSearch(e.target.value);
                   setPage(1);
                 }}
-                className="w-full bg-[#1e293b] border border-[#334155] rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-[#64748b] focus:outline-none focus:border-[#38bdf8]"
+                className="w-full bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl pl-9 pr-4 py-2 text-sm text-[var(--color-text)] placeholder-[var(--color-text-muted)] focus:outline-none focus:border-[var(--color-primary)]"
               />
             </div>
             <select
@@ -291,7 +285,7 @@ export default function JobInspector() {
                 setStatusView(e.target.value);
                 setPage(1);
               }}
-              className="w-full sm:w-auto bg-[#1e293b] border border-[#334155] rounded-xl px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8]"
+              className="w-full sm:w-auto bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text-secondary)] focus:outline-none focus:border-[var(--color-primary)]"
             >
               <option value="all">All Jobs</option>
               <option value="passed">Passed Filters Only</option>
@@ -304,7 +298,7 @@ export default function JobInspector() {
                 setSourceFilter(e.target.value);
                 setPage(1);
               }}
-              className="w-full sm:w-auto bg-[#1e293b] border border-[#334155] rounded-xl px-3 py-2 text-sm text-[#94a3b8] focus:outline-none focus:border-[#38bdf8]"
+              className="w-full sm:w-auto bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-3 py-2 text-sm text-[var(--color-text-secondary)] focus:outline-none focus:border-[var(--color-primary)]"
             >
               <option value="all">All Sources</option>
               <option value="naukri">Naukri</option>
@@ -316,7 +310,7 @@ export default function JobInspector() {
             {data && data.items.length > 0 && (
               <button
                 onClick={handleSelectAllOnPage}
-                className="text-xs font-medium text-[#38bdf8] hover:underline"
+                className="text-xs font-medium text-[var(--color-primary)] hover:underline"
               >
                 {data.items.every((j) => selectedJobIds.includes(j.id))
                   ? 'Deselect Page'
@@ -336,16 +330,16 @@ export default function JobInspector() {
         </div>
 
         {/* Job List Container */}
-        <div className="bg-[#1e293b] rounded-xl border border-[#334155] overflow-hidden">
+        <div className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] overflow-hidden">
           {loading ? (
             <div className="flex flex-col items-center justify-center h-64 gap-3">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38bdf8]" />
-              <p className="text-sm text-[#64748b]">Evaluating jobs against pipeline filters...</p>
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)]" />
+              <p className="text-sm text-[var(--color-text-muted)]">Evaluating jobs against pipeline filters...</p>
             </div>
           ) : !data || data.items.length === 0 ? (
-            <div className="text-center py-16 text-[#64748b] space-y-2">
-              <Filter className="w-8 h-8 mx-auto opacity-40 text-[#64748b]" />
-              <p className="text-base font-medium text-white">No jobs found matching your criteria</p>
+            <div className="text-center py-16 text-[var(--color-text-muted)] space-y-2">
+              <Filter className="w-8 h-8 mx-auto opacity-40 text-[var(--color-text-muted)]" />
+              <p className="text-base font-medium text-[var(--color-text)]">No jobs found matching your criteria</p>
               <p className="text-xs">Try adjusting your search terms or filter toggle controls above.</p>
             </div>
           ) : (
@@ -356,7 +350,7 @@ export default function JobInspector() {
                 return (
                   <div
                     key={job.id}
-                    className={`p-4 transition-colors hover:bg-[#0f172a]/50 ${
+                    className={`p-4 transition-colors hover:bg-[var(--color-bg)]/50 ${
                       isSelected ? 'bg-[#38bdf8]/5' : ''
                     }`}
                   >
@@ -365,13 +359,13 @@ export default function JobInspector() {
                         type="checkbox"
                         checked={isSelected}
                         onChange={() => handleSelectJob(job.id)}
-                        className="mt-1 rounded border-[#334155] text-[#38bdf8] focus:ring-0 cursor-pointer"
+                        className="mt-1 rounded border-[var(--color-border)] text-[var(--color-primary)] focus:ring-0 cursor-pointer"
                       />
 
                       <div className="flex-1 min-w-0">
                         {/* Title & Status */}
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="text-base font-semibold text-white">{job.title}</h3>
+                          <h3 className="text-base font-semibold text-[var(--color-text)]">{job.title}</h3>
 
                           {job.application?.status === 'applied' ? (
                             <span className="inline-flex items-center gap-1 px-2.5 py-0.5 text-xs font-semibold rounded-full bg-blue-500/10 text-blue-400 border border-blue-500/20">
@@ -388,27 +382,27 @@ export default function JobInspector() {
                           )}
 
                           {job.source && (
-                            <span className="px-2 py-0.5 text-[10px] font-medium bg-[#38bdf8]/10 text-[#38bdf8] border border-[#38bdf8]/20 rounded-full">
+                            <span className="px-2 py-0.5 text-[10px] font-medium bg-[#38bdf8]/10 text-[var(--color-primary)] border border-[var(--color-primary)]/20 rounded-full">
                               {job.source.toUpperCase()}
                             </span>
                           )}
                         </div>
 
                         {/* Meta info */}
-                        <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-[#94a3b8]">
-                          <span className="flex items-center gap-1 font-medium text-white">
-                            <Building2 className="w-3.5 h-3.5 text-[#64748b]" />
+                        <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-[var(--color-text-secondary)]">
+                          <span className="flex items-center gap-1 font-medium text-[var(--color-text)]">
+                            <Building2 className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
                             {job.company}
                           </span>
                           {job.location && (
                             <span className="flex items-center gap-1">
-                              <MapPin className="w-3.5 h-3.5 text-[#64748b]" />
+                              <MapPin className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
                               {job.location}
                             </span>
                           )}
                           {job.experience && (
                             <span className="flex items-center gap-1">
-                              <Clock className="w-3.5 h-3.5 text-[#64748b]" />
+                              <Clock className="w-3.5 h-3.5 text-[var(--color-text-muted)]" />
                               {job.experience}
                             </span>
                           )}
@@ -461,7 +455,7 @@ export default function JobInspector() {
                           href={job.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="p-2 rounded-lg bg-[#0f172a] hover:bg-[#334155] border border-[#334155] text-[#94a3b8] hover:text-white transition-colors"
+                          className="p-2 rounded-lg bg-[var(--color-bg)] hover:bg-[var(--color-surface-hover)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
                           title="Open job link"
                         >
                           <ExternalLink className="w-4 h-4" />
@@ -491,22 +485,22 @@ export default function JobInspector() {
       {/* Pagination Footer */}
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <p className="text-sm text-[#64748b]">
+          <p className="text-sm text-[var(--color-text-muted)]">
             Showing {(page - 1) * perPage + 1}–{Math.min(page * perPage, data?.total || 0)} of {data?.total || 0}
           </p>
           <div className="flex items-center gap-2">
             <button
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="p-2 rounded-xl border border-[#334155] text-[#94a3b8] hover:bg-[#334155] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-2 rounded-xl border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-sm text-[#94a3b8] px-2">{page} / {totalPages}</span>
+            <span className="text-sm text-[var(--color-text-secondary)] px-2">{page} / {totalPages}</span>
             <button
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="p-2 rounded-xl border border-[#334155] text-[#94a3b8] hover:bg-[#334155] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              className="p-2 rounded-xl border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

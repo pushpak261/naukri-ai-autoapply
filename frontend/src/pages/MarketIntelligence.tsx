@@ -22,14 +22,14 @@ export default function MarketIntelligence() {
     return (
       <div className="space-y-6">
         <div>
-          <div className="h-8 w-64 bg-[#334155] rounded animate-pulse" />
-          <div className="h-4 w-80 bg-[#334155] rounded animate-pulse mt-2" />
+          <div className="h-8 w-64 bg-[var(--color-surface-hover)] rounded animate-pulse" />
+          <div className="h-4 w-80 bg-[var(--color-surface-hover)] rounded animate-pulse mt-2" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[1, 2, 3, 4].map(i => (
-            <div key={i} className="bg-[#1e293b] rounded-xl border border-[#334155] p-4 animate-pulse">
-              <div className="h-3 w-20 bg-[#334155] rounded mb-3" />
-              <div className="h-6 w-16 bg-[#334155] rounded" />
+            <div key={i} className="bg-[var(--color-surface)] rounded-xl border border-[var(--color-border)] p-4 animate-pulse">
+              <div className="h-3 w-20 bg-[var(--color-surface-hover)] rounded mb-3" />
+              <div className="h-6 w-16 bg-[var(--color-surface-hover)] rounded" />
             </div>
           ))}
         </div>
@@ -44,7 +44,8 @@ export default function MarketIntelligence() {
   const salarySummary = salary.data?.summary;
   const skillItems = skills.data?.items ?? [];
   const competitorItems = competitors.data?.items ?? [];
-  const winRateItems = winRate.data?.items ?? [];
+  const winRateItems = (winRate.data?.items ?? []).filter(item => item.total > 0);
+  const highestBracket = winRateItems.find(item => item.bracket === '85-100');
 
   const topSkills = skillItems.slice(0, 10);
   const skillPieData = topSkills.map((s, i) => ({
@@ -59,15 +60,15 @@ export default function MarketIntelligence() {
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>Job Market Intelligence</h1>
-        <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>AI-powered insights into salary benchmarks, skill demand, and your competitive position</p>
+        <p className="mt-1" style={{ color: 'var(--color-text-secondary)' }}>Analysis of your saved job listings and recorded applications. Figures update after searches and application activity.</p>
       </div>
 
       {salarySummary && (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard title="Market Avg. CTC" value={`₹${salarySummary.average_market_ctc}L`} icon={TrendingUp} color="#38bdf8" subtitle={`Based on ${salarySummary.total_listings} listings`} />
-          <StatCard title="Min Market CTC" value={`₹${salarySummary.min_market_ctc}L`} icon={DollarSign} color="#22c55e" />
-          <StatCard title="Max Market CTC" value={`₹${salarySummary.max_market_ctc}L`} icon={Award} color="#eab308" />
-          <StatCard title="Win Rate (85%+)" value={winRateItems.length > 0 ? `${winRateItems[winRateItems.length - 1]?.success_rate ?? 0}%` : 'N/A'} icon={Target} color="#a78bfa" />
+          <StatCard title="Saved listings: Avg. CTC" value={salarySummary.total_listings ? `₹${salarySummary.average_market_ctc}L` : 'N/A'} icon={TrendingUp} color="#38bdf8" subtitle={`Based on ${salarySummary.total_listings} listings`} />
+          <StatCard title="Saved listings: Min CTC" value={salarySummary.total_listings ? `₹${salarySummary.min_market_ctc}L` : 'N/A'} icon={DollarSign} color="#22c55e" />
+          <StatCard title="Saved listings: Max CTC" value={salarySummary.total_listings ? `₹${salarySummary.max_market_ctc}L` : 'N/A'} icon={Award} color="#eab308" />
+          <StatCard title="Submission rate (score 85+)" value={highestBracket ? `${highestBracket.success_rate}%` : 'N/A'} icon={Target} color="#a78bfa" />
         </div>
       )}
 
@@ -116,7 +117,7 @@ export default function MarketIntelligence() {
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
             <Target className="w-5 h-5" style={{ color: 'var(--color-primary)' }} />
-            Win Rate by Match Score Bracket
+            Submission Rate by Match Score Bracket
           </h2>
           {winRateItems.length > 0 ? (
             <ResponsiveContainer width="100%" height={250}>
@@ -131,7 +132,7 @@ export default function MarketIntelligence() {
               </BarChart>
             </ResponsiveContainer>
           ) : (
-            <div className="flex items-center justify-center h-64" style={{ color: 'var(--color-text-muted)' }}>Not enough data to predict win rates</div>
+            <div className="flex items-center justify-center h-64" style={{ color: 'var(--color-text-muted)' }}>No scored application records yet</div>
           )}
         </div>
 

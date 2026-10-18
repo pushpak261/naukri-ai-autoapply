@@ -819,7 +819,11 @@ class TestProcessJobsQueue:
             r.getMessage() for r in caplog.records if "Priority Queue" in r.getMessage()
         ]
         assert len(queue_messages) == 1
-        assert "Score: 0.85" in queue_messages[0]
+        # Queue ordering includes a bounded evidence boost; the original
+        # eligibility heuristic is still restored before processing.
+        assert "Score: 1.00" in queue_messages[0]
+        assert job._opportunity_priority == pytest.approx(0.15)
+        assert job._eligibility_score == pytest.approx(0.85)
         assert "Java Developer @ Acme Corp" in queue_messages[0]
 
     async def test_heuristics_two_day_freshness_boost(self, tmp_path, caplog):
@@ -839,6 +843,15 @@ class TestProcessJobsQueue:
         assert "Score: 0.55" in queue_messages[0]
         assert agent._jobs_skipped == 1
         assert agent._jobs_applied == 0
+
+    async def test_resume_evidence_prioritizes_better_fit_without_inflating_eligibility(self):
+        agent = make_agent()
+        weak = java_job('weak', skills='Rust')
+        strong = java_job('strong', skills='Java, Spring Boot')
+        applier, _, _, _ = await _process(agent, [weak, strong])
+        identifiers = [call.args[0].naukri_job_id for call in applier.apply_to_job.await_args_list]
+        assert identifiers[0] == 'strong'
+        assert strong._eligibility_score == weak._eligibility_score == 0
 
     async def test_heuristics_skip_below_minimum_score(self, tmp_path):
         settings = make_settings(tmp_path, search={"enable_heuristics": True})

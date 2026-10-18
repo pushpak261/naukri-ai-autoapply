@@ -6,6 +6,7 @@ Retains the last 5 backups to prevent excessive disk usage.
 """
 
 import sqlite3
+from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
@@ -26,7 +27,7 @@ class DatabaseBackupService:
     def backup(self) -> Path | None:
         """Create a backup of the SQLite database if it exists and prune old backups."""
         if not self.db_path.exists():
-            return
+            return None
 
         try:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
@@ -34,9 +35,10 @@ class DatabaseBackupService:
             backup_path = self.db_path.parent / backup_name
 
             # SQLite's online backup API includes committed WAL pages.
-            with sqlite3.connect(f"{self.db_path.resolve().as_uri()}?mode=ro", uri=True) as source:
-                with sqlite3.connect(backup_path) as target:
-                    source.backup(target)
+            # sqlite3's transaction context manager does not close the handle.
+            # Explicitly close both connections before pruning (required on Windows).
+            with closing(sqlite3.connect(f"{self.db_path.resolve().as_uri()}?mode=ro", uri=True)) as source, closing(sqlite3.connect(backup_path)) as target:
+                source.backup(target)
             logger.info(f"Database backed up to {backup_name}")
 
             # Cleanup old backups (keep last self.max_backups)

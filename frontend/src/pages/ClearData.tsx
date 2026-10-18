@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Trash2, AlertTriangle, Database, FileJson, FileText, LogOut, RefreshCw } from 'lucide-react';
 import { api } from '../lib/api';
+import { queryClient } from '../lib/query-client';
 
 export default function ClearData() {
   const [clearing, setClearing] = useState(false);
@@ -15,6 +16,7 @@ export default function ClearData() {
     setError(null);
     try {
       const r = await api.clearAll();
+      await queryClient.invalidateQueries();
       setResult(r);
       setConfirmText('');
     } catch (err) {
@@ -26,26 +28,26 @@ export default function ClearData() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+        <h1 className="text-2xl font-bold text-[var(--color-text)] flex items-center gap-2">
           <Database className="w-6 h-6 text-red-400" />
           Clear All Data
         </h1>
-        <p className="text-[#94a3b8] mt-1">Reset database, caches, sessions, and logs</p>
+        <p className="text-[var(--color-text-secondary)] mt-1">Reset database, caches, sessions, and logs</p>
       </div>
 
-      <div className="bg-[#1e293b] rounded-xl border border-red-500/30 p-6">
+      <div className="bg-[var(--color-surface)] rounded-xl border border-red-500/30 p-6">
         <div className="flex items-start gap-3 mb-4">
           <AlertTriangle className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
           <div>
-            <h2 className="text-lg font-semibold text-white">Danger Zone</h2>
-            <p className="text-[#94a3b8] text-sm mt-1">
+            <h2 className="text-lg font-semibold text-[var(--color-text)]">Danger Zone</h2>
+            <p className="text-[var(--color-text-secondary)] text-sm mt-1">
               This action will permanently delete all data. This cannot be undone.
             </p>
           </div>
         </div>
 
         <div className="space-y-3 mb-6">
-          <h3 className="text-sm font-medium text-[#94a3b8]">The following will be deleted:</h3>
+          <h3 className="text-sm font-medium text-[var(--color-text-secondary)]">The following will be deleted:</h3>
           <ul className="space-y-2">
             {[
               { icon: Database, label: 'All database tables (jobs, applications, run logs, accounts, webhooks, etc.)', color: 'text-red-400' },
@@ -69,7 +71,7 @@ export default function ClearData() {
 
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-[#94a3b8] mb-2">
+            <label className="block text-sm font-medium text-[var(--color-text-secondary)] mb-2">
               Type <span className="font-mono text-red-400">CLEAR</span> to confirm
             </label>
             <input
@@ -77,13 +79,13 @@ export default function ClearData() {
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}
               placeholder="Type CLEAR to confirm"
-              className="w-full max-w-xs px-3 py-2 bg-[#0f172a] border border-[#334155] rounded-lg text-white text-sm focus:outline-none focus:border-red-500 placeholder-[#64748b]"
+              className="w-full max-w-xs px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[var(--color-text)] text-sm focus:outline-none focus:border-red-500 placeholder-[var(--color-text-muted)]"
             />
           </div>
           <button
             onClick={handleClear}
             disabled={clearing || confirmText !== 'CLEAR'}
-            className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-white disabled:text-[#64748b] rounded-lg text-sm font-medium transition-colors"
+            className="flex items-center gap-2 px-5 py-2.5 bg-red-600 hover:bg-red-700 disabled:bg-gray-700 text-[var(--color-text)] disabled:text-[var(--color-text-muted)] rounded-lg text-sm font-medium transition-colors"
           >
             {clearing ? (
               <RefreshCw className="w-4 h-4 animate-spin" />
@@ -103,14 +105,14 @@ export default function ClearData() {
       )}
 
       {result && (
-        <div className="bg-[#1e293b] rounded-xl border border-green-500/30 p-5 space-y-3">
+        <div className="bg-[var(--color-surface)] rounded-xl border border-green-500/30 p-5 space-y-3">
           <div className="flex items-center gap-2 text-green-400">
             <Database className="w-5 h-5" />
             <span className="font-medium">{result.message}</span>
           </div>
           {result.details.length > 0 && (
             <div>
-              <p className="text-sm text-[#94a3b8] mb-2">Details:</p>
+              <p className="text-sm text-[var(--color-text-secondary)] mb-2">Details:</p>
               <ul className="space-y-1">
                 {result.details.map((d, i) => (
                   <li key={i} className="text-xs text-[#cbd5e1] font-mono flex items-center gap-2">

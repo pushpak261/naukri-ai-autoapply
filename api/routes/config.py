@@ -239,9 +239,53 @@ async def update_config(update: ConfigUpdate):
     )
 
     from api.tenants import reload_current_settings
+    # AI preferences are shared by both agents; remove stale per-platform overrides.
+    ai_changes = {key: value for key, value in {'gemini_api_key': update.gemini_api_key,
+        'model': update.ai_model, 'use_gemini': update.use_gemini,
+        'enable_matching': update.enable_matching}.items() if value is not None}
+    platform_path = state.settings.project_root / 'linkedin_config.yaml'
+    if ai_changes and platform_path.exists():
+        platform_config = yaml.safe_load(platform_path.read_text(encoding='utf-8')) or {}
+        if isinstance(platform_config.get('ai'), dict):
+            for key in ai_changes:
+                platform_config['ai'].pop(key, None)
+            platform_path.write_text(yaml.safe_dump(platform_config), encoding='utf-8')
     reload_current_settings()
 
     return {"status": "ok", "message": "Configuration updated"}
+
+
+@router.get('/api/ai/status')
+async def ai_status():
+    ai = state.settings.ai
+    return {'configured': bool(ai.gemini_api_key), 'enabled': ai.use_gemini,
+            'model': ai.model, 'matching_enabled': ai.enable_matching,
+            'features': {'resume': 'AI on request', 'matching': 'AI when enabled',
+                         'screening_answers': 'AI when enabled', 'copilot': 'evidence rules plus on-demand Gemini advice',
+                         'resume_improvement': 'on-demand Gemini advice', 'skills_gap': 'on-demand Gemini learning plan',
+                         'scam_review': 'risk signals plus on-demand Gemini review',
+                         'market': 'saved-listing statistics plus on-demand Gemini interpretation',
+                         'analytics': 'measured database statistics plus on-demand Gemini interpretation'}}
+
+
+@router.post('/api/ai/test')
+async def test_ai_connection():
+    from fastapi import HTTPException
+    from src.naukri_agent.ai.llm_provider import GeminiProvider
+    ai = state.settings.ai
+    if not ai.gemini_api_key:
+        raise HTTPException(422, 'Save your Gemini API key in AI Settings first.')
+    provider = GeminiProvider(ai.gemini_api_key, ai.model)
+    try:
+        await asyncio.wait_for(provider.generate_content('Reply only with OK. This is a connectivity test.', max_output_tokens=32), timeout=25)
+    except Exception:
+        raise HTTPException(503, 'AI connection failed. Check the key, model access, network and Gemini quota. No resume was sent.') from None
+    finally:
+        from contextlib import suppress
+        with suppress(Exception):
+            await provider.aclose()
+    return {'status': 'ok', 'model': provider._model_name, 'message': 'AI connection verified. No resume was sent.'}
+
 
 # ---------------------------------------------------------------------------
 # LinkedIn Config Endpoints
@@ -257,11 +301,8 @@ async def get_linkedin_config():
     import os
     from pathlib import Path
 
-    config_path = _get_linkedin_config_path()
-    config_data = {}
-    if config_path.exists():
-        text = await asyncio.to_thread(config_path.read_text, encoding="utf-8")
-        config_data = yaml.safe_load(text) or {}
+    from libs.common.workspace_config import load_linkedin_workspace_config
+    config_data = load_linkedin_workspace_config(state.settings.project_root)
 
     if state.user_id:
         from libs.common.workspace_config import load_linkedin_workspace_config
@@ -286,7 +327,7 @@ async def get_linkedin_config():
         "ai": {
             "use_gemini": ai.get("use_gemini", False),
             "has_api_key": bool(ai.get("gemini_api_key")),
-            "model": ai.get("model", "gemini-3.5-flash"),
+            "model": ai.get("model", "gemini-2.5-flash"),
             "enable_matching": ai.get("enable_matching", True),
         },
         "resume": {

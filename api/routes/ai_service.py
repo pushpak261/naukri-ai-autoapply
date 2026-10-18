@@ -9,6 +9,7 @@ monolithic ``data.py`` because the cache is an AI artifact).
 
 from __future__ import annotations
 
+
 import json
 from typing import Any
 

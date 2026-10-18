@@ -23,7 +23,7 @@ async def enqueue_jobs(session_factory, job_ids):
             if job.source not in ('naukri', 'linkedin'):
                 raise HTTPException(422, 'Unsupported job platform')
             applications = (await session.execute(select(Application).where(Application.job_id == job.id).order_by(Application.applied_at.desc()))).scalars().all()
-            if any(app.status in ('applied', 'applying', 'pending_retry') for app in applications):
+            if any(app.status in ('applied', 'applying', 'uncertain', 'pending_retry', 'skipped_already_applied') for app in applications):
                 continue
             app = applications[0] if applications else Application(job_id=job.id, source=job.source)
             if app.id is not None and app.status in ('failed', 'error'):

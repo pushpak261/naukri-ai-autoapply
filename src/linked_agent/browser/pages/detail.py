@@ -573,6 +573,12 @@ class LinkedInJobDetailPage(BasePage):
         () => {
             const questions = [];
             const seen = new Set();
+            const handledGroups = new Set();
+            const selectValue = element => {
+                const option = element.selectedOptions?.[0];
+                if (!option || option.disabled || /^(select|choose|please select)( |$)/i.test((option.textContent || '').trim())) return '';
+                return (option.textContent || element.value || '').trim();
+            };
             const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
             if (!modal) return questions;
 
@@ -586,6 +592,7 @@ class LinkedInJobDetailPage(BasePage):
                 questions.push({
                     question: qText,
                     field_type: 'file',
+                    input_id: fi.id || '',
                     options: [],
                     current_value: fi.files && fi.files.length > 0 ? fi.files[0].name : '',
                     is_required: fi.required
@@ -618,12 +625,15 @@ class LinkedInJobDetailPage(BasePage):
 
                 if (radioInputs.length > 0) {
                     field_type = 'radio';
+                    const checked = Array.from(radioInputs).find(r => r.checked || r.getAttribute('aria-checked') === 'true');
+                    current_value = checked ? (checked.value || 'Selected') : '';
                     options = Array.from(radioInputs).map(r => {
                         const rl = r.closest('label') || r.parentElement;
                         return rl ? rl.innerText.trim() : '';
                     }).filter(Boolean);
                 } else if (checkboxInputs.length > 0) {
                     field_type = 'checkbox';
+                    current_value = Array.from(checkboxInputs).some(c => c.checked || c.getAttribute('aria-checked') === 'true') ? 'Selected' : '';
                     options = Array.from(checkboxInputs).map(c => {
                         const cl = c.closest('label') || c.parentElement;
                         return cl ? cl.innerText.trim() : '';
@@ -632,7 +642,7 @@ class LinkedInJobDetailPage(BasePage):
                     field_type = 'dropdown';
                     if (selectInput.tagName === 'SELECT') {
                         options = Array.from(selectInput.options).map(o => o.text.trim()).filter(Boolean);
-                        current_value = selectInput.value || '';
+                        current_value = selectValue(selectInput);
                     } else if (selectInput.getAttribute('role') === 'listbox') {
                         const items = selectInput.querySelectorAll('[role="option"]');
                         options = Array.from(items).map(o => (o.innerText || o.getAttribute('aria-label') || '').trim()).filter(Boolean);
@@ -643,6 +653,7 @@ class LinkedInJobDetailPage(BasePage):
                     current_value = textInput.value || '';
                 }
 
+                handledGroups.add(group);
                 questions.push({
                     question: questionText,
                     field_type: field_type,
@@ -656,6 +667,8 @@ class LinkedInJobDetailPage(BasePage):
             // Strategy 2: find labels with associated inputs not caught by Strategy 1
             const allLabels = modal.querySelectorAll('label');
             for (const label of allLabels) {
+                const owner = label.closest('.jobs-easy-apply-form-section__grouping, .fb-dash-form-element');
+                if (owner && handledGroups.has(owner)) continue;
                 const questionText = label.innerText.trim();
                 if (!questionText || seen.has(questionText)) continue;
                 // Skip labels that are just "Yes"/"No"/"Other" — these are radio options, not questions
@@ -679,7 +692,7 @@ class LinkedInJobDetailPage(BasePage):
                 if (input.tagName === 'SELECT') {
                     field_type = 'dropdown';
                     options = Array.from(input.options).map(o => o.text.trim()).filter(Boolean);
-                    current_value = input.value || '';
+                    current_value = selectValue(input);
                 } else if (input.type === 'radio') {
                     field_type = 'radio';
                     // Find the fieldset or container with a heading for this radio group
@@ -697,7 +710,7 @@ class LinkedInJobDetailPage(BasePage):
                                 question: legendText,
                                 field_type: 'radio',
                                 options: Array.from(fieldset.querySelectorAll('label')).map(l => l.innerText.trim()).filter(Boolean),
-                                current_value: '',
+                                current_value: fieldset.querySelector('input[type=radio]:checked')?.value || '',
                                 is_required: input.required
                             });
                             continue;
@@ -709,6 +722,7 @@ class LinkedInJobDetailPage(BasePage):
                     }
                 } else if (input.type === 'checkbox') {
                     field_type = 'checkbox';
+                    current_value = input.checked ? 'Yes' : '';
                 } else {
                     current_value = input.value || '';
                 }
@@ -728,6 +742,8 @@ class LinkedInJobDetailPage(BasePage):
             // that appear as standalone label+radio groups outside .fb-dash-form-element
             const requiredRadios = modal.querySelectorAll('[aria-required="true"], .jobs-easy-apply-form-section__grouping [required]');
             for (const reqEl of requiredRadios) {
+                const owner = reqEl.closest('.jobs-easy-apply-form-section__grouping, .fb-dash-form-element');
+                if (owner && handledGroups.has(owner)) continue;
                 // Walk up to find the container with label text
                 let container = reqEl.closest('fieldset, div[role="radiogroup"], .fb-dash-form-element');
                 if (!container) container = reqEl.parentElement;
@@ -819,7 +835,7 @@ class LinkedInJobDetailPage(BasePage):
                 question_lower = question_text.lower()
                 is_location_field = any(kw in question_lower for kw in ["location", "city", "country", "residence"])
                 if is_location_field:
-                    loc_answer = "Pune Division, Maharashtra, India" if ("pune" in answer.lower() or not answer or answer.lower() in ("n/a", "none")) else answer
+                    loc_answer = answer.strip()
                     result = await self._fill_combobox_answer(question_text, loc_answer)
                     logger.debug(f"fill_answer combobox '{question_text}' = '{loc_answer}': {result}")
                     if result:
@@ -1020,20 +1036,16 @@ class LinkedInJobDetailPage(BasePage):
     async def has_submit_success(self) -> bool:
         """Check if the application was submitted successfully.
 
-        Success is detected when:
-        1. Modal shows success text ("Application sent", etc.) without action buttons, OR
-        2. The Easy Apply modal has completely disappeared from the DOM (modal-closed = success
-           after a Submit click), OR
-        3. A post-submission screen is shown (e.g. "Done" button only).
+        Requires platform confirmation text without remaining application actions.
+        A closed modal or a Done button alone does not establish submission.
         """
         page = self._engine.page
         try:
             result = await page.evaluate("""
             () => {
                 const modal = document.querySelector('div.jobs-easy-apply-modal, div[role="dialog"], div.artdeco-modal');
-                // Modal gone entirely — if we previously had one open and it
-                // disappeared, that means the application was accepted.
-                if (!modal) return {success: true, reason: 'modal_gone', text: '', buttons: []};
+                // A closed modal alone cannot establish submission.
+                if (!modal) return {success: false, reason: 'modal_gone', text: '', buttons: []};
 
                 // Modal exists but might be a different dialog (e.g. success overlay)
                 const text = (modal.innerText || '').toLowerCase();
@@ -1055,11 +1067,11 @@ class LinkedInJobDetailPage(BasePage):
                 const hasSuccessText = (
                     text.includes('application sent') ||
                     text.includes('your application was sent') ||
-                    text.includes('successfully') ||
+                    text.includes('successfully applied') ||
                     text.includes('thank you for applying') ||
                     text.includes('your application is all set') ||
-                    text.includes('congratulations') ||
-                    text.includes('submitted') ||
+                    text.includes('application submitted') ||
+                    text.includes('application was submitted') ||
                     text.includes('application has been submitted')
                 );
 
@@ -1072,8 +1084,7 @@ class LinkedInJobDetailPage(BasePage):
                 let success = false;
                 if (!hasVisibleInputs) {
                     success = (hasSuccessText && !hasActionBtn) ||
-                              (hasSuccessText && onlyDoneOrDismiss) ||
-                              (onlyDoneOrDismiss && !hasActionBtn);
+                              (hasSuccessText && onlyDoneOrDismiss);
                 }
 
                 return {
@@ -1203,7 +1214,7 @@ class LinkedInJobDetailPage(BasePage):
         except PlaywrightError:
             pass
 
-    async def upload_resume_file(self, file_path: str) -> bool:
+    async def upload_resume_file(self, file_path: str, field_id: str | None = None) -> bool:
         """Upload a resume file to the file input in the modal."""
         page = self._engine.page
         try:
@@ -1211,9 +1222,15 @@ class LinkedInJobDetailPage(BasePage):
             if not os.path.isfile(file_path):
                 logger.warning(f"Resume file not found: {file_path}")
                 return False
-            file_input = await page.query_selector('div[role="dialog"] input[type="file"]')
-            if not file_input:
-                file_input = await page.query_selector('input[type="file"]')
+            inputs = await page.query_selector_all('div[role="dialog"] input[type="file"]')
+            file_input = None
+            if field_id:
+                for candidate in inputs:
+                    if await candidate.get_attribute('id') == field_id:
+                        file_input = candidate
+                        break
+            elif len(inputs) == 1:
+                file_input = inputs[0]
             if file_input:
                 await file_input.set_input_files(file_path)
                 await asyncio.sleep(2)
@@ -1586,7 +1603,7 @@ class LinkedInJobDetailPage(BasePage):
                 input.focus();
                 input.value = '';
                 const nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-                const searchStr = {safe_ans}.includes('Pune') ? 'Pune' : {safe_ans};
+                const searchStr = {safe_ans};
                 nativeSetter.call(input, searchStr);
                 input.dispatchEvent(new Event('input', {{ bubbles: true }}));
                 input.dispatchEvent(new Event('change', {{ bubbles: true }}));
@@ -1615,25 +1632,10 @@ class LinkedInJobDetailPage(BasePage):
                 // 1. Try exact or full match (e.g. "pune division maharashtra india")
                 for (const opt of optionEls) {{
                     const txt = norm(opt.innerText || opt.getAttribute('aria-label') || '');
-                    if (txt === targetNorm || txt.includes(targetNorm) || targetNorm.includes(txt)) {{
+                    if (txt && targetNorm && (txt === targetNorm || txt.startsWith(targetNorm + ' '))) {{
                         opt.click();
                         return true;
                     }}
-                }}
-
-                // 2. Try partial match (e.g. "pune division")
-                for (const opt of optionEls) {{
-                    const txt = norm(opt.innerText || '');
-                    if (txt.includes('pune division') || txt.includes('pune district') || txt.includes('pune city')) {{
-                        opt.click();
-                        return true;
-                    }}
-                }}
-
-                // 3. Fallback to clicking the first visible option
-                if (optionEls.length > 0 && optionEls[0].offsetParent !== null) {{
-                    optionEls[0].click();
-                    return true;
                 }}
 
                 return false;
@@ -1645,13 +1647,8 @@ class LinkedInJobDetailPage(BasePage):
                 await asyncio.sleep(0.5)
                 return True
 
-            # Step 3: Keyboard fallback if DOM click didn't fire
-            logger.debug(f"Combobox option click failed for '{question_text}' — using Keyboard fallback (ArrowDown + Enter)")
-            await page.keyboard.press("ArrowDown")
-            await asyncio.sleep(0.3)
-            await page.keyboard.press("Enter")
-            await asyncio.sleep(0.5)
-            return True
+            # Never pick an unrelated suggestion just to satisfy a required field.
+            return False
 
         except PlaywrightError as e:
             logger.debug(f"Combobox filling failed: {e}")

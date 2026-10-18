@@ -14,7 +14,7 @@ router = APIRouter(tags=["stats"])
 async def get_stats(days: int = Query(7, ge=1, le=365), source: str = Query("", max_length=20)):
     s = state.settings
     r = state.repo
-    
+
     # Run independent queries in parallel for better performance
     import asyncio
     stats, today_count, run_logs, recent = await asyncio.gather(
@@ -24,13 +24,15 @@ async def get_stats(days: int = Query(7, ge=1, le=365), source: str = Query("", 
         r.get_recent_applications(limit=5, source=source),
     )
 
-    total_jobs_found = sum(rw.get("found", 0) for rw in run_logs)
-
     # Compute totals from the applications table (source of truth)
     # instead of summing run_logs which is only updated at cleanup and
     # can be stale if runs are interrupted or in-progress.
     session_factory = await state.db_manager.get_session_factory()
     async with session_factory() as session:
+        jobs_query = select(func.count(DBJob.id))
+        if source:
+            jobs_query = jobs_query.where(DBJob.source == source)
+        total_jobs_found = (await session.execute(jobs_query)).scalar_one()
         base_filters = []
         if source:
             base_filters.append(DBApplication.source == source)

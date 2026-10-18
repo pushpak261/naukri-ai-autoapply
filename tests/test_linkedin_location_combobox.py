@@ -33,13 +33,13 @@ def sample_resume():
 
 
 def test_location_question_answering(mock_settings, sample_resume):
-    """Verify that location questions are formatted as 'Pune Division, Maharashtra, India'."""
+    """Preserve the configured location without inventing a region."""
     answerer = LinkedInQuestionAnswerer(AsyncMock(), mock_settings, sample_resume)
 
     q = {"question": "Location (city)*", "field_type": "text"}
     cleaned_ans = answerer._clean_and_validate_answer(q, "Pune")
-    assert cleaned_ans == "Pune Division, Maharashtra, India"
+    assert cleaned_ans == "Pune"
 
     q2 = {"question": "City", "field_type": "text"}
     cleaned_ans2 = answerer._clean_and_validate_answer(q2, "")
-    assert cleaned_ans2 == "Pune Division, Maharashtra, India"
+    assert cleaned_ans2 == ""

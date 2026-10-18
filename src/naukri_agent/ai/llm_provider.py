@@ -45,7 +45,7 @@ class GeminiProvider(ILLMProvider):
     LLM Provider implementation using Google Gemini.
     """
 
-    def __init__(self, api_key: str | list[str], model_name: str = "gemini-3.5-flash") -> None:
+    def __init__(self, api_key: str | list[str], model_name: str = "gemini-2.5-flash") -> None:
         """
         Initialize the Gemini provider.
 
@@ -75,7 +75,7 @@ class GeminiProvider(ILLMProvider):
                 raise ValueError(
                     "No API key was provided. Please configure GEMINI_API_KEY in your environment."
                 )
-            self._client = genai.Client(api_key=self._api_key)
+            self._client = genai.Client(api_key=self._api_key, http_options=types.HttpOptions(timeout=90000))
         return self._client
 
     def set_model(self, model_name: str) -> None:
@@ -83,6 +83,13 @@ class GeminiProvider(ILLMProvider):
         Dynamically switch the Gemini model.
         """
         self._model_name = model_name
+
+    async def aclose(self) -> None:
+        """Release HTTP connections for short-lived dashboard requests."""
+        if self._client is not None:
+            await self._client.aio.aclose()
+            self._client.close()
+            self._client = None
 
     @async_retry(
         max_attempts=3,
@@ -105,13 +112,14 @@ class GeminiProvider(ILLMProvider):
 
         # Candidates to try if model name is rejected (e.g. 404 model deprecated)
         models_to_try = [self._model_name]
-        for fallback in ["gemini-3.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
+        for fallback in ["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
             if fallback not in models_to_try:
                 models_to_try.append(fallback)
 
         last_error: BaseException | None = None
         for current_model in models_to_try:
             try:
+                from libs.common.gemini_output import thinking_config, ensure_complete
                 response = await self._get_client().aio.models.generate_content(
                     model=current_model,
                     contents=prompt,
@@ -120,9 +128,11 @@ class GeminiProvider(ILLMProvider):
                         max_output_tokens=max_output_tokens,
                         response_mime_type=response_mime_type,
                         response_schema=response_schema,
+                        thinking_config=thinking_config(current_model),
                     ),
                 )
 
+                ensure_complete(response)
                 if response.text is None:
                     finish_reason = None
                     if response.candidates:

@@ -16,7 +16,7 @@ logger = get_logger(__name__)
 class GeminiProvider(ILLMProvider):
     """Google Gemini LLM provider for LinkedIn agent AI operations."""
 
-    def __init__(self, api_key: str, model_name: str = "gemini-3.5-flash") -> None:
+    def __init__(self, api_key: str, model_name: str = "gemini-2.5-flash") -> None:
         self._api_key = api_key
         self._model_name = model_name
 
@@ -36,24 +36,25 @@ class GeminiProvider(ILLMProvider):
         """Generate content using Google Gemini API with fallback support."""
         from google import genai
 
-        client = genai.Client(api_key=self._api_key)
-
         from google.genai import types
-
-        config = types.GenerateContentConfig(
-            temperature=temperature,
-            max_output_tokens=max_output_tokens,
-            response_mime_type=response_mime_type if response_mime_type and response_mime_type != "text/plain" else None,
-        )
+        client = genai.Client(api_key=self._api_key, http_options=types.HttpOptions(timeout=90000))
 
         models_to_try = [self._model_name]
-        for fallback in ["gemini-3.5-flash", "gemini-2.0-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
+        for fallback in ["gemini-2.5-flash", "gemini-2.5-flash-lite"]:
             if fallback not in models_to_try:
                 models_to_try.append(fallback)
 
         last_error = None
         for current_model in models_to_try:
             try:
+                from libs.common.gemini_output import thinking_config, ensure_complete
+                config = types.GenerateContentConfig(
+                    temperature=temperature,
+                    max_output_tokens=max_output_tokens,
+                    response_schema=response_schema,
+                    response_mime_type=response_mime_type if response_mime_type != "text/plain" else None,
+                    thinking_config=thinking_config(current_model),
+                )
                 response = await asyncio.to_thread(
                     client.models.generate_content,
                     model=current_model,
@@ -61,6 +62,7 @@ class GeminiProvider(ILLMProvider):
                     config=config,
                 )
 
+                ensure_complete(response)
                 if response.text is None:
                     from src.linked_agent.utils.exceptions import LLMAPIError
                     finish_reason = None
@@ -89,9 +91,14 @@ class GeminiProvider(ILLMProvider):
                 error_str = str(e).lower()
                 if "quota" in error_str or "429" in error_str:
                     from src.linked_agent.utils.exceptions import LLMQuotaExceededError
-                    is_daily = "daily" in error_str or "per day" in error_str
+                    is_daily = any(marker in error_str for marker in ("daily", "per day", "perday"))
+                    message = (
+                        'Gemini daily request quota is exhausted. Wait for the quota reset or check your Gemini project billing and limits.'
+                        if is_daily else
+                        'Gemini request rate limit reached. Wait before retrying.'
+                    )
                     raise LLMQuotaExceededError(
-                        f"Gemini quota exceeded: {e}",
+                        message,
                         is_daily_quota=is_daily,
                     ) from e
                 if "404" in error_str or "no longer available" in error_str or "not found" in error_str:

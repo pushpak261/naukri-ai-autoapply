@@ -338,6 +338,19 @@ async def test_queued_claim_reuses_record_and_blocks_duplicate(dashboard):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('status', ['uncertain', 'skipped_already_applied'])
+async def test_queue_preserves_submission_review_status(dashboard, status):
+    from api.job_queue import enqueue_jobs
+    job = await state.repo.save_job(naukri_job_id='review-queue', title='Engineer', company='Example', url='https://www.naukri.com/test')
+    app = await state.repo.save_application(job.id, 80, status, 'Review required', '', '', '')
+    factory = await state.db_manager.get_session_factory()
+    assert await enqueue_jobs(factory, [job.id]) == 0
+    async with factory() as session:
+        saved = await session.get(Application, app.id)
+        assert saved.status == status
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize('outcome', ['failed', 'skipped_dry_run'])
 async def test_queued_save_reuses_record_and_updates_metadata(dashboard, outcome):
     from api.job_queue import enqueue_jobs

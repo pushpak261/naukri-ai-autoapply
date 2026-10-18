@@ -75,7 +75,7 @@ class JobDetailPage(BasePage):
         try:
             text = await page.inner_text("body") or ""
             text_lower = text.lower()
-            if any(x in text_lower for x in ["application submitted", "thank you", "we received", "successfully applied"]):
+            if any(x in text_lower for x in ["your application has been submitted", "your application was submitted", "successfully applied"]):
                 return True
         except Exception:
             pass
@@ -1677,19 +1677,6 @@ class JobDetailPage(BasePage):
                 await select_elem.select_option(value=opt.get("value"))
                 return True
 
-        # 2. Substring match
-        for opt in options:
-            o_text = opt.get("text", "").lower().strip()
-            o_val = opt.get("value", "").lower().strip()
-            if answer_lower in o_text or o_text in answer_lower or answer_lower in o_val:
-                await select_elem.select_option(value=opt.get("value"))
-                return True
-
-        # 3. Fallback: select first non-empty option
-        if options:
-            await select_elem.select_option(value=options[0].get("value"))
-            return True
-
         return False
 
     async def _select_choice_option_by_metadata(
@@ -1749,7 +1736,7 @@ class JobDetailPage(BasePage):
             # Check if option text matches any of the answers
             is_match = False
             for ans in answers_list:
-                if ans == o_text or ans in o_text or o_text in ans:
+                if ans and ans == o_text:
                     is_match = True
                     break
 
@@ -1761,16 +1748,6 @@ class JobDetailPage(BasePage):
                         matched_any = True
                         if not is_checkbox:
                             return True
-
-        # Fallback if no match: click the first option for radio
-        if not matched_any and options and not is_checkbox:
-            selector = options[0].get("selector")
-            if selector:
-                elem = await page.query_selector(selector)
-                if elem:
-                    success = await click_element_or_label(elem)
-                    if success:
-                        return True
 
         return matched_any
 
@@ -1980,7 +1957,7 @@ class JobDetailPage(BasePage):
             for opt in options:
                 opt_text = (await opt.text_content() or "").strip()
                 opt_value = await opt.get_attribute("value") or ""
-                if answer_lower in opt_text.lower() or opt_text.lower() in answer_lower:
+                if answer_lower and answer_lower == opt_text.lower():
                     await select_elem.select_option(value=opt_value)
                     return True
 
@@ -2002,7 +1979,7 @@ class JobDetailPage(BasePage):
 
                 for rl in radio_labels:
                     rl_text = (await rl.text_content() or "").strip()
-                    if answer_lower in rl_text.lower() or rl_text.lower() in answer_lower:
+                    if answer_lower and answer_lower == rl_text.lower():
                         radio = await rl.query_selector('input[type="radio"]')
                         if radio:
                             await radio.click()
