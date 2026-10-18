@@ -259,7 +259,7 @@ export interface ConfigResponse {
   resume: { path: string };
   search: { keywords: string[]; locations: string[]; experience_min: number; experience_max: number; salary_min: number; freshness: number; max_pages: number; sort_by: string; enable_heuristics: boolean };
   application: { daily_cap: number; match_score_threshold: number; max_retries?: number; answer_questions_with_pdf: boolean; delay_between_applies_min: number; delay_between_applies_max: number; skip_external_apply: boolean; dry_run: boolean; enable_project_indexer: boolean };
-  profile: { current_ctc: string; expected_ctc: string; notice_period: string; current_location: string; preferred_locations: string[]; total_experience: string };
+  profile: { confirmed_answers?: Record<string, string>; skill_experience_years?: Record<string, number>; current_ctc: string; expected_ctc: string; notice_period: string; current_location: string; preferred_locations: string[]; total_experience: string };
   logging: { level: string; log_to_file: boolean };
   notifications?: { email_notifications_enabled: boolean; email_recipient: string; notify_on_apply: boolean; notify_on_failure: boolean; notify_on_scam: boolean; notify_on_match: boolean };
   rate_limits?: { rate_limit_capacity: number; rate_limit_refill_rate: number };
@@ -674,10 +674,10 @@ export const api = {
   aiAdvice: (feature: string, job_id?: number, signal?: AbortSignal) => fetchJSON<AIAdvice>('/ai/advice', {method: 'POST', body: JSON.stringify({feature, job_id}), signal}),
   resume: {
     reparseAI: () => fetchJSON<{profile: Record<string, unknown>}>('/resume/reparse', {method: 'POST', signal: AbortSignal.timeout(120_000)}),
-    upload: (file: File) => {
+    upload: (file: File, mode: 'configured' | 'ai' | 'local' = 'configured') => {
       const fd = new FormData();
       fd.append('file', file);
-      return fetchFormData<{ status: string; profile: Record<string, unknown>; file_path: string }>('/resume/upload?mode=ai', fd, 120_000);
+      return fetchFormData<{ status: string; profile: Record<string, unknown>; file_path: string }>(`/resume/upload?mode=${mode}`, fd, 120_000);
     },
     saveProfile: (data: Record<string, unknown>) =>
       fetchJSON<{ status: string; profile: Record<string, unknown> }>('/resume/profile', { method: 'PUT', body: JSON.stringify(data) }),

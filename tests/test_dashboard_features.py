@@ -225,6 +225,9 @@ async def test_resume_upload_without_ai_and_profile_edit(dashboard):
     profile['summary'] = 'Edited profile'
     assert (await dashboard.put('/api/resume/profile', json=profile)).status_code == 200
     assert (await dashboard.get('/api/resume-profile')).json()['profile']['summary'] == 'Edited profile'
+    repeated = await dashboard.post('/api/resume/upload?mode=local', files={'file': ('resume.pdf', content, 'application/pdf')})
+    assert repeated.status_code == 200
+    assert repeated.json()['profile']['summary'] == 'Edited profile'
     config = yaml.safe_load((state.settings.project_root / 'config.yaml').read_text())
     assert config['resume']['path']
 

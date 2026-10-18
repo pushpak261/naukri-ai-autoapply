@@ -7,6 +7,8 @@ overrides. Provides typed, validated access to all settings.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import os
 import re
 from functools import lru_cache
@@ -141,7 +143,7 @@ class ApplicationSettings(BaseModel):
     notify_on_match: bool = False
     # Retry settings
     max_retries: int = 3
-    # Rate limiter settings (lower than Naukri — LinkedIn is stricter)
+    # Rate limiter settings (lower than Naukri â€” LinkedIn is stricter)
     rate_limit_capacity: float = 5.0
     rate_limit_refill_rate: float = 0.5
 
@@ -153,6 +155,8 @@ class ProfileSettings(BaseModel):
     last_name: str = ""
     phone: str = ""
     email: str = ""
+    confirmed_answers: dict[str, str] = Field(default_factory=dict)
+    skill_experience_years: dict[str, Annotated[float, Field(ge=0, le=80, allow_inf_nan=False)]] = Field(default_factory=dict)
     current_ctc: str = ""
     expected_ctc: str = ""
     notice_period: str = ""

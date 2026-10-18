@@ -257,7 +257,7 @@ export default function Resume() {
       const res = await api.resume.upload(file);
       setProfile(res.profile as unknown as ResumeProfileData);
       setData({ exists: true, profile: res.profile });
-      setSuccessMsg('Resume parsed with AI. Review the extracted details before using them.');
+      setSuccessMsg('Resume parsed using your saved mode. Review the extracted details before using them.');
       setEditMode(false);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Upload failed');
@@ -358,8 +358,8 @@ export default function Resume() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-[var(--color-text)]">Resume Profile</h1>
-          <p className="text-[var(--color-text-secondary)] mt-1">Resume extraction uses Gemini AI. Configure your key in Preferences, then upload or reparse.</p>
-          <p className="text-xs mt-2 text-[var(--color-text-muted)]">{(data.profile.parsing as {method?:string;model?:string} | undefined)?.method === 'ai' ? 'AI parsed · ' + ((data.profile.parsing as {model?:string}).model || 'Gemini') : 'This saved profile is local or unverified. Use Reparse with AI to upgrade it.'}</p>
+          <p className="text-[var(--color-text-secondary)] mt-1">Uploads use your Preferences setting: Gemini when enabled, local extraction when disabled. Review the extracted facts before applying.</p>
+          <p className="text-xs mt-2 text-[var(--color-text-muted)]">{(data.profile.parsing as {method?:string;model?:string} | undefined)?.method === 'ai' ? 'AI parsed · ' + ((data.profile.parsing as {model?:string}).model || 'Gemini') : 'Local or saved profile. Review and edit the extracted facts; Gemini is optional.'}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button className="secondary-button" disabled={uploading || saving} onClick={async () => { setUploading(true); setError(''); try { const r = await api.resume.reparseAI(); setProfile(r.profile as unknown as ResumeProfileData); setData({exists:true,profile:r.profile}); setSuccessMsg('Resume reparsed with AI. Review your profile.'); } catch (e) { setError(e instanceof Error ? e.message : 'AI parsing failed'); } finally { setUploading(false); } }}>{uploading ? 'Parsing with AI…' : 'Reparse with AI'}</button>

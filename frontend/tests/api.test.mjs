@@ -271,3 +271,31 @@ test('a transient connection failure during restoration does not erase a saved s
   assert.equal(store.getState().auth.loading, false);
   assert.equal(getAuthToken(), 'still-valid');
 });
+
+
+test('authentication forms preserve errors serialized by Redux unwrap', async () => {
+  const { authErrorMessage } = await import('../src/lib/auth-error.ts');
+  assert.equal(authErrorMessage({ name: 'APIError', message: 'Invalid email or password' }, 'Login failed'), 'Invalid email or password');
+  assert.equal(authErrorMessage({ name: 'APIError', message: 'Too many attempts. Try again shortly.' }, 'Login failed'), 'Too many attempts. Try again shortly.');
+  assert.equal(authErrorMessage(new Error('Network unavailable'), 'Login failed'), 'Network unavailable');
+  assert.match(authErrorMessage({ name: 'TimeoutError', message: 'aborted' }, 'Login failed'), /took too long/);
+  assert.equal(authErrorMessage(null, 'Login failed'), 'Login failed');
+  assert.equal(authErrorMessage({ message: '' }, 'Registration failed'), 'Registration failed');
+});
+
+
+test('rejected sign-in exposes the backend message after real thunk serialization', async () => {
+  const { store, loginThunk } = await loadAuthStore();
+  const { authErrorMessage } = await import('../src/lib/auth-error.ts');
+  globalThis.fetch = async url => {
+    assert.ok(url.endsWith('/auth/login'));
+    return json({ detail: 'Invalid email or password' }, 401);
+  };
+  await assert.rejects(
+    store.dispatch(loginThunk({ email: 'a@example.com', password: 'incorrect' })).unwrap(),
+    error => !(error instanceof Error) && authErrorMessage(error, 'Login failed') === 'Invalid email or password',
+  );
+  assert.equal(store.getState().auth.user, null);
+  assert.equal(store.getState().auth.loading, false);
+  assert.equal(getAuthToken(), null);
+});

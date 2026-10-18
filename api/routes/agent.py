@@ -82,7 +82,7 @@ async def start_agent(platform: str = Query("naukri", max_length=20), job_ids: l
     from api.agent_runtime import ensure_browser_capacity
     ensure_browser_capacity()
     from api.tenants import validate_agent_configuration
-    await validate_agent_configuration(platform)
+    await validate_agent_configuration(platform, require_search=not bool(job_ids))
 
     # Fallback: if in-memory state is lost (server restart), query DB for active account
     if not state.active_account_email:

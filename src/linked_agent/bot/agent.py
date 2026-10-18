@@ -647,7 +647,7 @@ class LinkedInAgent:
 
             log_info(
                 f"Applying: {job.title} @ {job.company} "
-                f"(AI score: {match_score:.1f}, threshold: {threshold}%)"
+                f"(Match score: {match_score:.1f}, threshold: {threshold}%)"
             )
 
             if self._settings.application.dry_run:
@@ -893,7 +893,7 @@ class LinkedInAgent:
                 f"  Locations: {', '.join(self._settings.search.locations)}\n"
                 f"  Daily Cap: {self._settings.application.daily_cap}\n"
                 f"  Match Threshold: {self._settings.application.match_score_threshold}%\n"
-                f"  AI Matching: {'Enabled' if self._settings.ai.enable_matching else 'Disabled'}\n"
+                f"  Matching: {'Gemini' if self._settings.ai.use_gemini and self._settings.ai.enable_matching else 'Local resume rules'}\n"
                 f"  Easy Apply Only: {'Yes' if self._settings.application.easy_apply_only else 'No'}\n"
                 f"  Dry Run: {'Yes' if self._settings.application.dry_run else 'No'}\n"
                 f"  AI Model: {self._settings.ai.model}\n"

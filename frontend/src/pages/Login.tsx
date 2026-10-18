@@ -2,6 +2,7 @@ import { useState, type FormEvent } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import AuthFrame from '../components/AuthFrame';
+import { authErrorMessage } from '../lib/auth-error';
 export default function Login() {
     const { login } = useAuth();
     const navigate = useNavigate();
@@ -22,7 +23,7 @@ export default function Login() {
             navigate('/', { replace: true });
         }
         catch (err) {
-            setError(err instanceof Error ? err.message : 'Login failed');
+            setError(authErrorMessage(err, 'Login failed'));
         }
         finally {
             setSubmitting(false);
@@ -41,7 +42,7 @@ export default function Login() {
             <label htmlFor="password" className="auth-label">
               Password
             </label>
-            <input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required className="auth-input"/>
+            <input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required className="auth-input"/>
           </div>
 
           {error && (<div role="alert" className="auth-error">

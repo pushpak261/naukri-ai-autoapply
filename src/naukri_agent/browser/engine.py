@@ -82,8 +82,8 @@ class PlaywrightEngine(IBrowserEngine):
         try:
             return Fernet(key_str.encode() if isinstance(key_str, str) else key_str)
         except Exception:
-            logger.warning("Invalid session encryption key, falling back to plaintext storage")
-            return None
+            # Accept deployment passphrases while keeping session cookies encrypted.
+            return Fernet(base64.urlsafe_b64encode(hashlib.sha256(key_str.encode()).digest()))
 
     def _encrypt(self, data: bytes) -> bytes:
         if self._fernet:

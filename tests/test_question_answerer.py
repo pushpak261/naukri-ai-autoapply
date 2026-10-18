@@ -123,7 +123,7 @@ class TestQuestionAnswerer:
         sample_resume.raw_text = "Expert in Flutter and Dart development for 4 years."
         mock_llm = AsyncMock()
         mock_llm.generate_content.return_value = json.dumps([
-            {"question": "How many years of experience in Flutter?", "answer": "4 years", "confidence": "high"}
+            {"id": "q_flutter", "question": "How many years of experience in Flutter?", "answer": "4 years", "confidence": "high"}
         ])
 
         answerer = QuestionAnswerer(mock_llm, mock_settings, sample_resume)
@@ -154,7 +154,8 @@ class TestQuestionAnswerer:
         # Mock LLM returning a slightly rephrased question string
         ai_response = [
             {
-                "question": "Why join us?",  # Rephrased by LLM
+                "id": "agent_q_99",
+                "question": "Why join us?",  # Stable ID permits a rephrased label.
                 "answer": "Great career opportunity.",
                 "confidence": "high",
             }
@@ -702,6 +703,7 @@ class TestAnswerQuestionsFlow:
     async def test_cache_hit_answers_without_calling_the_llm(self, tmp_path):
         llm = make_llm()
         answerer = make_answerer(tmp_path, llm=llm)
+        answerer._activate_job_context(make_job())
         answerer._cache.set("Favourite colour of the sky", "Blue")
         answerer._cache.save()
 
@@ -770,6 +772,7 @@ class TestAnswerQuestionsFlow:
     async def test_direct_cache_and_ai_answers_are_merged_and_sorted(self, tmp_path):
         llm = make_llm(ai_reply({"question": "Favourite season", "answer": "Autumn", "confidence": "high"}))
         answerer = make_answerer(tmp_path, llm=llm)
+        answerer._activate_job_context(make_job())
         answerer._cache.set("Favourite colour of the sky", "Blue")
 
         answers = await answerer.answer_questions(
@@ -1394,7 +1397,7 @@ class TestAskAiResponseParsing:
         assert answers[0]["index"] == 2
 
     @pytest.mark.asyncio
-    async def test_unmatched_answer_falls_back_to_position(self, tmp_path):
+    async def test_unmatched_answer_requires_review_instead_of_positional_assignment(self, tmp_path):
         llm = make_llm(ai_reply({"id": "x", "question": "Something else", "answer": "Chess"}))
         answerer = make_answerer(tmp_path, llm=llm)
 
@@ -1406,8 +1409,8 @@ class TestAskAiResponseParsing:
         assert answers[0] == {
             "id": "h1",
             "question": "Favourite hobby",
-            "answer": "Chess",
-            "confidence": "high",
+            "answer": "",
+            "confidence": "low",
             "index": 0,
         }
         assert answers[1]["answer"] == ""
@@ -1436,7 +1439,7 @@ class TestAskAiResponseParsing:
         assert answers[0]["confidence"] == "high"
 
     @pytest.mark.asyncio
-    async def test_near_miss_option_is_snapped_and_confidence_raised(self, tmp_path):
+    async def test_near_miss_option_requires_review(self, tmp_path):
         llm = make_llm(
             ai_reply(
                 {"id": "q1", "question": "Relocate?", "answer": "Yes, willing to relocate"}
@@ -1456,8 +1459,8 @@ class TestAskAiResponseParsing:
             make_job(),
         )
 
-        assert answers[0]["answer"] == "Yes, I am willing to relocate"
-        assert answers[0]["confidence"] == "high"
+        assert answers[0]["answer"] == ""
+        assert answers[0]["confidence"] == "low"
 
     @pytest.mark.asyncio
     async def test_dissimilar_option_downgrades_confidence_without_replacing(self, tmp_path):
@@ -1471,7 +1474,7 @@ class TestAskAiResponseParsing:
             make_job(),
         )
 
-        assert answers[0]["answer"] == "Purple"
+        assert answers[0]["answer"] == ""
         assert answers[0]["confidence"] == "low"
         assert not (tmp_path / "data" / "qa_cache.json").exists()
 

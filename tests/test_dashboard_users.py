@@ -141,7 +141,7 @@ async def test_new_accounts_use_their_resume_instead_of_legacy_java_filters(dash
         provider = AsyncMock()
         provider.generate_content.return_value = json.dumps({'score':90,'should_apply':True,'matching_skills':['Python'],'missing_skills':[],'reasoning':'Python matches'})
         matcher = JobMatcher(provider, settings)
-        result = await matcher.match(ResumeProfile(name='Python candidate', skills=['Python']), job)
+        result = await matcher.match(ResumeProfile(name='Python candidate', skills=['Python'], total_experience_years=4), job)
         assert result.should_apply
         prompt = provider.generate_content.await_args.kwargs['prompt']
         assert 'Python candidate' in prompt
@@ -276,3 +276,52 @@ async def test_resume_extraction_keeps_event_loop_responsive(tmp_path, monkeypat
     finally:
         release.set()
         await task
+
+
+@pytest.mark.asyncio
+async def test_search_preflight_blocks_empty_preferences_but_allows_selected_jobs(dashboard):
+    from api import identity
+    from api.deps import current_state
+    from api.tenants import runtime_for, validate_agent_configuration
+    from fastapi import HTTPException
+    async with register_client('search-preflight@example.invalid'):
+        runtime = await runtime_for(identity.find_user('search-preflight@example.invalid'))
+        settings = runtime.settings
+        settings.naukri.email = 'candidate@example.invalid'
+        settings.naukri.password = 'test-password'
+        settings.ai.use_gemini = False
+        resume = settings.resumes_dir / 'candidate.pdf'
+        resume.write_bytes(b'test resume')
+        settings.resume.path = str(resume)
+        settings.search.keywords = []
+        settings.search.locations = []
+        token = current_state.set(runtime)
+        try:
+            with pytest.raises(HTTPException) as error:
+                await validate_agent_configuration('naukri')
+            assert error.value.status_code == 422
+            assert 'keyword' in error.value.detail
+            assert 'location' in error.value.detail
+            await validate_agent_configuration('naukri', require_search=False)
+            settings.search.keywords = ['Java Developer']
+            settings.search.locations = ['Pune']
+            await validate_agent_configuration('naukri')
+        finally:
+            current_state.reset(token)
+
+
+@pytest.mark.asyncio
+async def test_offline_screening_facts_save_and_are_shared_with_linkedin(dashboard):
+    from api import identity
+    from api.tenants import runtime_for
+    from libs.common.workspace_config import load_linkedin_workspace_config
+    async with register_client('offline-facts@example.invalid') as user:
+        response = await user.put('/api/config', json={'use_gemini':False, 'confirmed_answers':{'Are you willing to relocate?':'No'}, 'skill_experience_years':{'Java':1.5}})
+        assert response.status_code == 200
+        data = (await user.get('/api/config')).json()
+        assert data['ai']['use_gemini'] is False
+        assert data['profile']['confirmed_answers']['Are you willing to relocate?'] == 'No'
+        runtime = await runtime_for(identity.find_user('offline-facts@example.invalid'))
+        shared = load_linkedin_workspace_config(runtime.settings.project_root)
+        assert shared['profile']['skill_experience_years']['Java'] == 1.5
+        assert (await user.put('/api/config', json={'skill_experience_years':{'Java':-1}})).status_code == 422

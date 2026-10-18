@@ -95,3 +95,15 @@ Measured charts, rule-based coverage and risk signals remain separate from Gemin
 Separate the software handover from installation, client branding, migration, platform verification, hosting, maintenance, and training. Define supported devices and platforms, acceptance criteria, included support period, response expectations, and how platform changes are handled. Confirm the rights and dependency licenses for anything you transfer. This repository does not itself establish exclusive ownership or a commercial license agreement.
 
 Promise working features and measurable acceptance tests. Interview rates, job offers, time savings, uninterrupted automation, multi-tenant agency administration, billing, and support SLAs need their own evidence or implementation before being sold as capabilities.
+
+
+### Hosted login durability
+
+Mount durable storage, then set `DASHBOARD_DATA_DIR` to that mounted directory. Back up and migrate the existing directory before changing this variable: it contains `dashboard_identities.db`, per-user workspaces in `users/`, and the generated JWT secret when no explicit secret is configured. Preserve `JWT_SECRET` and `SESSION_ENCRYPTION_KEY` across restarts using the hosting secret manager. Do not put values in Git. A restart on ephemeral storage may lose registered users and revoke sessions.
+
+Agent startup checks the Linux container RAM limit. The default protective budget reserves 256 MiB for the API plus 768 MiB per browser agent, so a 512 MiB deployment cannot start browser automation. Provision more memory and persistent storage, or run agents locally. Capacity still needs live load testing for the chosen deployment.
+
+
+### Run the agents without Gemini
+
+In Preferences, turn off Use Gemini AI and save. Both agents use a no-network provider, shared skill/role scoring, eligibility checks, and factual screening answers. Resume uploads follow this setting and can extract locally; always review extracted fields. Fill CTC, notice period, location, total experience, and the Gemini-free assistant's skill experience and confirmed-answer bank. Unknown required declarations or employer-specific questions block submission for review; they are never guessed. Supported numeric answers include decimal tenure, months, salary ranges and explicit LPA-to-INR conversion. Keep Dry Run enabled for validation; switch it off only when ready for real applications. Native Naukri forms and LinkedIn Easy Apply retain attachment checks, duplicate protection, and single-submit confirmation. External employer forms and CAPTCHA/OTP require manual action. This rules-based mode is not a local generative AI model.

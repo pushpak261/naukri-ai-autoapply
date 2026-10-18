@@ -53,6 +53,8 @@ class LinkedInResumeParser:
                     profile_json_path.read_text, encoding="utf-8"
                 )
                 cached_data = json.loads(cached_text)
+                if cached_data.get('file_hash') != file_hash:
+                    raise ValueError('Saved resume belongs to a different uploaded file')
                 profile = self._profile_from_json(json.dumps(cached_data))
                 profile.file_hash = file_hash
                 # Save to SQLite database cache if it's not already there

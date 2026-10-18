@@ -7,6 +7,8 @@ overrides. Provides typed, validated access to all settings.
 
 from __future__ import annotations
 
+from typing import Annotated
+
 import base64
 import hashlib
 import os
@@ -139,6 +141,8 @@ class ApplicationSettings(BaseModel):
 class ProfileSettings(BaseModel):
     """User profile details for auto-filling forms."""
 
+    confirmed_answers: dict[str, str] = Field(default_factory=dict)
+    skill_experience_years: dict[str, Annotated[float, Field(ge=0, le=80, allow_inf_nan=False)]] = Field(default_factory=dict)
     current_ctc: str = ""
     expected_ctc: str = ""
     notice_period: str = ""
@@ -368,7 +372,7 @@ def _apply_env_overrides(config: dict) -> dict:
             section, key = keys[0], keys[1]
             if section not in config:
                 config[section] = {}
-            # Boolean env vars: "true"/"1"/"yes" → True, anything else → False
+            # Boolean env vars: "true"/"1"/"yes" â†’ True, anything else â†’ False
             if (section, key) in _bool_keys:
                 config[section][key] = env_val.strip().lower() in ("true", "1", "yes")
             else:

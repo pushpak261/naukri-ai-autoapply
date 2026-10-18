@@ -518,6 +518,19 @@ class ResumeParser(IResumeParser):
             # profile, including when the provider is out of quota.
             require_ai = True
 
+        # When Gemini is disabled, check the local resume_profile.json first.
+        # This allows users to edit the local file and have it take effect
+        # without going through the PDF extraction + local parsing pipeline.
+        if not require_ai and not self._settings.ai.use_gemini and profile_json_path.exists():
+            try:
+                local_data = json.loads(profile_json_path.read_text(encoding="utf-8"))
+                if local_data.get("file_hash") == file_hash:
+                    log_info(f"Using local {profile_json_path.name}")
+                    return _map_to_domain_profile(local_data, file_hash)
+            except Exception as e:
+                logger.warning(f"Failed to read local resume_profile.json: {e}")
+
+
         # Check database cache
         if self._repo and not require_ai:
             cached = await self._repo.get_cached_profile(file_hash)
@@ -534,18 +547,6 @@ class ResumeParser(IResumeParser):
                 self._write_profile_json(cached_dict)
                 log_info(f"Saved database cached profile to local {profile_json_path.name}")
                 return domain_cached
-
-        # When Gemini is disabled, check the local resume_profile.json first.
-        # This allows users to edit the local file and have it take effect
-        # without going through the PDF extraction + local parsing pipeline.
-        if not require_ai and not self._settings.ai.use_gemini and profile_json_path.exists():
-            try:
-                local_data = json.loads(profile_json_path.read_text(encoding="utf-8"))
-                if local_data.get("file_hash") == file_hash:
-                    log_info(f"Using local {profile_json_path.name}")
-                    return _map_to_domain_profile(local_data, file_hash)
-            except Exception as e:
-                logger.warning(f"Failed to read local resume_profile.json: {e}")
 
         log_info(f"Parsing resume: {path.name}")
 

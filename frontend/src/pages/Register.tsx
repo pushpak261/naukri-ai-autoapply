@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../lib/AuthContext';
 import { api } from '../lib/api';
 import AuthFrame from '../components/AuthFrame';
+import { authErrorMessage } from '../lib/auth-error';
 export default function Register() {
     const { login } = useAuth();
     const navigate = useNavigate();
@@ -33,7 +34,7 @@ export default function Register() {
             navigate('/', { replace: true });
         }
         catch (err) {
-            setError(err instanceof Error ? err.message : 'Registration failed');
+            setError(authErrorMessage(err, 'Registration failed'));
         }
         finally {
             setSubmitting(false);
@@ -59,7 +60,7 @@ export default function Register() {
             <label htmlFor="confirmPassword" className="auth-label">
               Confirm Password
             </label>
-            <input id="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="••••••••" required className="auth-input"/>
+            <input id="confirmPassword" type="password" autoComplete="new-password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="â€¢â€¢â€¢â€¢â€¢â€¢â€¢â€¢" required className="auth-input"/>
           </div>
 
           {error && (<div role="alert" className="auth-error">

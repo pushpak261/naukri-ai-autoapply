@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import dataclasses
 import json
-import hashlib
 from pathlib import Path
 
 from pydantic import BaseModel, Field, StrictBool
@@ -156,16 +155,17 @@ class JobMatcher(IJobMatcher):
             JobApplication domain entity.
         """
         # Format resume profile for the prompt
+        from libs.common.agent_reasoning import eligibility_concern, decision_fingerprint, DECISION_GUIDANCE
+        concern = eligibility_concern(resume_profile, job)
+        if concern:
+            return JobApplication(match_score=0, should_apply=False, match_reasoning=concern)
         profile_dict = dataclasses.asdict(resume_profile)
         resume_summary = json.dumps(profile_dict, indent=2, ensure_ascii=False)
         resume_summary = truncate_text(resume_summary, max_length=6000)
 
         resume_hash = resume_profile.file_hash
         if resume_hash:
-            evidence = {'version': 2, 'profile': profile_dict, 'job': dataclasses.asdict(job),
-                        'model': self._settings.ai.model, 'ai_enabled': self._settings.ai.use_gemini,
-                        'matching': self._settings.ai.enable_matching, 'threshold': self._threshold}
-            resume_hash = hashlib.sha256(json.dumps(evidence, sort_keys=True, default=str).encode()).hexdigest()[:24]
+            resume_hash = decision_fingerprint(resume_profile, job, self._settings.ai, self._threshold)
         job_id = job.naukri_job_id
         if resume_hash and job_id:
             cached_result = self._cache.get(resume_hash, job_id)
@@ -219,6 +219,7 @@ class JobMatcher(IJobMatcher):
                 f"RESUME: {resume_summary}\nJOB: {job.title} at {job.company}\n"
                 f"EXPERIENCE: {job.experience}\nSKILLS: {job.skills}\nDESCRIPTION: {description}"
             )
+        prompt = DECISION_GUIDANCE + '\n' + prompt
         try:
             response_text = await self._llm.generate_content(
                 prompt=prompt,
@@ -321,46 +322,11 @@ class JobMatcher(IJobMatcher):
             )
 
     def _match_locally(self, resume_profile: ResumeProfile, job: Job) -> JobApplication:
-        from src.naukri_agent.utils.trie import AhoCorasick
-        from src.naukri_agent.ai.resume_parser import DEFAULT_TECH_SKILLS
-
-        matcher = AhoCorasick(DEFAULT_TECH_SKILLS)
-
-        job_text = f"{job.title or ''} {job.description or ''} {job.skills or ''}".lower()
-        job_skills = set(matcher.search(job_text).keys())
-
-        if job.skills:
-            explicit_skills = [s.strip().lower() for s in job.skills.split(",")]
-            job_skills.update(explicit_skills)
-
-        resume_skills = {s.lower() for s in resume_profile.skills}
-
-        matching_skills = list(job_skills.intersection(resume_skills))
-        missing_skills = list(job_skills.difference(resume_skills))
-
-        score = 80.0 if not job_skills else (len(matching_skills) / len(job_skills)) * 100.0
-
-        should_apply = score >= self._threshold
-
-        log_match(
-            score=score,
-            title=job.title or "Unknown",
-            company=job.company or "Unknown",
-            should_apply=should_apply,
-        )
-
-        logger.info(
-            f"Local Match: {score:.1f}/100 | "
-            f"Apply: {should_apply} | "
-            f"Skills: +{len(matching_skills)} "
-            f"-{len(missing_skills)}"
-        )
-
-        return JobApplication(
-            match_score=score,
-            status="applied" if should_apply else "skipped_low_score",
-            match_reasoning="Calculated using local deterministic algorithm based on skill overlap.",
-            matching_skills=", ".join(matching_skills),
-            missing_skills=", ".join(missing_skills),
-            should_apply=should_apply,
-        )
+        from libs.common.local_matching import local_match
+        score, approved, reason, matching, missing = local_match(resume_profile, job, self._threshold)
+        log_match(score=score, title=job.title or "Unknown", company=job.company or "Unknown", should_apply=approved)
+        logger.info(reason)
+        return JobApplication(match_score=score, should_apply=approved,
+                              status="matched" if approved else "skipped_low_score",
+                              match_reasoning=reason, matching_skills=", ".join(matching),
+                              missing_skills=", ".join(missing))

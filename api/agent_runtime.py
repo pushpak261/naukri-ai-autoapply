@@ -6,12 +6,12 @@ single-agent and multi-agent routes behave consistently and the platform never
 ends up with two agents for the same site (which would double-apply jobs and
 fight over the browser):
 
-  * ``acquire_platform`` / ``release_platform`` — a single concurrency gate.
-  * ``spawn_agent`` / ``stop_agent_process`` — cross-platform spawning that
+  * ``acquire_platform`` / ``release_platform`` â€” a single concurrency gate.
+  * ``spawn_agent`` / ``stop_agent_process`` â€” cross-platform spawning that
     puts each agent in its own process group so the *entire* tree (including
     the Chromium/Playwright children) can be killed on stop or crash, instead
     of leaking orphaned browser processes.
-  * ``recover_stuck_runs`` — called by a supervisor to flip any ``RunLog`` that
+  * ``recover_stuck_runs`` â€” called by a supervisor to flip any ``RunLog`` that
     is stuck in ``running`` (e.g. after a hard kill) to ``error``.
 """
 
@@ -57,6 +57,21 @@ def _shared_lock():
     return _shared_start_lock
 
 
+def container_memory_limit_mb():
+    """Read the container's hard RAM limit; absent/unlimited limits stay unknown."""
+    from pathlib import Path
+    limits = []
+    for name in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.limit_in_bytes"):
+        try:
+            value = int(Path(name).read_text().strip())
+        except (OSError, ValueError):
+            continue
+        # cgroup v1 represents unlimited memory with a near-INT64_MAX value.
+        if 0 < value < 2**60:
+            limits.append(value // (1024 * 1024))
+    return min(limits) if limits else None
+
+
 def ensure_browser_capacity(maximum=None):
     from api.remote_verification import controller
     if controller.active():
@@ -73,6 +88,15 @@ def ensure_browser_capacity(maximum=None):
                   if runtime.application_sync_task is not None
                   and runtime.application_sync_task is not current_task
                   and not runtime.application_sync_task.done())
+    memory_mb = container_memory_limit_mb()
+    if memory_mb is not None:
+        # Reserve 256 MiB for the dashboard and 768 MiB for each browser agent.
+        # A 512 MiB Koyeb instance was observed being OOM-killed at browser startup.
+        memory_capacity = max(0, (memory_mb - 256) // 768)
+        if active >= memory_capacity:
+            raise HTTPException(503, f"Insufficient container memory for another browser agent ({memory_mb} MiB limit). "
+                                "Reserve at least 1024 MiB for one agent, or run agents on your local computer. "
+                                "Starting was blocked to protect the dashboard from an out-of-memory restart.")
     maximum = maximum if maximum is not None else max(1, int(os.environ.get("MAX_ACTIVE_AGENTS", "2")))
     if active >= maximum:
         raise HTTPException(409, "Server browser capacity is busy. Try again after a running agent stops.")

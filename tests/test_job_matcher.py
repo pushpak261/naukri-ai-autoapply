@@ -124,6 +124,7 @@ class TestJobMatcher:
             {"score": 35, "matching_skills": [], "missing_skills": ["Swift"]}
         )
 
+        low_match_job.experience = "2-4 years"  # Isolate scoring from the eligibility veto.
         matcher = JobMatcher(mock_llm, mock_settings)
         result = await matcher.match(sample_resume, low_match_job)
 

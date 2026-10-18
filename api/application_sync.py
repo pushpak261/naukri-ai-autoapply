@@ -56,7 +56,7 @@ async def sync_applications():
         from api.tenants import validate_agent_configuration
         async with _shared_lock():
             ensure_browser_capacity()
-            await validate_agent_configuration("naukri")
+            await validate_agent_configuration("naukri", require_search=False)
         async with asyncio.timeout(300):
             observed = await observe_applications(state.settings, state.db_manager, jobs)
         now = datetime.now(UTC)

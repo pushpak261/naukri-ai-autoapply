@@ -110,7 +110,7 @@ def agent_environment():
     return env
 
 
-async def validate_agent_configuration(platform):
+async def validate_agent_configuration(platform, *, require_search=True):
     from fastapi import HTTPException
     from sqlalchemy import select
     from libs.common.security import decrypt_value
@@ -133,5 +133,10 @@ async def validate_agent_configuration(platform):
                 settings.naukri.email = active.email
                 settings.naukri.password = decrypt_value(active.password)
     problems = settings.validate_required()
+    if require_search:
+        if not any(str(value).strip() for value in settings.search.keywords):
+            problems.append("Add at least one search keyword in Preferences.")
+        if not any(str(value).strip() for value in settings.search.locations):
+            problems.append("Add at least one search location in Preferences.")
     if problems:
-        raise HTTPException(422, "Complete your platform credentials and resume configuration before starting: " + "; ".join(problems))
+        raise HTTPException(422, "Complete your agent configuration before starting: " + "; ".join(problems))

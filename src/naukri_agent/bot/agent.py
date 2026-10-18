@@ -1014,7 +1014,7 @@ class NaukriAgent:
                 f"  Locations: {', '.join(self._settings.search.locations)}\n"
                 f"  Daily Cap: {self._settings.application.daily_cap}\n"
                 f"  Match Threshold: {self._settings.application.match_score_threshold}%\n"
-                f"  AI Matching: {'Enabled' if self._settings.ai.enable_matching else 'Disabled (Bulk Apply Mode)'}\n"
+                f"  Matching: {'Gemini' if self._settings.ai.use_gemini and self._settings.ai.enable_matching else 'Local resume rules'}\n"
                 f"  Dry Run: {'Yes' if self._settings.application.dry_run else 'No'}\n"
                 f"  AI Model: {self._settings.ai.model}",
                 border_style="cyan",

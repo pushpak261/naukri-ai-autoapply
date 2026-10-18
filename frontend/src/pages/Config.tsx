@@ -29,6 +29,8 @@ interface ConfigForm {
   current_location: string;
   preferred_locations: string;
   total_experience: string;
+  confirmed_answers: {question: string; answer: string}[];
+  skill_experience: {skill: string; years: string}[];
   max_retries: number;
   email_notifications_enabled: boolean;
   notify_on_apply: boolean;
@@ -66,6 +68,8 @@ function configToForm(config: ConfigResponse): ConfigForm {
     current_location: config.profile.current_location,
     preferred_locations: config.profile.preferred_locations.join(', '),
     total_experience: config.profile.total_experience,
+    confirmed_answers: Object.entries(config.profile.confirmed_answers ?? {}).map(([question, answer]) => ({question, answer})),
+    skill_experience: Object.entries(config.profile.skill_experience_years ?? {}).map(([skill, years]) => ({skill, years: String(years)})),
     max_retries: config.application.max_retries ?? 3,
     email_notifications_enabled: config.notifications?.email_notifications_enabled ?? false,
     notify_on_apply: config.notifications?.notify_on_apply ?? true,
@@ -135,6 +139,8 @@ export default function Config() {
         current_location: form.current_location,
         preferred_locations: form.preferred_locations.split(',').map((s: string) => s.trim()).filter(Boolean),
         total_experience: form.total_experience,
+        confirmed_answers: Object.fromEntries(form.confirmed_answers.filter(row => row.question.trim() && row.answer.trim()).map(row => [row.question.trim(), row.answer.trim()])),
+        skill_experience_years: Object.fromEntries(form.skill_experience.filter(row => row.skill.trim() && row.years.trim()).map(row => [row.skill.trim(), Number(row.years)])),
         email_notifications_enabled: form.email_notifications_enabled,
         notify_on_apply: form.notify_on_apply,
         notify_on_failure: form.notify_on_failure,
@@ -327,10 +333,31 @@ export default function Config() {
               </div>
               <div className="flex items-center gap-3">
                 <input type="checkbox" id="answer_pdf" checked={form.answer_questions_with_pdf} onChange={(e) => setForm({ ...form, answer_questions_with_pdf: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
-                <label htmlFor="answer_pdf" className="text-sm text-[var(--color-text-secondary)]">Answer Questions with PDF</label>
+                <label htmlFor="answer_pdf" className="text-sm text-[var(--color-text-secondary)]">Fill screening questions from resume and saved facts</label>
               </div>
             </div>
           </div>
+        </div>
+
+        <div className={sectionClass}>
+          <h2 className="text-lg font-semibold mb-2">Gemini-free application assistant</h2>
+          <p className="text-sm muted mb-4">With Use Gemini AI off, both agents match jobs and fill forms using your resume and saved facts. Unknown required answers are left for review. No AI API key is needed.</p>
+          <h3 className="font-medium mb-2">Confirmed screening answers</h3>
+          <p className="text-sm muted mb-3">Enter the exact question and your truthful answer. For choices, use the exact option text. Save only answers that apply whenever that same question appears.</p>
+          {form.confirmed_answers.map((row, index) => <div key={index} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 mb-2">
+            <input aria-label={`Screening question ${index + 1}`} placeholder="Exact screening question" value={row.question} maxLength={300} className={inputClass} onChange={e => setForm({...form, confirmed_answers: form.confirmed_answers.map((r,i) => i === index ? {...r, question: e.target.value} : r)})}/>
+            <input aria-label={`Confirmed answer ${index + 1}`} placeholder="Your confirmed answer" value={row.answer} maxLength={1000} className={inputClass} onChange={e => setForm({...form, confirmed_answers: form.confirmed_answers.map((r,i) => i === index ? {...r, answer: e.target.value} : r)})}/>
+            <button type="button" className="secondary-button" aria-label={`Remove answer ${index + 1}`} onClick={() => setForm({...form, confirmed_answers: form.confirmed_answers.filter((_,i) => i !== index)})}>Remove</button>
+          </div>)}
+          <button type="button" className="secondary-button mb-5" onClick={() => setForm({...form, confirmed_answers: [...form.confirmed_answers, {question: '', answer: ''}]})}>Add confirmed answer</button>
+          <h3 className="font-medium mb-2">Experience by skill</h3>
+          <p className="text-sm muted mb-3">Enter actual professional experience in years. Listing a skill in your resume does not establish how long you used it.</p>
+          {form.skill_experience.map((row, index) => <div key={index} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 mb-2">
+            <input aria-label={`Skill ${index + 1}`} placeholder="Skill" value={row.skill} className={inputClass} onChange={e => setForm({...form, skill_experience: form.skill_experience.map((r,i) => i === index ? {...r, skill: e.target.value} : r)})}/>
+            <input type="number" min="0" max="80" step="0.1" aria-label={`Years using skill ${index + 1}`} placeholder="Years" value={row.years} className={inputClass} onChange={e => setForm({...form, skill_experience: form.skill_experience.map((r,i) => i === index ? {...r, years: e.target.value} : r)})}/>
+            <button type="button" className="secondary-button" aria-label={`Remove skill ${index + 1}`} onClick={() => setForm({...form, skill_experience: form.skill_experience.filter((_,i) => i !== index)})}>Remove</button>
+          </div>)}
+          <button type="button" className="secondary-button" onClick={() => setForm({...form, skill_experience: [...form.skill_experience, {skill: '', years: ''}]})}>Add skill experience</button>
         </div>
 
         <div className={sectionClass}>

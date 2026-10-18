@@ -1,9 +1,9 @@
-from typing import Any
+from typing import Any, Annotated
 
 import asyncio
 import yaml
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.deps import state
 from libs.common.security import encrypt_value
@@ -37,6 +37,8 @@ class ConfigUpdate(BaseModel):
     current_location: str | None = None
     preferred_locations: list[str] | None = None
     total_experience: str | None = None
+    confirmed_answers: dict[str, str] | None = Field(default=None, max_length=100)
+    skill_experience_years: dict[str, Annotated[float, Field(ge=0, le=80, allow_inf_nan=False)]] | None = Field(default=None, max_length=100)
     delay_between_applies_min: int | None = None
     delay_between_applies_max: int | None = None
     # Retry settings (feature 3)
@@ -110,6 +112,8 @@ async def get_config():
             "current_location": s.profile.current_location,
             "preferred_locations": s.profile.preferred_locations,
             "total_experience": s.profile.total_experience,
+            "confirmed_answers": s.profile.confirmed_answers,
+            "skill_experience_years": s.profile.skill_experience_years,
         },
         "logging": {
             "level": s.logging.level,
@@ -202,6 +206,8 @@ async def update_config(update: ConfigUpdate):
         (["profile", "current_location"], update.current_location, False),
         (["profile", "preferred_locations"], update.preferred_locations, False),
         (["profile", "total_experience"], update.total_experience, False),
+        (["profile", "confirmed_answers"], update.confirmed_answers, False),
+        (["profile", "skill_experience_years"], update.skill_experience_years, False),
         (["application", "delay_between_applies_min"], update.delay_between_applies_min, False),
         (["application", "delay_between_applies_max"], update.delay_between_applies_max, False),
         (["application", "email_notifications_enabled"], update.email_notifications_enabled, False),

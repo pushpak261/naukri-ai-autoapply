@@ -217,7 +217,8 @@ def _normalize_question_text(question_text: str) -> str:
     q = question_text or ""
     q = q.lower().strip()
     q = re.sub(r"\s+", " ", q)
-    q = re.sub(r"[^a-z0-9 ]+", " ", q)
+    # Preserve language identifiers: C, C++ and C# are different skills.
+    q = re.sub(r"[^a-z0-9 +#]+", " ", q)
     q = re.sub(r"\s+", " ", q)
     return q.strip()
 
@@ -252,7 +253,7 @@ class QACache:
         except Exception as e:
             logger.debug(f"Failed to save QA cache: {e}")
 
-    def get(self, question_key: str) -> str | None:
+    def get(self, question_key: str, *, exact_only: bool = False) -> str | None:
         normalized = _normalize_question_text(question_key)
         if not normalized:
             return None
@@ -261,6 +262,8 @@ class QACache:
             return self._qa_cache[normalized]
         if question_key in self._qa_cache:
             return self._qa_cache[question_key]
+        if exact_only:
+            return None
         # Fuzzy match: if any cached key is a substring or has high similarity
         from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
         best_score = 0.0
@@ -373,11 +376,21 @@ class QuestionAnswerer(IQuestionAnswerer):
         context_id = hashlib.sha256(context.encode()).hexdigest()[:16]
         cache_file = settings.project_root / "data" / f"qa_evidence_v2_{context_id}.json"
         self._cache = QACache(cache_file)
+        self._cache_context = None
 
         # Initialize Trie/Aho-Corasick on DIRECT_ANSWER_PATTERNS keys
         from src.naukri_agent.utils.trie import AhoCorasick
 
         self._trie = AhoCorasick(list(DIRECT_ANSWER_PATTERNS.keys()))
+
+    def _activate_job_context(self, job):
+        import hashlib
+        from libs.common.agent_reasoning import decision_fingerprint
+        evidence = decision_fingerprint(self._profile, job, self._settings.ai, self._settings.application.match_score_threshold)
+        context = hashlib.sha256((evidence + json.dumps(self._direct_answers, sort_keys=True, default=str)).encode()).hexdigest()[:32]
+        if context != self._cache_context:
+            self._cache = QACache(self._settings.project_root / 'data' / f'qa_job_evidence_v3_{context}.json')
+            self._cache_context = context
 
     def _try_direct_answer(
         self, question_text: str, q_type: str = "text", options: list[dict] | None = None
@@ -530,6 +543,8 @@ class QuestionAnswerer(IQuestionAnswerer):
         if not questions:
             return []
 
+        self._activate_job_context(job)
+
         answers: list[dict] = []
         ai_questions = []
 
@@ -538,9 +553,15 @@ class QuestionAnswerer(IQuestionAnswerer):
             question_text = q.get("question", "")
             q_type = q.get("type", "text")
             options = q.get("options", [])
-            direct = self._try_direct_answer(question_text, q_type, options)
+            from libs.common.screening import evidence_answer
+            direct = (self._try_direct_answer(question_text, q_type, options) if self._settings.ai.use_gemini
+                      else evidence_answer(q, self._settings, self._profile))
             q_key = _normalize_question_text(question_text)
-            cached = self._cache.get(q_key)
+            cached = self._cache.get(q_key, exact_only=True)
+            if cached and options:
+                option_texts = [str(option.get('text', '') if isinstance(option, dict) else option) for option in options]
+                if cached not in option_texts:
+                    cached = None
 
             if direct:
                 answers.append(
@@ -809,6 +830,7 @@ class QuestionAnswerer(IQuestionAnswerer):
         job: Job,
     ) -> list[dict]:
         """Use Gemini to answer complex screening questions."""
+        self._activate_job_context(job)
         skills_list = ", ".join(self._profile.skills[:30])
 
         questions_json = json.dumps(
@@ -934,8 +956,6 @@ class QuestionAnswerer(IQuestionAnswerer):
                     matched_ans = ans_by_id[orig_id]
                 elif orig_q_key and orig_q_key in ans_by_q:
                     matched_ans = ans_by_q[orig_q_key]
-                elif idx < len(ai_answers_raw) and isinstance(ai_answers_raw[idx], dict):
-                    matched_ans = ai_answers_raw[idx]
 
                 if matched_ans:
                     a_val = str(matched_ans.get("answer", "")).strip()
@@ -949,20 +969,12 @@ class QuestionAnswerer(IQuestionAnswerer):
                 if orig_options and a_val:
                     opt_texts = [o.get("text", "") for o in orig_options]
                     if a_val not in opt_texts:
-                        from src.naukri_agent.utils.fuzzy import fuzzy_similarity_ratio
-                        best_opt = None
-                        best_score = 0.0
                         a_lower = a_val.lower().strip()
-                        for opt in opt_texts:
-                            o_lower = opt.lower().strip()
-                            score = fuzzy_similarity_ratio(a_lower, o_lower)
-                            if score > best_score:
-                                best_score = score
-                                best_opt = opt
-                        if best_opt and best_score >= 0.70:
+                        best_opt = next((opt for opt in opt_texts if opt.strip().lower() == a_lower), None)
+                        if best_opt:
                             a_val = best_opt
-                            conf = "high"
                         else:
+                            a_val = ''
                             conf = "low"
 
                 if orig_q_text and a_val and conf != "low":

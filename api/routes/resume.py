@@ -82,7 +82,7 @@ def _update_config_resume_path(new_rel_path: str) -> None:
 
 @router.post("/api/resume/upload")
 async def upload_resume(file: UploadFile = File(...), mode: Literal['configured', 'ai', 'local'] = 'configured'):
-    require_ai = mode == 'ai'
+    require_ai = mode == 'ai' or (mode == 'configured' and state.settings.ai.use_gemini)
     if require_ai and not state.settings.ai.gemini_api_key:
         raise HTTPException(422, 'Add your Gemini API key in Preferences → AI Settings, save it, then retry AI parsing. Your existing profile is unchanged.')
     ext = Path(file.filename or "resume.pdf").suffix.lower()
@@ -131,6 +131,14 @@ async def upload_resume(file: UploadFile = File(...), mode: Literal['configured'
                 "file_hash": cached.file_hash,
             }
 
+    if not require_ai:
+        try:
+            reviewed = json.loads(_get_profile_json_path().read_text(encoding='utf-8'))
+            if reviewed.get('file_hash') == file_hash:
+                cached_profile = reviewed
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
+
     if cached_profile:
         profile_json_path = _get_profile_json_path()
         cached_profile["uploaded_file_path"] = str(dest_path)
@@ -152,7 +160,7 @@ async def upload_resume(file: UploadFile = File(...), mode: Literal['configured'
         if state.settings and state.settings.ai and state.settings.ai.gemini_api_key
         else (os.environ.get("GEMINI_API_KEY", "") if not state.user_id else "")
     )
-    if state.settings.ai.use_gemini and not api_key:
+    if mode != 'local' and state.settings.ai.use_gemini and not api_key:
         raise HTTPException(
             status_code=400,
             detail="Gemini API key not configured. Set GEMINI_API_KEY in environment or config.",

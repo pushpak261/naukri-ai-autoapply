@@ -106,10 +106,8 @@ class TestJobMatcherGating:
         matcher = JobMatcher(mock_llm, _make_settings(use_gemini=True, enable_matching=False))
         result = await matcher.match(_make_resume(), _make_job())
         mock_llm.generate_content.assert_not_called()
-        assert (
-            result.match_reasoning
-            == "Calculated using local deterministic algorithm based on skill overlap."
-        )
+        assert result.match_reasoning.startswith("Resume rules: 2/2 listed skills supported")
+        assert result.should_apply
 
     @pytest.mark.asyncio
     async def test_use_gemini_false_enable_matching_true_uses_local(self):
@@ -119,10 +117,8 @@ class TestJobMatcherGating:
         matcher = JobMatcher(mock_llm, _make_settings(use_gemini=False, enable_matching=True))
         result = await matcher.match(_make_resume(), _make_job())
         mock_llm.generate_content.assert_not_called()
-        assert (
-            result.match_reasoning
-            == "Calculated using local deterministic algorithm based on skill overlap."
-        )
+        assert result.match_reasoning.startswith("Resume rules: 2/2 listed skills supported")
+        assert result.should_apply
 
     @pytest.mark.asyncio
     async def test_use_gemini_false_enable_matching_false_uses_local(self):
@@ -131,10 +127,8 @@ class TestJobMatcherGating:
         matcher = JobMatcher(mock_llm, _make_settings(use_gemini=False, enable_matching=False))
         result = await matcher.match(_make_resume(), _make_job())
         mock_llm.generate_content.assert_not_called()
-        assert (
-            result.match_reasoning
-            == "Calculated using local deterministic algorithm based on skill overlap."
-        )
+        assert result.match_reasoning.startswith("Resume rules: 2/2 listed skills supported")
+        assert result.should_apply
 
 
 # ============================================================================
@@ -149,7 +143,7 @@ class TestQuestionAnswererGating:
         """use_gemini=true, answer_questions_with_pdf=true → Gemini answers complex questions."""
         mock_llm = AsyncMock()
         mock_llm.generate_content.return_value = json.dumps(
-            [{"question": "Why join?", "answer": "Great fit!", "confidence": "high"}]
+            [{"question": "Why do you want to join us?", "answer": "Great fit!", "confidence": "high"}]
         )
         settings = _make_settings(use_gemini=True, answer_questions_with_pdf=True)
         qa = QuestionAnswerer(mock_llm, settings, _make_resume())

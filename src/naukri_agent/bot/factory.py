@@ -126,6 +126,13 @@ class DependencyFactory:
         return self._repository
 
     def get_llm_provider(self) -> ILLMProvider:
+        from libs.common.offline_provider import OfflineProvider
+        if not self._settings.ai.use_gemini:
+            if not isinstance(self._llm_provider, OfflineProvider):
+                self._llm_provider = OfflineProvider()
+            return self._llm_provider
+        if isinstance(self._llm_provider, OfflineProvider):
+            self._llm_provider = None
         if not self._llm_provider:
             self._llm_provider = GeminiProvider(
                 api_key=self._settings.ai.gemini_api_key,

@@ -109,3 +109,16 @@ async def test_encrypted_backup_roundtrip_and_owner_binding(tmp_path, monkeypatc
         await remote.restore(UploadFile(file=BytesIO(response.body)), "other@example.com")
     with pytest.raises(HTTPException):
         await remote.restore(UploadFile(file=BytesIO(json.dumps(state).encode())), "owner@example.com")
+
+
+def test_naukri_passphrase_sessions_are_encrypted_and_legacy_json_is_readable():
+    from src.naukri_agent.browser.engine import PlaywrightEngine
+    from src.naukri_agent.config.settings import Settings as NaukriSettings
+    engine = PlaywrightEngine(NaukriSettings(session_encryption_key="host-passphrase"))
+    payload = b'{"cookies": [], "origins": []}'
+    encrypted = engine._encrypt(payload)
+    assert encrypted != payload
+    assert engine._decrypt(encrypted) == payload
+    assert engine._decrypt(payload) == payload
+    other = PlaywrightEngine(NaukriSettings(session_encryption_key="host-passphrase"))
+    assert other._decrypt(encrypted) == payload

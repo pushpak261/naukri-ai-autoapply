@@ -112,3 +112,57 @@ The local account configurations had Gemini disabled and no API key. That explai
 - Analytics and Copilot evidence coverage remain database/rule-based. They are not relabeled as AI output.
 
 Verification: **1,060 backend tests passed, one Windows symlink test skipped**. The final focused screening and AI-readiness set passed **166 tests**, including the last skill-specific-tenure guard. Frontend regressions passed **18 tests**, production build and TypeScript passed. Mock-provider tests verify schema handling, local-cache bypass, upgrade of existing profiles, shared settings, preservation on failure, and missing-key errors. Browser checks verified the key/test controls and AI reparse action. Live Gemini output remains unverified until the account owner saves a valid key with available quota.
+
+
+## Shared agent decision improvements — 2026-10-18
+
+Reviewed the matching, screening-answer, cache, orchestration and application-state boundaries for Naukri and LinkedIn. Existing login, scraping, duplicate protection, required-field checks and single-submit confirmation behavior remain in place.
+
+- Both matchers now veto explicit numeric experience requirements that exceed the saved resume before calling AI or accepting a cached positive result. Overlapping ranges such as 0-4 years remain eligible; preferences, dates and month-based statements are not treated as mandatory year requirements. This guard is deliberately conservative and does not interpret every employer's prose.
+- Shared AI instructions assess mandatory eligibility before skill overlap, distinguish work from projects, and request concise evidence-based fit/uncertainty explanations. LinkedIn screening now includes work history, raw resume evidence and listing context. Unsupported personal/legal/willingness answers are instructed to remain blank. AI output still requires review where evidence is missing.
+- Matching cache identity includes meaningful profile, listing, model and threshold context but ignores scrape time, database row identity and navigation position. An unchanged rescraped job reuses its result; changed requirements invalidate it.
+- Naukri answer caches now include employer/listing/profile/preferences context. Runtime cache lookup is exact; Java questions cannot reuse JavaScript answers. Cached choice answers must still exist in the current options.
+- Screening answers require stable IDs or an identifiable question, never positional guessing. LinkedIn accepts shortened labels only when unambiguous. Naukri no longer converts approximate choice text into a confident selection. Unknown or mismatched answers stay blank/low-confidence for the existing required-field review path.
+
+These changes add decision checks and better evidence context without additional mandatory AI calls, automatic provider switching, or real job submissions during testing. Live Gemini comparison remains blocked by the existing account quota; offline tests do not establish model quality for every employer form.
+
+Verification: 1,139 backend tests passed with one Windows symlink skip. After the final C/C++/C# normalization refinement, 178 focused screening, gating and decision checks passed. The required Black check passed for all 14 shared-library files. No live applications or paid AI requests were used.
+
+
+### Deployed Naukri startup validation (2026-10-18)
+
+- Observed empty search keywords and locations on the deployed tenant. Saved the user-selected Java Developer / Backend Developer searches for Pune and Mumbai, retaining Dry Run.
+- Agent preflight now rejects empty keywords/locations with actionable Preferences guidance, while selected-job runs and application status verification do not require a search.
+- Naukri session encryption now derives a Fernet key from deployment passphrases instead of silently saving cookies as plaintext. Existing plaintext JSON remains readable for migration; subsequent saves encrypt it.
+- 39 targeted configuration, session, and lifecycle regression tests passed; full isolated backend suite: 1,141 passed, one Windows symlink skip. Source fixes require deployment; no claim of live submission verification. Dashboard authentication expired during monitoring and the prior login was rejected; further live verification requires the user to sign in again.
+
+
+### Deployed login diagnosis (2026-10-18)
+
+- Public health endpoint responds successfully; the supplied deployed login is rejected by the API with HTTP 401 / Invalid email or password. No evidence supports bypassing authentication or recreating the account.
+- Fixed login and registration forms discarding Redux serialized error messages. Provider and validation errors now retain their actionable messages, including timeout guidance.
+- Durable hosted identity storage remains an operational requirement: set DASHBOARD_DATA_DIR to a mounted persistent directory so dashboard_identities.db, users/, and generated .jwt_secret survive restarts. SESSION_ENCRYPTION_KEY and JWT_SECRET must remain stable; configure them through the hosting provider, never in Git. Existing data must be backed up and migrated before changing paths. Whether the current account database was lost still requires deployment logs/storage inspection.
+
+
+### Koyeb investigation (2026-10-18)
+
+- The active deployment is 0e9e277a on the Free instance: 0.1 vCPU, 512 MB RAM, zero volumes. Deployment logs explicitly report exit code 9 / out-of-memory, followed by server startup and authentication refresh failures. This establishes the memory failure; account loss is suspected but not proven by a database query.
+- Koyeb Settings states that volumes are unsupported on Free instances. Durable hosted storage and a larger browser-capable instance require a hosting change; no billing, plan, credential, or deployment settings were changed.
+- Added cgroup v1/v2 memory preflight shared by agent starts and verification. It reserves 256 MiB for the API and 768 MiB per browser process; rejects a 512 MiB browser start with actionable HTTP 503. Unknown/unlimited environments retain existing behavior. This is a protective budget, not a guarantee against OOM for all workloads.
+- 36 memory, verification and lifecycle regressions passed. Changes remain local pending durable-hosting selection.
+
+- User chose the free local route. Rebuilt frontend with same-origin API and local PWA settings; restarted scripts/local_dashboard.py with the existing local-workspace. Local health/login HTTP 200; existing signed-in local account and history restored without recreating identities or changing passwords. Koyeb settings were not saved or redeployed.
+
+- Local Naukri dry-run verification: saved platform session restored, 51 live jobs scraped, one Gemini HTTP 200 assessment scored 85/100. The next request returned daily-quota HTTP 429 and the agent stopped with zero submissions, zero failed jobs, browser closed. No claim of live form/submission validation from this dry run.
+
+
+### Gemini-free agent implementation (2026-10-18)
+
+- Added shared explainable matching with token boundaries/skill aliases, job-skill coverage, role overlap and existing experience-eligibility vetoes. Removed Naukri's 80-point bonus for listings without identifiable requirements.
+- Added a no-network provider to both factories when Gemini is off. Shared factual screening supports exact confirmed answers, explicit skill tenure, contact facts, decimal years/months, salary ranges and notice periods. Unknown mandatory answers remain unanswered and prevent submission.
+- Added Preferences controls and validated API storage for confirmed answers and per-skill years, shared with LinkedIn. Resume upload uses the configured mode; LinkedIn now rejects stale shared profiles with mismatched hashes.
+- Nine focused offline tests passed, including actual answerer-to-form integration: Naukri required-field filling, LinkedIn simulated single submission, and blocking unknown required sponsorship answers. No real applications were submitted by these tests.
+
+- Final validation: 1,158 backend tests passed (one Windows symlink skip), 20 frontend tests passed and local production build passed. Subsequent reviewed-profile/upload fixes passed 38 parser/form tests and 43 profile/config/API tests.
+- Live Gemini-free verification: Naukri restored login and scraped 51 jobs; inspected a saved live Java listing with the reviewed profile and a no-network provider, scoring 80/100. Found and fixed stale DB cache taking precedence over the reviewed shared profile, including same-file re-upload preserving edits. Restored the same user's verified matching-hash profile from their existing LinkedIn cache; no cross-account data copied.
+- LinkedIn restored login, scraped 133 live listings across Pune/Mumbai, scored a backend Java role 92/100 locally, and skipped the already-applied Wissen listing. Stopped after proving these decisions. Both agents retain Dry Run; no new applications were sent.
