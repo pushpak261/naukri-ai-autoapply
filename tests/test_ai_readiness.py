@@ -18,6 +18,49 @@ def ai_profile():
 
 
 @pytest.mark.asyncio
+async def test_agent_reuses_only_verified_ai_profile_for_same_file(tmp_path):
+    import hashlib
+    source = tmp_path / 'resume.pdf'
+    source.write_bytes(b'unchanged uploaded resume')
+    saved = ai_profile()
+    saved.update(file_hash=hashlib.sha256(source.read_bytes()).hexdigest(), raw_text='Original resume evidence', parsing={'method': 'ai'})
+    target = tmp_path / 'resume_profile.json'
+    target.write_text(json.dumps(saved), encoding='utf-8')
+    provider = AsyncMock()
+    repo = AsyncMock()
+    settings = Settings(project_root=tmp_path, ai={'use_gemini': True, 'gemini_api_key': 'test-only'})
+    result = await ResumeParser(provider, repo, settings).parse(source)
+    assert result.name == saved['name']
+    assert result.raw_text == saved['raw_text']
+    provider.generate_content.assert_not_awaited()
+    repo.get_cached_profile.assert_not_awaited()
+    assert json.loads(target.read_text()) == saved
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('method,changed_file', [('local', False), ('ai', True)])
+async def test_agent_rejects_local_or_wrong_file_cache_and_preserves_profile(tmp_path, monkeypatch, method, changed_file):
+    import hashlib
+    from src.naukri_agent.utils.exceptions import LLMQuotaExceededError
+    source = tmp_path / 'resume.pdf'
+    source.write_bytes(b'uploaded resume')
+    saved = ai_profile()
+    saved.update(file_hash='wrong-hash' if changed_file else hashlib.sha256(source.read_bytes()).hexdigest(), parsing={'method': method})
+    target = tmp_path / 'resume_profile.json'
+    target.write_text(json.dumps(saved), encoding='utf-8')
+    provider = AsyncMock()
+    provider.generate_content.side_effect = LLMQuotaExceededError('Quota exhausted', is_daily_quota=True)
+    settings = Settings(project_root=tmp_path, ai={'use_gemini': True, 'gemini_api_key': 'test-only'})
+    repo = AsyncMock()
+    parser = ResumeParser(provider, repo, settings)
+    monkeypatch.setattr(parser, '_extract_resume_text', lambda path: 'Resume evidence')
+    with pytest.raises(LLMQuotaExceededError):
+        await parser.parse(source)
+    repo.get_cached_profile.assert_not_awaited()
+    assert json.loads(target.read_text()) == saved
+
+
+@pytest.mark.asyncio
 async def test_strict_ai_bypasses_local_cache_and_records_provenance(tmp_path, monkeypatch):
     settings = Settings(project_root=tmp_path, ai={'use_gemini': True, 'gemini_api_key': 'test-only'})
     source = tmp_path / 'resume.pdf'

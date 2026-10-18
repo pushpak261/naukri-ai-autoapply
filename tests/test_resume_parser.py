@@ -17,6 +17,7 @@ def mock_settings():
     """Create mock settings for testing."""
     settings = MagicMock()
     settings.ai.gemini_api_key = "test_key"
+    settings.ai.use_gemini = False
     settings.ai.model = "gemini-2.5-flash"
     settings.ai.temperature = 0.3
     settings.ai.max_output_tokens = 4096

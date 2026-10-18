@@ -37,7 +37,7 @@ class LinkedInResumeParser:
                 raise ValueError('Configure your Gemini API key before AI resume parsing.')
             import dataclasses
             from src.naukri_agent.ai.resume_parser import ResumeParser as SharedResumeParser
-            parsed = await SharedResumeParser(self._llm, self._repo, self._settings).parse(pdf_path, require_ai=True)
+            parsed = await SharedResumeParser(self._llm, self._repo, self._settings).parse(pdf_path)
             fields = {field.name for field in dataclasses.fields(ResumeProfile)}
             return ResumeProfile(**{key: value for key, value in dataclasses.asdict(parsed).items() if key in fields})
         """Parse a resume PDF and return a structured profile."""

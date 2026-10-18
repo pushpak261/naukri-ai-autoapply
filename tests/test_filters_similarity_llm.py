@@ -24,8 +24,9 @@ class TestExperienceFilter:
     def test_range_starting_too_high_is_rejected(self):
         assert JobFilter(2, 30)._passes_experience_filter("7-9 yrs") is False
 
-    def test_range_ending_far_above_limit_is_rejected(self):
-        assert JobFilter(2, 30)._passes_experience_filter("1-6 yrs") is False
+    @pytest.mark.parametrize('experience', ['1-6 yrs', '0-4 Yrs', '0-7 Yrs'])
+    def test_range_accepting_junior_applicants_is_retained(self, experience):
+        assert JobFilter(2, 30)._passes_experience_filter(experience) is True
 
     def test_month_abbreviation_is_treated_as_a_date_not_experience(self):
         assert JobFilter(2, 30)._passes_experience_filter("24 Mar") is True

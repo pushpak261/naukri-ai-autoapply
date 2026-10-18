@@ -1353,6 +1353,7 @@ class TestCleanup:
     async def test_updates_run_log_and_records_metrics(self, tmp_path):
         settings = make_settings(tmp_path)
         agent = make_agent(tmp_path, settings=settings)
+        agent._llm.aclose = AsyncMock()
         repo = agent._repo
         agent._run_log_id = 7
         agent._jobs_found = 5
@@ -1372,6 +1373,7 @@ class TestCleanup:
             status="completed",
         )
         agent._engine.close.assert_awaited_once()
+        agent._llm.aclose.assert_awaited_once()
 
         metrics = json.loads(
             (tmp_path / "data" / "logs" / "metrics.json").read_text(encoding="utf-8")

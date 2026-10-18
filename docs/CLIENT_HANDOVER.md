@@ -72,6 +72,10 @@ Do not mark items complete without evidence. Keep client screenshots and persona
 
 ## Commercial scope to agree
 
+### Supervised Naukri validation — 2026-10-18
+
+A supervised Dry Run restored the saved Naukri login and scraped 51 real listings. Experience filtering now retains ranges such as 0-4 years when junior applicants meet the minimum requirement. The agent reused a validated AI profile for the same resume hash without a fresh parsing request. Gemini's daily quota blocked the first AI job assessment, so screening and submission were not validated live and no Naukri applications were submitted. Quota failures stop clearly without silently replacing the AI profile with local parsing. Agent cleanup closes the AI client as well as the browser. The UI's explicit AI reparse still requests a fresh parse.
+
 ### Supervised LinkedIn validation — 2026-10-18
 
 With the account owner's approval for one real application, a single queued Pune role passed Gemini matching at 85/100. The agent restored the saved session, uploaded the selected resume, preserved prefilled contact fields, filled screening fields, reached review and received platform submission confirmation. Both application history and the completed run recorded one applied job and zero failures. Original Dry Run mode and the daily cap were restored afterward. This verifies that particular LinkedIn Easy Apply flow; Naukri and other employers' forms still require their own live acceptance checks.

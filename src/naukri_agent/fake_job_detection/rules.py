@@ -1032,9 +1032,6 @@ def evaluate_job_all_filters(
             if min_req > max_exp:
                 exp_passed = False
                 exp_reason = f"Experience required ({min_req} Yrs) exceeds limit ({max_exp} Yrs)"
-            elif max_req > max_exp + 1 and max_req >= 4:
-                exp_passed = False
-                exp_reason = f"Maximum experience in range ({max_req} Yrs) exceeds target limit ({max_exp} Yrs)"
 
     evaluations["experience"] = {
         "name": "Experience Limit",

@@ -158,22 +158,22 @@ def test_freelance_animator_blocked(settings):
 # 3. Experience Limit Filter Tests
 # ======================================================================
 
-def test_experience_limit_blocks_0_to_5_years_when_max_is_2(settings):
+def test_experience_limit_retains_0_to_5_years_when_max_is_2(settings):
     job = Job(
         naukri_job_id="107",
         title="Product Designer",
         company="Legit Farms",
         experience="0-5 Yrs",
+        posted_date="2 days ago",
         url="https://example.com/job107",
     )
 
     eval_res = evaluate_job_all_filters(job, settings)
-    assert eval_res["filter_evaluations"]["experience"]["passed"] is False
-    assert "exceeds target limit" in eval_res["filter_evaluations"]["experience"]["reason"]
+    assert eval_res["filter_evaluations"]["experience"]["passed"] is True
 
     jf = JobFilter(max_experience=2, max_freshness_days=30)
     filtered = jf.filter([job])
-    assert len(filtered) == 0
+    assert len(filtered) == 1
 
 
 def test_experience_limit_passes_0_to_2_years(settings):

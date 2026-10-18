@@ -25,6 +25,8 @@ Orchestration flow:
 
 from __future__ import annotations
 
+from src.naukri_agent.utils.exceptions import LLMQuotaExceededError
+
 import asyncio
 import contextlib
 import dataclasses
@@ -386,6 +388,9 @@ class NaukriAgent:
         except KeyboardInterrupt:
             log_warning("Agent interrupted by user (Ctrl+C)")
             self._interrupted = True
+        except LLMQuotaExceededError as e:
+            self._run_error = True
+            log_warning(f'Naukri run stopped: {e} No further applications will be attempted.')
         except Exception as e:
             self._run_error = True
             if self._interrupted:
@@ -995,6 +1000,10 @@ class NaukriAgent:
                 await self._engine.close()
             except (PlaywrightTimeoutError, PlaywrightError) as e:
                 logger.debug(f"Browser close error: {e}")
+        close_ai = getattr(self._llm, 'aclose', None)
+        if callable(close_ai):
+            with contextlib.suppress(Exception):
+                await close_ai()
 
     def _print_banner(self) -> None:
         """Print the agent startup banner."""

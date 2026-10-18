@@ -455,6 +455,7 @@ class ResumeParser(IResumeParser):
     def _preserve_metadata(self, data: dict) -> dict:
         """Preserve metadata fields from the existing resume_profile.json when writing new data."""
         profile_json_path = self._settings.project_root / "resume_profile.json"
+
         if profile_json_path.exists():
             try:
                 existing = json.loads(profile_json_path.read_text(encoding="utf-8"))
@@ -501,6 +502,21 @@ class ResumeParser(IResumeParser):
         file_hash = hash_file(path)
 
         profile_json_path = self._settings.project_root / "resume_profile.json"
+
+        if self._settings.ai.use_gemini:
+            if not require_ai and profile_json_path.exists():
+                try:
+                    saved = json.loads(profile_json_path.read_text(encoding='utf-8'))
+                    if saved.get('file_hash') == file_hash and saved.get('parsing', {}).get('method') == 'ai':
+                        validated = ResumeProfileSchema.model_validate(saved).model_dump()
+                        validated.update(raw_text=saved.get('raw_text', ''), file_hash=file_hash)
+                        log_info('Using verified AI resume profile for the unchanged uploaded file')
+                        return _map_to_domain_profile(validated, file_hash)
+                except (ValueError, TypeError, AttributeError, OSError):
+                    logger.warning('Saved AI profile is invalid; requesting a fresh AI parse.')
+            # Local/legacy database results must not silently replace an AI
+            # profile, including when the provider is out of quota.
+            require_ai = True
 
         # Check database cache
         if self._repo and not require_ai:
