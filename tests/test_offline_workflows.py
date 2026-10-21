@@ -90,6 +90,21 @@ def test_local_matching_understands_compound_skill_tags_and_minimum_experience()
     assert "Required experience is 2.5" in result[2]
 
 
+def test_saved_profile_without_title_still_matches_its_evidenced_java_stack():
+    profile = ResumeProfile(
+        skills=["Java", "Spring Boot", "Microservices"], total_experience_years=1
+    )
+    job = Job(
+        "1",
+        "Java Developer",
+        "Example",
+        "https://example.invalid",
+        skills="Java Developer, Java, Spring Boot, Spring, Microservices",
+        experience="0-2 years",
+    )
+    assert local_match(profile, job, 70)[1]
+
+
 def test_screening_preserves_question_units_and_distinguishes_skill_tenure():
     settings = Settings(
         profile={
@@ -205,6 +220,25 @@ def test_linkedin_inherits_compatible_search_targets_and_keeps_platform_filters(
     assert specific["search"]["keywords"] == ["Java"]
     assert specific["search"]["locations"] == ["Mumbai"]
     assert specific["search"]["freshness"] == "past_24h"
+
+
+def test_local_matching_enforces_experience_stated_in_description():
+    from libs.common.local_matching import local_match
+
+    profile = ResumeProfile(skills=["Java", "Spring Boot"], total_experience_years=1)
+    job = Job(
+        "1",
+        "Java Developer",
+        "Employer",
+        "https://example.invalid",
+        skills="Java, Spring Boot",
+        description="Your expertise: 5+ years of experience in backend development.",
+    )
+    result = local_match(profile, job, 70)
+    assert not result[1]
+    assert "Required experience is 5 years" in result[2]
+    job.description = "The company was founded 30 years ago."
+    assert local_match(profile, job, 70)[1]
 
 
 @pytest.mark.asyncio

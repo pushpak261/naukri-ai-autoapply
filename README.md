@@ -47,6 +47,8 @@ Upload a PDF or DOCX, review the extracted profile, and save your search targets
 
 Connect each platform and start with **Dry Run** enabled. Search visits all configured keyword/location combinations within the page limit, while the daily cap limits submissions. After reviewing the results and your facts, disable Dry Run to submit matching applications through Naukri native forms and LinkedIn Easy Apply. External employer forms, authentication challenges, and unsupported questions require manual review.
 
+For a LinkedIn `Remote` search target, set `search.remote_location` in the workspace's `linkedin_config.yaml` to the intended country or region (for example, `India`). This applies the Remote work filter across that region. When blank, LinkedIn's currently selected geography is retained.
+
 ### Opportunity Copilot
 
 Open `/copilot` after saving your profile and collecting jobs. Copilot reviews up to 500 recent listings, explains structured skill overlap, flags location or stated-experience mismatches, and suggests practical next steps. A role preparation brief provides evidence-grounded talking points, recruiter questions, a checklist and an editable outreach starting point. It never sends messages or queues applications.

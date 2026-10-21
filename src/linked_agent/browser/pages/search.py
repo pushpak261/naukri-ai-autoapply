@@ -78,6 +78,8 @@ class LinkedInSearchPage(BasePage):
                     raise RuntimeError("CAPTCHA challenge detected")
 
                 await self._ensure_search_location(requested)
+                if "2" in intended_params.get("f_WT", [""])[0].split(","):
+                    await self._ensure_search_location("Remote")
                 await asyncio.sleep(2)
                 return
             except (PlaywrightTimeoutError, PlaywrightError) as e:
@@ -99,9 +101,12 @@ class LinkedInSearchPage(BasePage):
         if not await label.count():
             return  # Legacy layout still supports location= directly.
         if requested.casefold() == "remote":
-            remote = page.locator('input[aria-label="Filter by Remote"]').first
-            if await remote.count() and not await remote.is_checked():
-                await remote.check()
+            remote = page.locator('input[aria-label="Filter by Remote"]:checked')
+            if not await remote.count():
+                # The native input is visually hidden; its associated label is
+                # the public control. A second copy lives in a hidden drawer.
+                await page.locator("label:visible").filter(has_text=re.compile(r"^Remote$")).first.click()
+                await page.locator('input[aria-label="Filter by Remote"]:checked').first.wait_for(state="attached")
             return
 
         def normalized(text):
@@ -115,10 +120,29 @@ class LinkedInSearchPage(BasePage):
             await editor.click()
             await editor.press("ControlOrMeta+a")
             await page.keyboard.type(requested, delay=60)
-            options = page.locator('#semanticSearchBoxLocationList a, [popover] a, [popover] [role="option"], [popover] [role="button"]')
-            option = options.filter(has_text=re.compile(re.escape(requested), re.I)).first
-            await option.wait_for(state="visible", timeout=10000)
-            await option.click()
+            # Autocomplete can replace/close its popover before Playwright's
+            # click actionability checks finish. Capture the actual suggested
+            # search link while it is present, then follow that same link.
+            suggestion = await page.wait_for_function(
+                """target => {
+                    const normalize = text => text.toLowerCase().replace(/\\bbangalore\\b/g, 'bengaluru');
+                    const links = [...document.querySelectorAll('#semanticSearchBoxLocationList a[href]')];
+                    const match = links.find(link => normalize(link.textContent.trim()).startsWith(target));
+                    return match ? match.href : null;
+                }""",
+                arg=target,
+                timeout=10000,
+            )
+            destination = await suggestion.json_value()
+            parsed = urlparse(destination)
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname != "www.linkedin.com"
+                or not parsed.path.startswith("/jobs/search")
+                or not parse_qs(parsed.query).get("geoId", [""])[0].isdigit()
+            ):
+                raise RuntimeError("LinkedIn returned an invalid location suggestion")
+            await page.goto(destination, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_function(
                 "target => {const el=document.querySelector('[aria-label^=\"Location \"]'); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
                 arg=target,
@@ -376,16 +400,16 @@ class LinkedInSearchPage(BasePage):
             const loc = document.querySelector('.job-details-jobs-unified-top-card__primary-description span, .job-details-jobs-unified-top-card__bullet');
             details.location = loc ? loc.textContent.trim() : '';
 
-            const descSelectors = ['.jobs-description__content', '.jobs-box__html-content', '.description__text', '.show-more-less-html__markup', 'div.jobs-description', '.job-details-jobs-unified-top-card__job-insight'];
+            const descSelectors = ['[componentkey^="JobDetails_AboutTheJob_"]', '.jobs-description__content', '.jobs-box__html-content', '.description__text', '.show-more-less-html__markup', 'div.jobs-description', '.job-details-jobs-unified-top-card__job-insight'];
             let descText = '';
             for (const sel of descSelectors) {
                 const el = document.querySelector(sel);
-                if (el && el.textContent.trim().length > 100) {
+                if (el && el.textContent.trim().length > 20) {
                     descText = el.textContent.trim();
                     break;
                 }
             }
-            if (!descText || descText.length < 200) {
+            if (!descText) {
                 let maxLen = 0;
                 document.querySelectorAll('div, section').forEach(el => {
                     const t = el.textContent.trim();

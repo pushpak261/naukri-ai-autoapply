@@ -13,7 +13,7 @@ from playwright.async_api import Error as PlaywrightError
 
 from src.linked_agent.browser.pages.base import BasePage
 from src.linked_agent.config.constants import (
-    LINKEDIN_BASE_URL,
+    LINKEDIN_JOBS_URL,
     LINKEDIN_LOGIN_URL,
     LoginSelectors,
 )
@@ -54,9 +54,9 @@ class LinkedInLoginPage(BasePage):
         await asyncio.sleep(2)
 
     async def navigate_to_base(self) -> None:
-        """Navigate to LinkedIn base URL to check session."""
+        """Check the authenticated jobs surface, not the public landing page."""
         page = self._engine.page
-        await page.goto(LINKEDIN_BASE_URL, wait_until="domcontentloaded")
+        await page.goto(LINKEDIN_JOBS_URL, wait_until="domcontentloaded")
         await self._interactions.wait_for_navigation_complete()
         await asyncio.sleep(2)
 
