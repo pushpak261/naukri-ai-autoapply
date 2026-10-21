@@ -101,8 +101,9 @@ class LinkedInJobSearcher:
 
                 new_count = 0
                 for job in jobs:
-                    if job.linkedin_job_id not in all_jobs:
-                        all_jobs[job.linkedin_job_id] = job
+                    identifier = job.linkedin_job_id or job.url
+                    if identifier and identifier not in all_jobs:
+                        all_jobs[identifier] = job
                         new_count += 1
 
                 logger.info(

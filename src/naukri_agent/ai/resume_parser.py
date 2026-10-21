@@ -536,12 +536,14 @@ class ResumeParser(IResumeParser):
             cached = await self._repo.get_cached_profile(file_hash)
             if cached:
                 log_info(f"Using cached resume profile for {path.name}")
-                if isinstance(cached, ResumeProfile):
+                if dataclasses.is_dataclass(cached):
                     cached_dict = dataclasses.asdict(cached)
-                    domain_cached = cached
-                else:
+                elif isinstance(cached, dict):
                     cached_dict = cached
-                    domain_cached = _map_to_domain_profile(cached, file_hash)
+                else:
+                    # LinkedIn repositories expose the stored ORM profile.
+                    cached_dict = json.loads(cached.parsed_json)
+                domain_cached = cached if isinstance(cached, ResumeProfile) else _map_to_domain_profile(cached_dict, file_hash)
 
                 # Save to local resume_profile.json for synchronization and editability
                 self._write_profile_json(cached_dict)
@@ -640,47 +642,14 @@ class ResumeParser(IResumeParser):
     async def _parse_locally(
         self, resume_text: str, file_hash: str, profile_json_path: Path, path: Path
     ) -> ResumeProfile:
-        import re
+        from libs.common.resume_facts import extract_resume_facts
 
-        lines = [line.strip() for line in resume_text.split("\n") if line.strip()]
-        name = lines[0] if lines else "Unknown"
-
-        email_match = re.search(r"[\w\.-]+@[\w\.-]+\.\w+", resume_text)
-        email = email_match.group(0) if email_match else ""
-
-        # Simplified phone pattern to avoid catastrophic backtracking
-        phone_match = re.search(
-            r"\+?\d{2,3}[-\s]?\d{10}|\(\d{3}\)\s*\d{3}[-.\s]?\d{4}", resume_text
-        )
-        phone = phone_match.group(0) if phone_match else ""
-
-        total_exp = 1.0
-        exp_str = self._settings.profile.total_experience
-        if exp_str:
-            match = re.search(r"\d+(\.\d+)?", exp_str)
-            if match:
-                total_exp = float(match.group(0))
-
-        matched_skills = list(self._aho_matcher.search(resume_text).keys())
-
-        profile = {
-            "name": name,
-            "email": email,
-            "phone": phone,
-            "current_title": "",
-            "summary": "Parsed locally without AI.",
-            "total_experience_years": total_exp,
-            "skills": matched_skills,
-            "technical_skills": matched_skills,
-            "soft_skills": [],
-            "job_titles_held": [],
-            "education": [],
-            "work_experience": [],
-            "certifications": [],
-            "languages": [],
-            "key_achievements": [],
-            "file_hash": file_hash,
-        }
+        profile = extract_resume_facts(resume_text, self._settings.profile.total_experience)
+        profile["file_hash"] = file_hash
+        profile["parsing"] = {"method": "local"}
+        name = profile["name"]
+        matched_skills = profile["skills"]
+        total_exp = profile["total_experience_years"]
 
         self._write_profile_json(profile)
         log_info(f"Saved parsed profile to local {profile_json_path.name}")

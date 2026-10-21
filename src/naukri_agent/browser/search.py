@@ -62,8 +62,8 @@ class JobSearcher:
 
         Iterates through each keyword × location combination and collects
         job listings up to the configured max_pages per search.
-        Stops early once enough jobs are collected (2x daily_cap)
-        to avoid excessive search time before applying.
+        The application cap limits submissions, not discovery. Search every
+        configured combination so later locations and better matches are kept.
 
         Args:
             should_stop: Optional callable evaluated before each search step.
@@ -77,8 +77,6 @@ class JobSearcher:
         all_jobs: dict[str, Job] = {}
 
         search_config = self._settings.search
-        daily_cap = self._settings.application.daily_cap
-        stop_at = max(daily_cap * 2, 50)
 
         import asyncio
 
@@ -94,14 +92,6 @@ class JobSearcher:
                 break
 
             keyword, location = await queue.get()
-
-            if len(all_jobs) >= stop_at:
-                log_info(
-                    f"Collected {len(all_jobs)} jobs (target: {stop_at}). "
-                    f"Skipping remaining searches to start applying sooner."
-                )
-                queue.task_done()
-                continue
 
             if not self._engine.is_alive():
                 log_warning("Browser disconnected! Restarting browser engine...")
@@ -121,8 +111,12 @@ class JobSearcher:
                 )
             except Exception as e:
                 logger.error(f"Search for '{keyword}' in '{location}' failed: {e}")
-                log_warning("Search interrupted by an error — returning partial results.")
-                break
+                if (should_stop and should_stop()) or not self._engine.is_alive():
+                    log_warning("Search interrupted — returning partial results.")
+                    break
+                log_warning("Search failed for this combination; continuing with the remaining searches.")
+                queue.task_done()
+                continue
 
             # Deduplicate
             for job in jobs:
@@ -138,13 +132,6 @@ class JobSearcher:
             )
 
             queue.task_done()
-
-            if len(all_jobs) >= stop_at:
-                log_info(
-                    f"Collected {len(all_jobs)} jobs (target: {stop_at}). "
-                    f"Skipping remaining keyword/location combinations."
-                )
-                continue
 
             # Delay between searches if more tasks remain
             if not queue.empty():

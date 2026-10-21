@@ -16,6 +16,15 @@ def load_linkedin_workspace_config(root: Path) -> dict:
     config = {
         key: dict(shared[key]) for key in SHARED_SECTIONS if isinstance(shared.get(key), dict)
     }
+    # These search preferences have identical meanings on both platforms.
+    # Platform-specific values below may still override them explicitly.
+    shared_search = shared.get("search", {})
+    if isinstance(shared_search, dict):
+        config["search"] = {
+            key: shared_search[key]
+            for key in ("keywords", "locations", "max_pages", "sort_by", "enable_heuristics")
+            if key in shared_search
+        }
     platform_path = root / "linkedin_config.yaml"
     platform = yaml.safe_load(platform_path.read_text()) if platform_path.exists() else {}
     for key, value in (platform or {}).items():

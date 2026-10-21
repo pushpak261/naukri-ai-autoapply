@@ -13,6 +13,9 @@ ALIASES = {
     "node js": "nodejs",
     "react.js": "react",
     "reactjs": "react",
+    "spring-boot": "spring boot",
+    "restful api": "rest api",
+    "restful apis": "rest api",
     "amazon web services": "aws",
     "rest apis": "rest api",
     "restful": "rest api",
@@ -46,7 +49,13 @@ def local_match(profile, job, threshold):
         if contains_skill(candidate_text, normalize_skill(s))
     )
     text = f"{job.title} {job.description} {job.skills}"
-    explicit = {normalize_skill(s) for s in re.split(r"[,;|]", job.skills or "") if s.strip()}
+    explicit = set()
+    vocabulary = {normalize_skill(s) for s in [*DEFAULT_TECH_SKILLS, *candidate]}
+    for label in re.split(r"[,;|\n]|\s+/\s+|\s+&\s+", job.skills or ""):
+        if not label.strip():
+            continue
+        known = {skill for skill in vocabulary if contains_skill(label, skill)}
+        explicit.update(known or {normalize_skill(label)})
     requirements = explicit or {
         normalize_skill(s)
         for s in [*DEFAULT_TECH_SKILLS, *candidate]
@@ -67,6 +76,14 @@ def local_match(profile, job, threshold):
     score = round(80 * coverage + (20 if role_fit and matching else 0), 1) if requirements else 0
     approved = bool(matching) and score >= threshold and (role_fit or len(matching) >= 2)
     reason = f"Resume rules: {len(matching)}/{len(requirements)} listed skills supported; role overlap {'yes' if role_fit else 'no'}."
+    # LinkedIn's experience-level filter is coarse; enforce stated minimum
+    # tenure locally as well, without treating a range's upper bound as a minimum.
+    from libs.common.resume_facts import minimum_experience_years
+
+    required_years = minimum_experience_years(job.experience or "")
+    if required_years is not None and required_years > profile.total_experience_years:
+        approved = False
+        reason += f" Required experience is {required_years:g} years; the saved resume supports {profile.total_experience_years:g}."
     if not requirements:
         reason += " No usable skill requirements; review this listing manually."
     return score, approved, reason, matching, missing

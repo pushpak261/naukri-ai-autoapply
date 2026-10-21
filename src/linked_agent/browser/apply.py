@@ -356,7 +356,7 @@ class LinkedInJobApplier:
                         logger.debug(f"Step {step}: Skipping radio with no answer: {q.get('question','')[:30]}")
                         continue
                     if not answer_text and q.get('required', q.get('is_required', True)):
-                        return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "A required screening answer is missing from the profile. Review the question before applying."}
+                        return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
                         filled = await self._detail_page.fill_answer(q, answer_text)
                         if not filled and q.get('required', q.get('is_required', True)):

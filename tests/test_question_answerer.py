@@ -805,7 +805,7 @@ class TestAnswerQuestionsFlow:
         ]
 
     @pytest.mark.asyncio
-    async def test_ai_answers_without_index_default_to_zero_and_merge_last(self, tmp_path):
+    async def test_answers_without_explicit_index_keep_the_original_question_order(self, tmp_path):
         llm = make_llm(ai_reply({"question": UNANSWERABLE, "answer": "Blue", "confidence": "high"}))
         answerer = make_answerer(tmp_path, llm=llm)
 
@@ -815,8 +815,8 @@ class TestAnswerQuestionsFlow:
         )
 
         assert [(entry["question"], entry["index"], entry["id"]) for entry in answers] == [
-            ("current ctc", 0, None),
             (UNANSWERABLE, 0, None),
+            ("current ctc", 1, None),
         ]
 
 
