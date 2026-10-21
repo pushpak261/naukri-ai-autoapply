@@ -9,6 +9,7 @@ import json
 import asyncio
 import os
 import re
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -31,6 +32,26 @@ PROFILE_JSON_PATH: Path | None = None
 
 def _get_profile_json_path() -> Path:
     return state.settings.project_root / "resume_profile.json"
+
+
+def _write_profile_contents(contents: bytes) -> None:
+    """Atomically replace the fixed profile file without following destination links.
+
+    Uploaded and cached content is data only. Neither it nor the uploaded
+    filename can select the destination or the temporary file's name.
+    """
+    profile_path = _get_profile_json_path()
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", dir=profile_path.parent, prefix=".resume_profile_", delete=False
+        ) as stream:
+            temporary_path = Path(stream.name)
+            stream.write(contents)
+        temporary_path.replace(profile_path)
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def _allowed_resume_roots() -> list[Path]:
@@ -140,11 +161,10 @@ async def upload_resume(file: UploadFile = File(...), mode: Literal['configured'
             pass
 
     if cached_profile:
-        profile_json_path = _get_profile_json_path()
         cached_profile["uploaded_file_path"] = str(dest_path)
         try:
-            profile_json_path.write_text(
-                json.dumps(cached_profile, indent=2, ensure_ascii=False), encoding="utf-8"
+            _write_profile_contents(
+                json.dumps(cached_profile, indent=2, ensure_ascii=False).encode("utf-8")
             )
         except Exception:
             pass
@@ -185,7 +205,7 @@ async def upload_resume(file: UploadFile = File(...), mode: Literal['configured'
     except Exception as e:
         if require_ai:
             if previous_profile is not None:
-                previous_path.write_bytes(previous_profile)
+                _write_profile_contents(previous_profile)
             else:
                 previous_path.unlink(missing_ok=True)
         dest_path.unlink(missing_ok=True)
@@ -198,7 +218,6 @@ async def upload_resume(file: UploadFile = File(...), mode: Literal['configured'
             "encountered an error. Check that your GEMINI_API_KEY is valid and has quota remaining.",
         )
 
-    profile_json_path = _get_profile_json_path()
     profile_dict = {
         "raw_text": profile.raw_text,
         "parsing": {"method": "ai" if parser_settings.ai.use_gemini else "local", "model": getattr(llm, '_model_name', '') if llm else ''} if require_ai or not parser_settings.ai.use_gemini else {"method": "unknown"},
@@ -237,8 +256,8 @@ async def upload_resume(file: UploadFile = File(...), mode: Literal['configured'
     }
 
     try:
-        profile_json_path.write_text(
-            json.dumps(profile_dict, indent=2, ensure_ascii=False), encoding="utf-8"
+        _write_profile_contents(
+            json.dumps(profile_dict, indent=2, ensure_ascii=False).encode("utf-8")
         )
     except Exception:
         pass
@@ -281,8 +300,8 @@ async def save_resume_profile(data: dict):
     _sanitize_uploaded_file_path(data)
 
     try:
-        profile_json_path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
+        _write_profile_contents(
+            json.dumps(data, indent=2, ensure_ascii=False).encode("utf-8")
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save profile: {e}")
