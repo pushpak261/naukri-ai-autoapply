@@ -1468,19 +1468,27 @@ class TestRendering:
         assert "Locations: Pune" in rendered
         assert "Daily Cap: 7" in rendered
         assert "Match Threshold: 55%" in rendered
-        assert "AI Matching: Disabled (Bulk Apply Mode)" in rendered
+        assert "Matching: Local resume rules" in rendered
         assert "Dry Run: No" in rendered
         assert "AI Model: gemini-3.5-flash" in rendered
 
     def test_banner_shows_dry_run_and_ai(self):
-        settings = make_settings(ai={"enable_matching": True})
+        settings = make_settings(ai={"use_gemini": True, "enable_matching": True})
         agent = make_agent(settings=settings)
         agent._settings.application.dry_run = True
         with patch(f"{AGENT_MODULE}.console") as console:
             agent._print_banner()
         rendered = _panel_text(console)[0]
-        assert "AI Matching: Enabled" in rendered
+        assert "Matching: Gemini" in rendered
         assert "Dry Run: Yes" in rendered
+
+    def test_banner_shows_local_matching_when_gemini_is_disabled(self):
+        settings = make_settings(ai={"use_gemini": False, "enable_matching": True})
+        agent = make_agent(settings=settings)
+        with patch(f"{AGENT_MODULE}.console") as console:
+            agent._print_banner()
+        rendered = _panel_text(console)[0]
+        assert "Matching: Local resume rules" in rendered
 
     def test_summary_table_uses_counters(self):
         agent = make_agent()
