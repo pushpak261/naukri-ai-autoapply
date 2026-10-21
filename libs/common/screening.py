@@ -66,13 +66,13 @@ def _numeric(value):
     return float(match[1]) if match else None
 
 
-def format_evidence(value, question):
+def format_evidence(value, question, *, experience_in_years=True):
     text = str(question.get("question", "")).casefold()
     value = str(value).strip()
     if not value:
         return ""
     number = _numeric(value)
-    if number is not None and "month" in text and "experience" in text:
+    if number is not None and experience_in_years and "month" in text and "experience" in text:
         number *= 12
     if (
         number is not None
@@ -133,7 +133,13 @@ def evidence_answer(question, settings, candidate=None):
         if question_key(original) == question_key(text)
     ]
     if saved:
-        return format_evidence(saved[0], question) if len(saved) == 1 else ""
+        # A confirmed answer is already expressed in the units of its exact
+        # question. In particular, 18 confirmed months must not become 216.
+        return (
+            format_evidence(saved[0], question, experience_in_years=False)
+            if len(saved) == 1
+            else ""
+        )
     value = ""
     name = getattr(candidate, "name", "")
     if "first name" in text:
@@ -147,13 +153,22 @@ def evidence_answer(question, settings, candidate=None):
 
         specific = re.search(r"\b(?:with|using|in)\s+\w+", text)
         facts = getattr(profile, "skill_experience_years", {})
-        if specific:
+        from src.naukri_agent.ai.resume_parser import DEFAULT_TECH_SKILLS
+        from libs.common.resume_facts import duration_years
+
+        vocabulary = [*DEFAULT_TECH_SKILLS, *facts, *getattr(candidate, "skills", [])]
+        mentioned = {
+            normalize_skill(skill)
+            for skill in vocabulary
+            if contains_skill(text, normalize_skill(skill))
+        }
+        if specific or mentioned:
             found = [
                 (skill, years)
                 for skill, years in facts.items()
                 if contains_skill(text, normalize_skill(skill))
             ]
-            if len(found) == 1 and found[0][1] >= 0:
+            if len(found) == 1 and len(mentioned) == 1 and found[0][1] >= 0:
                 value = format(found[0][1], "g")
         elif any(
             word in text
@@ -165,7 +180,8 @@ def evidence_answer(question, settings, candidate=None):
                 "years of experience",
             )
         ):
-            value = getattr(profile, "total_experience", "")
+            stated = duration_years(getattr(profile, "total_experience", ""))
+            value = format(stated, "g") if stated is not None else ""
             if not value and getattr(candidate, "total_experience_years", 0) > 0:
                 value = format(candidate.total_experience_years, "g")
         if value and re.search(r"\b(?:do you have|at least|minimum|more than)\b", text):
@@ -202,6 +218,28 @@ def evidence_answer(question, settings, candidate=None):
         value = getattr(profile, "github_url" if "github" in text else "linkedin_url", "")
     elif "reason for" in text and any(word in text for word in ("change", "leaving")):
         value = getattr(profile, "reason_for_change", "")
+    elif any(
+        word in text
+        for word in ("qualification", "degree", "education", "graduation", "university", "college")
+    ):
+        entries = [
+            entry for entry in getattr(candidate, "education", []) if isinstance(entry, dict)
+        ]
+        if entries:
+            if any(word in text for word in ("year", "graduation", "passing")):
+                value = entries[0].get("year", "")
+            elif any(word in text for word in ("university", "college", "institution")):
+                value = entries[0].get("institution", "")
+            else:
+                value = entries[0].get("degree", "")
+    elif "date of birth" in text or re.search(r"\bdob\b", text):
+        value = getattr(profile, "date_of_birth", "")
+    elif "marital status" in text:
+        value = getattr(profile, "marital_status", "")
+    elif any(
+        phrase in text for phrase in ("current job title", "current designation", "current role")
+    ):
+        value = getattr(candidate, "current_title", "")
     else:
         # Existing simple contact/location rules still apply with identical option validation.
         plain = {**question, "options": [], "type": "text", "field_type": "text"}

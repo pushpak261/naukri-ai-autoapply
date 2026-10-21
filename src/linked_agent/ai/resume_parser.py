@@ -5,9 +5,7 @@ Parses PDF resumes using PyMuPDF with Gemini LLM for structured extraction.
 
 from __future__ import annotations
 
-import hashlib
 import json
-import asyncio
 from pathlib import Path
 
 from src.linked_agent.bot.interfaces import ILLMProvider, IRepository
@@ -32,87 +30,17 @@ class LinkedInResumeParser:
         self._settings = settings
 
     async def parse(self, pdf_path: str) -> ResumeProfile:
-        if self._settings.ai.use_gemini:
-            if not self._settings.ai.gemini_api_key:
-                raise ValueError('Configure your Gemini API key before AI resume parsing.')
-            import dataclasses
-            from src.naukri_agent.ai.resume_parser import ResumeParser as SharedResumeParser
-            parsed = await SharedResumeParser(self._llm, self._repo, self._settings).parse(pdf_path)
-            fields = {field.name for field in dataclasses.fields(ResumeProfile)}
-            return ResumeProfile(**{key: value for key, value in dataclasses.asdict(parsed).items() if key in fields})
-        """Parse a resume PDF and return a structured profile."""
-        path = Path(pdf_path)
-        file_hash = hashlib.sha256(path.read_bytes()).hexdigest()
+        """Share PDF/DOCX/OCR, reviewed facts and cache handling with Naukri."""
+        import dataclasses
+        from src.naukri_agent.ai.resume_parser import ResumeParser as SharedResumeParser
 
-        # Check local resume_profile.json first for shared/synchronized profile
-        profile_json_path = self._settings.project_root / "resume_profile.json"
-        if profile_json_path.exists():
-            try:
-                logger.info("Loading resume profile from shared resume_profile.json")
-                cached_text = await asyncio.to_thread(
-                    profile_json_path.read_text, encoding="utf-8"
-                )
-                cached_data = json.loads(cached_text)
-                if cached_data.get('file_hash') != file_hash:
-                    raise ValueError('Saved resume belongs to a different uploaded file')
-                profile = self._profile_from_json(json.dumps(cached_data))
-                profile.file_hash = file_hash
-                # Save to SQLite database cache if it's not already there
-                cached = await self._repo.get_cached_profile(file_hash)
-                if not cached:
-                    await self._repo.save_resume_profile(
-                        file_hash=file_hash,
-                        file_path=str(path),
-                        parsed_json=json.dumps(cached_data),
-                    )
-                return profile
-            except Exception as e:
-                logger.warning(f"Failed to read local resume_profile.json: {e}")
-
-        # Check cache
-        cached = await self._repo.get_cached_profile(file_hash)
-        if cached:
-            logger.info("Using cached resume profile")
-            return self._profile_from_json(cached.parsed_json)  # type: ignore[attr-defined]
-
-        # Extract text from PDF
-        raw_text = self._extract_text(path)
-        if not raw_text:
-            logger.error(f"Could not extract text from {pdf_path}")
-            return ResumeProfile(file_hash=file_hash, raw_text="")
-
-        # Use AI to parse
-        if self._settings.ai.use_gemini and self._settings.ai.gemini_api_key:
-            profile = await self._parse_with_ai(raw_text, file_hash)
-        else:
-            profile = self._parse_basic(raw_text, file_hash)
-
-        # Cache the result
-        profile_dict = {
-            "name": profile.name,
-            "email": profile.email,
-            "phone": profile.phone,
-            "current_title": profile.current_title,
-            "summary": profile.summary,
-            "total_experience_years": profile.total_experience_years,
-            "skills": profile.skills,
-            "technical_skills": profile.technical_skills,
-            "soft_skills": profile.soft_skills,
-            "job_titles_held": profile.job_titles_held,
-            "education": profile.education,
-            "work_experience": profile.work_experience,
-            "certifications": profile.certifications,
-            "languages": profile.languages,
-            "key_achievements": profile.key_achievements,
-        }
-
-        await self._repo.save_resume_profile(
-            file_hash=file_hash,
-            file_path=str(path),
-            parsed_json=json.dumps(profile_dict, default=str),
-        )
-
-        return profile
+        if self._settings.ai.use_gemini and not self._settings.ai.gemini_api_key:
+            raise ValueError('Configure your Gemini API key before AI resume parsing.')
+        parsed = await SharedResumeParser(self._llm, self._repo, self._settings).parse(pdf_path)
+        fields = {field.name for field in dataclasses.fields(ResumeProfile)}
+        return ResumeProfile(**{
+            key: value for key, value in dataclasses.asdict(parsed).items() if key in fields
+        })
 
     def _extract_text(self, path: Path) -> str:
         """Extract text from a PDF file."""

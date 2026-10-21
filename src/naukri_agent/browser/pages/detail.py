@@ -555,6 +555,16 @@ class JobDetailPage(BasePage):
                         return /type message|type answer|enter answer|type here|enter text|write message|write answer|input message/i.test(l);
                     };
 
+                    // A field's explicit label is stronger evidence than a
+                    // neighbouring question bubble in the same modal. Otherwise
+                    // multi-question forms can assign the last question to every input.
+                    const inputType = (first.getAttribute('type') || '').toLowerCase();
+                    if (!['radio', 'checkbox'].includes(inputType)) {
+                        const labels = Array.from(first.labels || []);
+                        const ownLabel = labels.find(label => isVisible(label) && !isFiller(label.innerText.trim()));
+                        if (ownLabel) return ownLabel.innerText.trim();
+                    }
+
                     // 0. Chatbot message bubble lookup if inside chatbot/modal/drawer container
                     const chatbotBox = first.closest ? first.closest('[class*="bot" i], [class*="chat" i], [class*="drawer" i], [class*="dialog" i], [class*="modal" i]') : null;
                     if (chatbotBox) {

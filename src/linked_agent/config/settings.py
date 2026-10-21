@@ -83,6 +83,7 @@ class SearchSettings(BaseModel):
     experience_level: list[str] = Field(default_factory=list)
     job_type: list[str] = Field(default_factory=list)
     work_type: str = ""  # on_site, remote, hybrid
+    remote_location: str = ""  # Optional country/region scope for the Remote search target
     freshness: str = "past_week"
     max_pages: int = 3
     sort_by: str = "relevance"

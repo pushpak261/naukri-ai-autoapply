@@ -9,7 +9,8 @@ rather than fragile CSS selectors.
 from __future__ import annotations
 
 import asyncio
-from urllib.parse import parse_qs, urlparse
+import re
+from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -29,6 +30,13 @@ class LinkedInSearchPage(BasePage):
     async def navigate_to_search(self, search_url: str) -> None:
         """Navigate to a specific LinkedIn job search URL with retries."""
         page = self._engine.page
+        requested = parse_qs(urlparse(search_url).query).get("location", [""])[0]
+        geo_ids = getattr(self, "_resolved_location_ids", {})
+        if requested in geo_ids:
+            parsed = urlparse(search_url)
+            params = parse_qs(parsed.query)
+            params["geoId"] = [geo_ids[requested]]
+            search_url = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
 
         max_retries = 3
         for attempt in range(1, max_retries + 1):
@@ -69,6 +77,9 @@ class LinkedInSearchPage(BasePage):
                 if "captcha" in actual_url.lower() or "challenge" in actual_url.lower():
                     raise RuntimeError("CAPTCHA challenge detected")
 
+                await self._ensure_search_location(requested)
+                if "2" in intended_params.get("f_WT", [""])[0].split(","):
+                    await self._ensure_search_location("Remote")
                 await asyncio.sleep(2)
                 return
             except (PlaywrightTimeoutError, PlaywrightError) as e:
@@ -76,6 +87,70 @@ class LinkedInSearchPage(BasePage):
                 if attempt == max_retries:
                     raise
                 await asyncio.sleep(3 * attempt)
+
+    async def _ensure_search_location(self, requested: str) -> None:
+        """Modern LinkedIn can discard location= and reuse the last city.
+
+        Resolve a requested place through the visible location picker, then
+        retain its platform-provided geoId for subsequent pages of this search.
+        """
+        if not requested:
+            return
+        page = self._engine.page
+        label = page.locator('[aria-label^="Location "]').first
+        if not await label.count():
+            return  # Legacy layout still supports location= directly.
+        if requested.casefold() == "remote":
+            remote = page.locator('input[aria-label="Filter by Remote"]:checked')
+            if not await remote.count():
+                # The native input is visually hidden; its associated label is
+                # the public control. A second copy lives in a hidden drawer.
+                await page.locator("label:visible").filter(has_text=re.compile(r"^Remote$")).first.click()
+                await page.locator('input[aria-label="Filter by Remote"]:checked').first.wait_for(state="attached")
+            return
+
+        def normalized(text):
+            return re.sub(r"\bbangalore\b", "bengaluru", text.casefold())
+
+        target = normalized(requested)
+        if target not in normalized(await label.inner_text()):
+            button = page.locator('[role="button"]:has(> [aria-label^="Location "])').first
+            await button.click()
+            editor = page.locator('[contenteditable="true"][aria-label="Location"]')
+            await editor.click()
+            await editor.press("ControlOrMeta+a")
+            await page.keyboard.type(requested, delay=60)
+            # Autocomplete can replace/close its popover before Playwright's
+            # click actionability checks finish. Capture the actual suggested
+            # search link while it is present, then follow that same link.
+            suggestion = await page.wait_for_function(
+                """target => {
+                    const normalize = text => text.toLowerCase().replace(/\\bbangalore\\b/g, 'bengaluru');
+                    const links = [...document.querySelectorAll('#semanticSearchBoxLocationList a[href]')];
+                    const match = links.find(link => normalize(link.textContent.trim()).startsWith(target));
+                    return match ? match.href : null;
+                }""",
+                arg=target,
+                timeout=10000,
+            )
+            destination = await suggestion.json_value()
+            parsed = urlparse(destination)
+            if (
+                parsed.scheme != "https"
+                or parsed.hostname != "www.linkedin.com"
+                or not parsed.path.startswith("/jobs/search")
+                or not parse_qs(parsed.query).get("geoId", [""])[0].isdigit()
+            ):
+                raise RuntimeError("LinkedIn returned an invalid location suggestion")
+            await page.goto(destination, wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_function(
+                "target => {const el=document.querySelector('[aria-label^=\"Location \"]'); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
+                arg=target,
+                timeout=10000,
+            )
+        geo_id = parse_qs(urlparse(page.url).query).get("geoId", [""])[0]
+        if geo_id:
+            self._resolved_location_ids = {**getattr(self, "_resolved_location_ids", {}), requested: geo_id}
 
     async def has_no_results(self) -> bool:
         """Check if there are no search results or if the page shows an empty/error state."""
@@ -188,11 +263,13 @@ class LinkedInSearchPage(BasePage):
         card_count = await self._adaptive_scroll_to_load_all(page, container_found)
         logger.info(f"Final card count after adaptive scroll: {card_count}")
 
-        jobs = await self._try_json_payload_extraction(page)
-        if not jobs:
-            jobs = await self._extract_cards_from_dom(page)
+        # Embedded payloads may describe only the selected sidebar job. Always
+        # collect rendered result cards too, then deduplicate during conversion.
+        jobs = await self._extract_cards_from_dom(page)
+        jobs.extend(await self._try_json_payload_extraction(page))
 
-        return self._build_job_objects(jobs, search_url)
+        source_url = page.url if "/jobs/search-results" in page.url else search_url
+        return self._build_job_objects(jobs, source_url)
 
     async def go_to_next_page(self) -> bool:
         """
@@ -206,6 +283,7 @@ class LinkedInSearchPage(BasePage):
         for attempt in range(2):
             try:
                 next_btn = await page.query_selector(
+                    'button[data-testid="pagination-controls-next-button-visible"]:not([disabled]), '
                     'button[aria-label="View next page"]:not([disabled]):not(.artdeco-button--disabled), '
                     'button[aria-label*="next page" i]:not([disabled]):not(.artdeco-button--disabled), '
                     'li.artdeco-pagination__indicator--number:last-child button:not([disabled])'
@@ -322,16 +400,16 @@ class LinkedInSearchPage(BasePage):
             const loc = document.querySelector('.job-details-jobs-unified-top-card__primary-description span, .job-details-jobs-unified-top-card__bullet');
             details.location = loc ? loc.textContent.trim() : '';
 
-            const descSelectors = ['.jobs-description__content', '.jobs-box__html-content', '.description__text', '.show-more-less-html__markup', 'div.jobs-description', '.job-details-jobs-unified-top-card__job-insight'];
+            const descSelectors = ['[componentkey^="JobDetails_AboutTheJob_"]', '.jobs-description__content', '.jobs-box__html-content', '.description__text', '.show-more-less-html__markup', 'div.jobs-description', '.job-details-jobs-unified-top-card__job-insight'];
             let descText = '';
             for (const sel of descSelectors) {
                 const el = document.querySelector(sel);
-                if (el && el.textContent.trim().length > 100) {
+                if (el && el.textContent.trim().length > 20) {
                     descText = el.textContent.trim();
                     break;
                 }
             }
-            if (!descText || descText.length < 200) {
+            if (!descText) {
                 let maxLen = 0;
                 document.querySelectorAll('div, section').forEach(el => {
                     const t = el.textContent.trim();
@@ -416,7 +494,7 @@ class LinkedInSearchPage(BasePage):
 
         with contextlib.suppress(Exception):
             await page.wait_for_selector(
-                '[data-view-name="job-card"], a[href*="/jobs/view/"]',
+                '[componentkey^="job-card-component-ref-"][role="button"], [data-view-name="job-card"], a[href*="/jobs/view/"]',
                 timeout=10_000,
             )
         await asyncio.sleep(1)
@@ -433,7 +511,8 @@ class LinkedInSearchPage(BasePage):
             found = await page.evaluate("""
                 () => {
                     const card = document.querySelector(
-                        '[data-view-name="job-card"], li[data-view-name="job-card"], '
+                        '[componentkey^="job-card-component-ref-"][role="button"], '
+                        + '[data-view-name="job-card"], li[data-view-name="job-card"], '
                         + 'a[href*="/jobs/view/"]'
                     );
                     if (!card) return false;
@@ -582,6 +661,7 @@ class LinkedInSearchPage(BasePage):
         try:
             return await page.evaluate("""
                 () => Math.max(
+                    document.querySelectorAll('[componentkey^="job-card-component-ref-"][role="button"]').length,
                     document.querySelectorAll('[data-view-name="job-card"], li[data-view-name="job-card"]').length,
                     document.querySelectorAll('a[href*="/jobs/view/"]').length
                 )
@@ -681,6 +761,30 @@ class LinkedInSearchPage(BasePage):
             const jobs = [];
             const seen = new Set();
             let cardIdx = 0;
+
+            // New LinkedIn search-results pages use clickable components with
+            // stable job IDs instead of /jobs/view anchors and legacy CSS.
+            for (const card of document.querySelectorAll('[componentkey^="job-card-component-ref-"][role="button"]')) {
+                const key = card.getAttribute('componentkey') || '';
+                const id = key.match(/^job-card-component-ref-(\d+)$/)?.[1];
+                if (!id) continue;
+                const dismiss = card.querySelector('button[aria-label^="Dismiss "]');
+                const paragraphs = Array.from(card.querySelectorAll('p'));
+                const title = dismiss
+                    ? (dismiss.getAttribute('aria-label') || '').replace(/^Dismiss /, '').replace(/ job$/, '')
+                    : (paragraphs[0]?.querySelector('[aria-hidden="true"]')?.textContent || paragraphs[0]?.textContent || '').replace(/\s*\(Verified job\)/g, '').trim();
+                if (!title) continue;
+                const url = 'https://www.linkedin.com/jobs/view/' + id;
+                if (seen.has(url)) continue;
+                seen.add(url);
+                const text = card.innerText || '';
+                const posted = paragraphs.map(p => p.innerText.trim()).find(t => /(?:\d+\s+(?:minute|hour|day|week)|just now|today)/i.test(t)) || '';
+                jobs.push({title, company: paragraphs[1]?.innerText.trim() || '',
+                    location: paragraphs[2]?.innerText.trim() || '', url,
+                    posted_date: posted, easy_apply: /easy apply/i.test(text),
+                    applicant_count: 0, description: '', card_index: cardIdx++,
+                    linkedin_job_id: id});
+            }
 
             // Collect all candidate card nodes (any element that might be a job card)
             const candidates = [];

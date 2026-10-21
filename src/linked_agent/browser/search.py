@@ -44,7 +44,7 @@ class LinkedInJobSearcher:
 
     Session health monitoring:
       - Checks login status periodically during long multi-combo searches
-      - Pings LinkedIn feed to keep session alive
+      - Checks the current job page without leaving the search workflow
     """
 
     def __init__(
@@ -101,8 +101,9 @@ class LinkedInJobSearcher:
 
                 new_count = 0
                 for job in jobs:
-                    if job.linkedin_job_id not in all_jobs:
-                        all_jobs[job.linkedin_job_id] = job
+                    identifier = job.linkedin_job_id or job.url
+                    if identifier and identifier not in all_jobs:
+                        all_jobs[identifier] = job
                         new_count += 1
 
                 logger.info(
@@ -154,6 +155,10 @@ class LinkedInJobSearcher:
 
         work_type_map = {"on_site": "1", "remote": "2", "hybrid": "3"}
         work_type = work_type_map.get(self._settings.search.work_type, "") if self._settings.search.work_type else ""
+        search_location = location
+        if location.casefold() == "remote" and self._settings.search.remote_location:
+            search_location = self._settings.search.remote_location
+            work_type = "2"
 
         sort_by = "DD" if self._settings.search.sort_by == "date" else ""
         experience_str = ",".join(self._settings.search.experience_level)
@@ -176,7 +181,7 @@ class LinkedInJobSearcher:
             if not use_click_pagination:
                 search_url = LinkedInURLUtility.build_search_url(
                     keywords=keyword,
-                    location=location,
+                    location=search_location,
                     freshness=freshness,
                     experience=experience_str,
                     sort_by=sort_by,
@@ -229,7 +234,7 @@ class LinkedInJobSearcher:
                             # Retry this page number via click navigation
                             # Re-navigate to page 1 first (to reset the DOM)
                             page1_url = LinkedInURLUtility.build_search_url(
-                                keywords=keyword, location=location,
+                                keywords=keyword, location=search_location,
                                 freshness=freshness, experience=experience_str,
                                 sort_by=sort_by, start=0, work_type=work_type,
                                 easy_apply_only=self._settings.application.easy_apply_only,

@@ -104,6 +104,7 @@ class LinkedInJobDetailPage(BasePage):
             let descText = '';
             // Strategy 1: Modern description containers
             const descSelectors = [
+                '[componentkey^="JobDetails_AboutTheJob_"]',
                 '.jobs-description__content',
                 '.jobs-box__html-content',
                 '.show-more-less-html__markup',

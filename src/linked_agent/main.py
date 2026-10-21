@@ -57,8 +57,7 @@ def run(dry_run: bool, config_path: str | None) -> None:
         # Connect to Naukri DB for write-through so the frontend can see LinkedIn data
         naukri_db_manager = None
         try:
-            from pathlib import Path as _Path
-            naukri_db_path = _Path("data/naukri_agent.db")
+            naukri_db_path = settings.project_root / "data" / "naukri_agent.db"
             if naukri_db_path.exists():
                 from src.naukri_agent.models.db_schema import (
                     setup_database_manager as setup_naukri_db,

@@ -37,7 +37,17 @@ Client workspaces start empty. Jobs, activity and charts come from that account'
 | Operations | Logs, backups, cache, webhooks, and data management |
 | Getting started | Setup walkthrough and common questions |
 
-AI features can use Google Gemini when configured. Local matching is available; behavior depends on the feature and configuration. Automation assists a supervised job search and does not guarantee applications, interviews, or offers.
+AI features can use Google Gemini when configured. Automation assists a supervised job search and does not guarantee applications, interviews, or offers.
+
+### Run both agents without Gemini
+
+Leave **Use Gemini AI** off in Preferences. No AI API key is needed for job discovery, local resume parsing, matching, or filling supported screening fields. Both platforms use the same reviewed resume and saved profile facts; LinkedIn inherits shared search keywords and locations unless you save platform-specific overrides.
+
+Upload a PDF or DOCX, review the extracted profile, and save your search targets. In **Experience by skill**, enter your actual tenure for each technology; a skill listed in a resume does not establish its duration. Use **Confirmed screening answers** for recurring questions, and save salary, notice period, location, and total experience where known. Unknown required answers stop that application for review rather than inventing personal details.
+
+Connect each platform and start with **Dry Run** enabled. Search visits all configured keyword/location combinations within the page limit, while the daily cap limits submissions. After reviewing the results and your facts, disable Dry Run to submit matching applications through Naukri native forms and LinkedIn Easy Apply. External employer forms, authentication challenges, and unsupported questions require manual review.
+
+For a LinkedIn `Remote` search target, set `search.remote_location` in the workspace's `linkedin_config.yaml` to the intended country or region (for example, `India`). This applies the Remote work filter across that region. When blank, LinkedIn's currently selected geography is retained.
 
 ### Opportunity Copilot
 

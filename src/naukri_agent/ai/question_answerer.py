@@ -549,7 +549,8 @@ class QuestionAnswerer(IQuestionAnswerer):
         ai_questions = []
 
         # First pass: try direct answers and CACHE
-        for q in questions:
+        for index, original_question in enumerate(questions):
+            q = {**original_question, "index": original_question.get("index", index)}
             question_text = q.get("question", "")
             q_type = q.get("type", "text")
             options = q.get("options", [])
@@ -557,7 +558,9 @@ class QuestionAnswerer(IQuestionAnswerer):
             direct = (self._try_direct_answer(question_text, q_type, options) if self._settings.ai.use_gemini
                       else evidence_answer(q, self._settings, self._profile))
             q_key = _normalize_question_text(question_text)
-            cached = self._cache.get(q_key, exact_only=True)
+            # Offline answers are cheap and must reflect the current saved
+            # facts. Never resurrect an old AI/cache answer after facts change.
+            cached = self._cache.get(q_key, exact_only=True) if self._settings.ai.use_gemini else None
             if cached and options:
                 option_texts = [str(option.get('text', '') if isinstance(option, dict) else option) for option in options]
                 if cached not in option_texts:

@@ -766,7 +766,11 @@ class LinkedInAgent:
 
         # Strategy 1: Append currentJobId to the search URL
         target_url = None
-        if job.search_url:
+        if "/jobs/search-results" in job.search_url:
+            # In the component-based results layout currentJobId may only
+            # select a card; use the actual detail page before assessing it.
+            target_url = job.url
+        elif job.search_url:
             separator = "&" if "?" in job.search_url else "?"
             # Remove any existing currentJobId from the search_url
             base_url = re.sub(r'[&?]currentJobId=\d+', '', job.search_url)

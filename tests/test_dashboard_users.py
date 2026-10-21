@@ -216,7 +216,7 @@ async def test_agent_cli_resolves_saved_account_before_validation(dashboard, mon
 
 
 @pytest.mark.asyncio
-async def test_linkedin_api_and_child_share_resume_and_ai_but_not_search(dashboard, monkeypatch):
+async def test_linkedin_api_and_child_share_targets_without_copying_platform_filter_formats(dashboard, monkeypatch):
     import yaml
     from api import identity
     from api.tenants import runtime_for
@@ -238,7 +238,8 @@ async def test_linkedin_api_and_child_share_resume_and_ai_but_not_search(dashboa
         assert data['application']['dry_run'] is True
         assert data['ai']['use_gemini'] is False
         assert data['search']['freshness'] == 'past_week'
-        assert 'Naukri search only' not in data['search']['keywords']
+        assert data['search']['keywords'] == ['Naukri search only']
+        assert data['search']['sort_by'] == 'date'
         monkeypatch.setattr(linked_settings, 'PROJECT_ROOT', root)
         monkeypatch.setenv('AGENT_WORKSPACE', str(root))
         child = linked_settings.Settings(**linked_settings._load_yaml_config())
