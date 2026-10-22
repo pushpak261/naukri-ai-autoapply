@@ -125,6 +125,7 @@ def make_settings(tmp_path=None, **sections) -> MagicMock:
     settings.search.experience_min = 0
     settings.search.experience_max = 2
     settings.search.enable_heuristics = False
+    settings.search.required_title_keywords = []
 
     settings.ai.enable_matching = True
     settings.ai.model = "gemini-2.5-flash"

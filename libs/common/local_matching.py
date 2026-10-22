@@ -50,7 +50,7 @@ def local_match(profile, job, threshold):
     )
     if "spring boot" in candidate:
         candidate.add("spring")
-    text = f"{job.title} {job.description} {job.skills}"
+    text = f"{job.description} {job.skills}".strip() or job.title
     explicit = set()
     vocabulary = {normalize_skill(s) for s in [*DEFAULT_TECH_SKILLS, *candidate]}
     for label in re.split(r"[,;|\n]|\s+/\s+|\s+&\s+", job.skills or ""):
@@ -58,10 +58,30 @@ def local_match(profile, job, threshold):
             continue
         known = {skill for skill in vocabulary if contains_skill(label, skill)}
         explicit.update(known or {normalize_skill(label)})
-    requirements = explicit or {
+    # Naukri sometimes supplies generic tags such as "Core" and "Application"
+    # while the description contains the actual Java/Spring/SQL requirements.
+    # Keep unfamiliar named skills as missing evidence, but don't let those
+    # generic categories hide the concrete stack in the description.
+    generic_tags = {
+        "coding",
+        "core",
+        "architecture",
+        "application",
+        "software development",
+        "application development",
+        "agile software",
+        "agile software development",
+        "development",
+        "technology",
+        "technology solutions",
+        "office",
+        "analytics",
+    }
+    role_tags = {"backend", "frontend", "fullstack", "developer", "architect", "software engineer"}
+    requirements = (explicit - generic_tags - role_tags) | {
         normalize_skill(s)
         for s in [*DEFAULT_TECH_SKILLS, *candidate]
-        if contains_skill(text, normalize_skill(s))
+        if normalize_skill(s) not in role_tags and contains_skill(text, normalize_skill(s))
     }
     matching = sorted(requirements & candidate)
     missing = sorted(requirements - candidate)
@@ -88,14 +108,14 @@ def local_match(profile, job, threshold):
     from libs.common.resume_facts import minimum_experience_years
 
     required_years = minimum_experience_years(job.experience or "")
-    if required_years is None:
-        stated = re.search(
-            r"\b\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)\s+(?:of\s+)?(?:professional\s+|relevant\s+|work\s+)?experience\b",
-            job.description or "",
-            re.I,
-        )
-        if stated:
-            required_years = minimum_experience_years(stated[0])
+    stated = re.search(
+        r"\b\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)\s+(?:of\s+)?(?:[a-z][\w+#./-]*\s+){0,4}(?:experience|development)\b",
+        job.description or "",
+        re.I,
+    )
+    if stated:
+        stated_years = minimum_experience_years(stated[0])
+        required_years = max(required_years or 0, stated_years or 0)
     if required_years is not None and required_years > profile.total_experience_years:
         approved = False
         reason += f" Required experience is {required_years:g} years; the saved resume supports {profile.total_experience_years:g}."

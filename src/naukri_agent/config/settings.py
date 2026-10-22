@@ -96,6 +96,7 @@ class SearchSettings(BaseModel):
     max_pages: int = 3
     sort_by: str = "relevance"
     enable_heuristics: bool = True
+    required_title_keywords: list[str] = Field(default_factory=list)
 
     @field_validator("sort_by")
     @classmethod

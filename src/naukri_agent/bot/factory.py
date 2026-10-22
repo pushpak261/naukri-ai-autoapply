@@ -229,6 +229,7 @@ class DependencyFactory:
             detail_page=detail_page,
             engine=self.get_browser_engine(),
             settings=self._settings,
+            repository=self.get_repository(),
         )
 
     def create_job_applier(self, question_answerer: IQuestionAnswerer) -> JobApplier:

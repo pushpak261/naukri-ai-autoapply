@@ -36,38 +36,43 @@ class JobDetailPage(BasePage):
         await asyncio.sleep(2)
 
     async def is_already_applied(self) -> bool:
-        """Check if the job has already been applied to."""
-        if await self._interactions.element_exists(JobDetailSelectors.ALREADY_APPLIED):
-            return True
-
-        page = self._engine.page
+        """Read a visible application state, excluding description/recommendation text."""
         try:
-            btn_texts = await page.evaluate(
-                """
-                () => {
-                    const elements = [...document.querySelectorAll('button, a, .apply-button, .applyBtn, [class*="apply" i], [class*="walkin" i]')];
-                    return elements.map(el => (el.textContent || '').trim().toLowerCase());
-                }
-                """
-            )
-            for text in btn_texts:
-                if not text:
-                    continue
-                # Check for past-tense indicators of a completed application to avoid false positive on "apply"
-                if any(x in text for x in ["applied", "already applied", "submitted", "received"]):
-                    return True
+            return bool(await self._engine.page.evaluate(r"""() => {
+                const nodes = document.querySelectorAll('#already-applied, .already-applied, button, [role="status"], [role="alert"], [class*="apply-button"], [class*="apply-status"], [class*="applied-status"]');
+                return [...nodes].some(el => {
+                    if (!el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return false;
+                    if (el.closest('[class*="job-desc"], [class*="jobDescription"], [class*="recommend"], article')) return false;
+                    const text=(el.innerText || '').trim();
+                    return /^(?:already\s+)?applied(?:\s+on\s+.+)?[.!]?$/i.test(text);
+                });
+            }"""))
         except PlaywrightError:
-            pass
+            return False
 
-        return False
+    async def _external_apply_button(self):
+        import re
+        candidates = self._engine.page.locator('button, a, [role="button"]').filter(
+            has_text=re.compile(r'^\s*apply on company(?:\s+(?:site|website))?\s*$', re.I)
+        )
+        for candidate in await candidates.all():
+            if await candidate.is_visible() and not await candidate.evaluate(
+                "el => !!el.closest('[class*=recommend], [class*=job-desc], article')"
+            ):
+                return candidate
+        return None
 
     async def is_external_apply(self) -> bool:
-        """Check if the job apply button redirects to an external site."""
-        return await self._interactions.element_exists(JobDetailSelectors.EXTERNAL_APPLY)
+        """Use the listing's visible external action, excluding hidden templates."""
+        return await self._external_apply_button() is not None
 
     async def click_external_apply_button(self) -> bool:
         """Click the external apply button to navigate to the company site."""
-        return await self._interactions.safe_click(JobDetailSelectors.EXTERNAL_APPLY, timeout=5000)
+        button = await self._external_apply_button()
+        if button is None or not await button.is_enabled():
+            return False
+        await button.click(timeout=5000)
+        return True
 
     async def is_external_apply_successful(self) -> bool:
         """Check if the external apply page shows a success/confirmation."""
@@ -95,6 +100,9 @@ class JobDetailPage(BasePage):
         if desc_elem:
             description = (await desc_elem.inner_text()) or ""
             description = clean_text(description)
+        highlights = await page.locator('[class*="job-highlight-list"]').all_inner_texts()
+        if highlights:
+            description = "\n".join([*highlights, description])
 
         # Extract skills
         skill_elems = await page.query_selector_all(JobDetailSelectors.KEY_SKILLS)
@@ -137,118 +145,13 @@ class JobDetailPage(BasePage):
         }
 
     async def click_apply_button(self) -> bool:
-        """
-        Find and click the Apply button using multiple strategies.
-
-        Returns:
-            True if the button was clicked successfully.
-        """
-        # Strategy 1: XPath text-based selector
-        clicked = await self._interactions.safe_click(
-            JobDetailSelectors.APPLY_BUTTON, timeout=ELEMENT_TIMEOUT
-        )
-        if clicked:
-            return True
-
-        # Strategy 2: Additional XPath variations
-        xpath_patterns = [
-            '//a[contains(translate(., "APPLY", "apply"), "apply") and not(contains(translate(., "APPLIED", "applied"), "applied"))]',
-            '//*[@role="button" and contains(translate(., "APPLY", "apply"), "apply") and not(contains(translate(., "APPLIED", "applied"), "applied"))]',
-            '//input[@type="button" or @type="submit"][contains(translate(@value, "APPLY", "apply"), "apply")]',
-            '//button[contains(translate(., "WALK-IN", "walk-in"), "walk-in") or contains(translate(., "WALKIN", "walkin"), "walkin")]',
-            '//a[contains(translate(., "WALK-IN", "walk-in"), "walk-in") or contains(translate(., "WALKIN", "walkin"), "walkin")]',
-        ]
-        for pattern in xpath_patterns:
-            clicked = await self._interactions.safe_click(pattern, timeout=3000)
-            if clicked:
+        """Click only an explicit native Apply action; walk-in registration is separate."""
+        import re
+        buttons = self._engine.page.locator('button:visible, a:visible, [role="button"]:visible').filter(has_text=re.compile(r'^\s*apply(?: now)?\s*$', re.I))
+        for button in await buttons.all():
+            if await button.is_enabled():
+                await button.click(timeout=5000)
                 return True
-
-        # Strategy 3: Try common CSS patterns
-        css_patterns = [
-            'button[class*="apply"]',
-            'button[id*="apply"]',
-            'a[class*="apply"]',
-            '[class*="apply-button"]',
-            '[class*="applyBtn"]',
-            'button[class*="walkin"]',
-            'a[class*="walkin"]',
-        ]
-        for pattern in css_patterns:
-            clicked = await self._interactions.safe_click(pattern, timeout=3000)
-            if clicked:
-                return True
-
-        # Strategy 4: JavaScript click (bypasses overlays and handles non-standard elements)
-        page = self._engine.page
-        try:
-            result = await page.evaluate(
-                """
-                () => {
-                    const elements = [...document.querySelectorAll('button, a, input, [role="button"], [class*="apply" i], [class*="walkin" i]')];
-
-                    const visibleCandidates = elements.filter(el => {
-                        try {
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width === 0 || rect.height === 0) return false;
-                            const style = window.getComputedStyle(el);
-                            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-                            return true;
-                        } catch(e) {
-                            return false;
-                        }
-                    });
-
-                    // 1. Tag-specific check with strict text
-                    for (const el of visibleCandidates) {
-                        const tag = el.tagName.toLowerCase();
-                        let text = (tag === 'input' ? (el.value || '') : (el.textContent || '')).trim().toLowerCase();
-                        if (text.includes('applied') || text.includes('already applied')) continue;
-
-                        if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
-                            if (text === 'apply' || text === 'apply now' || (text.startsWith('apply') && !text.includes('application') && !text.includes('applicant') && !text.includes('applying')) || text.includes('walk-in') || text.includes('walkin') || text === 'interested') {
-                                el.click();
-                                return true;
-                            }
-                        }
-                    }
-
-                    // 2. Class/Id matching
-                    for (const el of visibleCandidates) {
-                        const tag = el.tagName.toLowerCase();
-                        let text = (tag === 'input' ? (el.value || '') : (el.textContent || '')).trim().toLowerCase();
-                        if (text.includes('applied') || text.includes('already applied')) continue;
-
-                        const id = (el.id || '').toLowerCase();
-                        const className = (el.className || '').toString().toLowerCase();
-
-                        if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
-                            if (id.includes('apply') || className.includes('apply') || className.includes('walk-in') || className.includes('walkin')) {
-                                el.click();
-                                return true;
-                            }
-                        }
-                    }
-
-                    // 3. General text content matching
-                    for (const el of visibleCandidates) {
-                        let text = (el.textContent || '').trim().toLowerCase();
-                        if (text.includes('applied') || text.includes('already applied')) continue;
-
-                        if (text === 'apply' || text === 'apply now' || text.includes('walk-in') || text.includes('walkin')) {
-                            el.click();
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-                """
-            )
-            if result:
-                return True
-        except PlaywrightError as e:
-            logger.debug(f"JS apply click failed: {e}")
-
         return False
 
     async def is_chatbot_flow(self) -> bool:
@@ -566,14 +469,14 @@ class JobDetailPage(BasePage):
                     }
 
                     // 0. Chatbot message bubble lookup if inside chatbot/modal/drawer container
-                    const chatbotBox = first.closest ? first.closest('[class*="bot" i], [class*="chat" i], [class*="drawer" i], [class*="dialog" i], [class*="modal" i]') : null;
+                    const chatbotBox = first.closest ? (first.closest('.chatbot_MessageContainer, .chatbot_Drawer, [role="dialog"]') || first.closest('[class*="drawer" i], [class*="dialog" i], [class*="modal" i]')) : null;
                     if (chatbotBox) {
                         const botBubbles = Array.from(chatbotBox.querySelectorAll(
                             '[class*="bot-msg" i], [class*="botMsg" i], [class*="recruiter" i], ' +
                             '[class*="chat-msg" i], [class*="msg" i], [class*="bubble" i], p, span, div'
                         )).filter(el => {
                             if (el.contains(first) || !isVisible(el)) return false;
-                            const userClass = '[class*="user" i], [class*="candidate" i], [class*="reply" i], [class*="sent" i], [class*="input" i], [class*="right" i], [class*="answer" i], [class*="response" i], [class*="user_msg" i], [class*="user-msg" i], [class*="userMsg" i]';
+                            const userClass = '[class*="user" i], [class*="candidate" i], [class*="reply" i], [class*="sent" i], [class*="input" i], [class*="answer" i], [class*="response" i], [class*="user_msg" i], [class*="user-msg" i], [class*="userMsg" i]';
                             if (el.closest(userClass)) return false;
                             const t = (el.innerText || el.textContent || '').trim();
                             if (!t || isFiller(t) || t.length < 4 || t.length > 300) return false;
@@ -888,6 +791,9 @@ class JobDetailPage(BasePage):
                     if (rawQuestion.includes('*') || /required|mandatory|must\s*answer/i.test(rawQuestion)) {
                         required = true;
                     }
+                    if (group.elements[0].closest?.('.chatbot_MessageContainer') && !/\boptional\b/i.test(rawQuestion)) {
+                        required = true;
+                    }
 
                     let options = [];
                     let value = "";
@@ -898,7 +804,8 @@ class JobDetailPage(BasePage):
                         const el = firstEl;
                         el.setAttribute('data-agent-field-id', fieldId);
                         stableSelector = generateStableSelector(el);
-                        value = el.value || "";
+                        const selected = el.selectedOptions?.[0];
+                        value = selected && !selected.disabled && !/^(select|choose|please select|--)/i.test(selected.textContent.trim()) ? (el.value || "") : "";
                         el.querySelectorAll('option').forEach(opt => {
                             const optText = opt.textContent.trim();
                             if (optText && !/select|choose|--/i.test(optText)) {
@@ -1109,6 +1016,14 @@ class JobDetailPage(BasePage):
                     }
                 }
 
+                const fileInputs = formContainer.querySelectorAll('input[type="file"]');
+                fileInputs.forEach((input, index) => {
+                    if (formContainer === document.body && !input.closest('[role="dialog"], [class*="apply" i], [class*="screening" i], form')) return;
+                    const marker = 'upload-' + index;
+                    input.setAttribute('data-agent-file-id', marker);
+                    const label = input.id ? document.querySelector('label[for="' + CSS.escape(input.id) + '"]') : input.closest('label');
+                    questions.push({id: marker, question: (label?.innerText || input.getAttribute('aria-label') || 'File attachment').trim(), type:'file', required:input.required || input.getAttribute('aria-required')==='true', value:input.files?.[0]?.name || '', selector:'[data-agent-file-id="' + marker + '"]'});
+                });
                 return JSON.stringify(questions);
             }
             """
@@ -1119,6 +1034,18 @@ class JobDetailPage(BasePage):
         except Exception as e:
             logger.error(f"Error during JS-based question extraction: {e}")
             return []
+
+    async def upload_resume_file(self, question: dict, file_path: str) -> bool:
+        """Upload only to the particular resume field identified during extraction."""
+        selector = question.get("selector", "")
+        if not selector.startswith('[data-agent-file-id="upload-'):
+            return False
+        try:
+            field = self._engine.page.locator(selector)
+            await field.set_input_files(file_path)
+            return bool(await field.evaluate("el => el.files.length > 0"))
+        except PlaywrightError:
+            return False
 
     async def fill_answer_by_metadata(self, question: dict, answer: str) -> bool:
         """
@@ -2022,463 +1949,46 @@ class JobDetailPage(BasePage):
                     });
                 }
             """)
-    async def click_chatbot_save_button(self) -> bool:
-        """Click the Save button specifically within a chatbot/screening panel.
+    async def _click_screening_action(self, pattern: str, *, chatbot_only: bool = False) -> bool:
+        """Use one native click inside the active form, respecting disabled ancestors."""
+        import re
 
-        Naukri's chatbot screening flow shows a prominent 'Save' button at the
-        bottom of the chatbot panel after all questions are answered. This method
-        scopes the search to the chatbot/modal/dialog container to avoid clicking
-        the wrong element on the page.
-
-        Uses a multi-strategy approach with retry:
-        1. JS container-scoped scan (chatbot → modal → dialog → body)
-        2. Playwright locator scoped to chatbot containers
-        3. Fallback: page-wide Playwright locator for Save button
-        4. JS fallback page-wide scan
-
-        Returns True if a Save button was found and clicked.
-        """
-        page = self._engine.page
-
-        for retry in range(3):
-            # ── Strategy 1: JS container-scoped scan ──
-            # Finds the chatbot/modal container and clicks the best Save button inside it.
-            js = r"""() => {
-                const savePatterns = ['save', 'save & next', 'save and next', 'save and continue', 'save & continue', 'save details', 'save answer', 'save answers', 'submit', 'next', 'continue', 'apply', 'apply now', 'submit application', 'send'];
-
-                // Ordered container selectors: most specific first
-                const containerSelectors = [
-                    '[class*="chatbot" i]',
-                    '[class*="bot-body" i]',
-                    '[class*="chat-body" i]',
-                    '[class*="chatbot-container" i]',
-                    '[class*="nI-chatbot" i]',
-                    '[class*="apply-modal" i]',
-                    '[class*="apply-form" i]',
-                    '[class*="apply-dialog" i]',
-                    '[class*="screening_bot" i]',
-                    '[class*="screening-bot" i]',
-                    '[class*="screening" i]',
-                    '[class*="chat-panel" i]',
-                    '[class*="chatbot_" i]',
-                    '[class*="modal" i]',
-                    '[class*="dialog" i]',
-                    '[class*="drawer" i]',
-                    '[class*="popup" i]',
-                    '[class*="slider" i]',
-                    '[class*="overlay" i]',
-                ];
-
-                // Find the best container that has a visible Save-like button
-                let container = null;
-                for (const sel of containerSelectors) {
-                    const els = document.querySelectorAll(sel);
-                    for (const el of els) {
-                        const style = window.getComputedStyle(el);
-                        if (style.display === 'none' || style.visibility === 'hidden') continue;
-                        const rect = el.getBoundingClientRect();
-                        if (rect.width === 0 || rect.height === 0) continue;
-                        // Check if this container has a Save-like button (scan div, span too)
-                        const btns = el.querySelectorAll(
-                            'button, a, [role="button"], input[type="submit"], input[type="button"], ' +
-                            '[class*="btn" i], [class*="button" i], span, div'
-                        );
-                        for (const btn of btns) {
-                            const btnText = (btn.textContent || btn.innerText || btn.value || '').trim().toLowerCase();
-                            if (savePatterns.some(p => btnText === p || btnText.startsWith(p + ' '))) {
-                                container = el;
-                                break;
-                            }
-                        }
-                        if (container) break;
+        selector = '.chatbot_Drawer:visible, [class*="chatbot-container" i]:visible, [class*="chat-panel" i]:visible'
+        if not chatbot_only:
+            selector += ', [role="dialog"]:visible, [class*="apply-modal"]:visible, [class*="apply-form"]:visible, [class*="screening"]:visible, form:visible'
+        for container in await self._engine.page.locator(selector).all():
+            candidates = container.locator('button, a, [role="button"], [tabindex], input[type="submit"], input[type="button"]')
+            for candidate in await candidates.all():
+                text = await candidate.get_attribute('value') if await candidate.evaluate("el => el.tagName === 'INPUT'") else await candidate.inner_text()
+                if not re.fullmatch(pattern, (text or '').strip(), re.I):
+                    continue
+                if not await candidate.is_visible() or not await candidate.is_enabled():
+                    continue
+                blocked = await candidate.evaluate("""el => {
+                    for (let node = el; node; node = node.parentElement) {
+                        if (node.disabled || node.getAttribute('aria-disabled') === 'true' || node.classList.contains('disabled') || node.classList.contains('is-disabled') || getComputedStyle(node).pointerEvents === 'none') return true;
                     }
-                    if (container) break;
-                }
-
-                // Search within found container, or fall back to full document
-                const searchRoot = container || document;
-                const candidates = Array.from(searchRoot.querySelectorAll(
-                    'button, a, [role="button"], input[type="submit"], input[type="button"], ' +
-                    '[class*="btn" i], [class*="button" i], span, div'
-                ));
-
-                const results = [];
-                for (const el of candidates) {
-                    const text = (el.textContent || el.innerText || el.value || '').trim().toLowerCase();
-                    if (!text) continue;
-                    if (!savePatterns.some(p => text === p || text.startsWith(p + ' ') || text.startsWith(p + '&'))) continue;
-
-                    const style = window.getComputedStyle(el);
-                    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
-                    const rect = el.getBoundingClientRect();
-                    if (rect.width < 15 || rect.height < 15) continue;
-
-                    let score = 0;
-                    if (el.disabled || el.getAttribute('aria-disabled') === 'true') {
-                        score -= 10;
-                    }
-                    const tag = el.tagName.toUpperCase();
-
-                    // Prefer proper interactive elements
-                    if (tag === 'BUTTON') score += 30;
-                    else if (tag === 'A' || tag === 'INPUT') score += 20;
-                    else score += 5;
-
-                    // Prefer leaf elements (fewer descendants) to get the exact clickable label/button
-                    const descendantCount = el.querySelectorAll('*').length;
-                    score -= descendantCount * 2;
-
-                    // Exact text match gets highest priority
-                    if (text === 'save') score += 50;
-                    else if (text.startsWith('save')) score += 40;
-
-                    // Boost if it looks like a primary/CTA button (background color, classes)
-                    const bg = style.backgroundColor;
-                    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') {
-                        score += 20;
-                    }
-                    const cls = (el.className || '').toString().toLowerCase();
-                    if (cls.includes('primary') || cls.includes('cta') || cls.includes('action') || cls.includes('submit')) {
-                        score += 15;
-                    }
-
-                    // Boost if inside a chatbot/modal container
-                    if (el.closest('[class*="chatbot" i], [class*="bot" i], [class*="chat" i], [class*="modal" i], [class*="dialog" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
-                        score += 100;
-                    }
-
-                    results.push({ el, score, text });
-                }
-
-                if (results.length === 0) return null;
-                results.sort((a, b) => b.score - a.score);
-                const best = results[0].el;
-                best.scrollIntoView({ behavior: 'instant', block: 'center' });
-                if (best.disabled) best.disabled = false;
-                best.removeAttribute('disabled');
-                best.removeAttribute('aria-disabled');
-
-                // Assign temporary target attribute for Playwright native click
-                best.setAttribute('data-agent-click-target', 'true');
-                return results[0].text;
-            }"""
-            try:
-                clicked_text = await page.evaluate(js)
-                if clicked_text:
-                    # Click using Playwright's trusted pointer events click
-                    target = page.locator('[data-agent-click-target="true"]').first
-                    clicked_via_playwright = False
-                    if await target.count() > 0:
-                        try:
-                            await target.scroll_into_view_if_needed()
-                            await asyncio.sleep(0.1)
-                            await target.click(timeout=3000)
-                            clicked_via_playwright = True
-                            logger.info(f"Clicked chatbot Save button via Playwright (attempt {retry + 1}): '{clicked_text}'")
-                        except Exception as pe:
-                            logger.debug(f"Playwright native click failed, using JS click fallback: {pe}")
-
-                    if not clicked_via_playwright:
-                        await page.evaluate(
-                            r"""() => {
-                                const el = document.querySelector('[data-agent-click-target="true"]');
-                                if (el) {
-                                    el.click();
-                                    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-                                    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
-                                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                                }
-                            }"""
-                        )
-                        logger.info(f"Clicked chatbot Save button via JS fallback (attempt {retry + 1}): '{clicked_text}'")
-
-                    # Clean up the target attribute
-                    with contextlib.suppress(Exception):
-                        await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
-
-                    await asyncio.sleep(1)
-                    return True
-            except Exception as e:
-                logger.debug(f"Chatbot Save JS scan attempt {retry + 1} failed: {e}")
-
-            # ── Strategy 2: Playwright locator scoped to chatbot containers ──
-            container_selectors = [
-                '[class*="chatbot"]',
-                '[class*="bot-body"]',
-                '[class*="apply-modal"]',
-                '[class*="modal" i]',
-                '[class*="dialog" i]',
-            ]
-            for container_sel in container_selectors:
+                    return false;
+                }""")
+                if blocked:
+                    continue
                 try:
-                    container = page.locator(container_sel).first
-                    if await container.count() > 0 and await container.is_visible():
-                        for btn_text in ("Save", "Save & Next", "Save and Next", "Save and Continue", "Save & Continue", "Save Details", "Save Answer", "Submit", "Next"):
-                            btn = container.locator(
-                                'button, a, [role="button"], div, span'
-                            ).filter(has_text=btn_text).first
-                            if (
-                                await btn.count() > 0
-                                and await btn.is_visible()
-                                and await btn.is_enabled()
-                            ):
-                                await btn.scroll_into_view_if_needed()
-                                await asyncio.sleep(0.3)
-                                await btn.click()
-                                logger.info(
-                                    f"Clicked chatbot Save button via Playwright in '{container_sel}': '{btn_text}'"
-                                )
-                                await asyncio.sleep(1)
-                                return True
-                except Exception:
-                    pass
-
-            # ── Strategy 3: Fallback — page-wide Playwright locator ──
-            for btn_text in ("Save", "Save & Next", "Save and Next", "Save & Continue", "Save Details", "Save Answer"):
-                try:
-                    btn = page.locator('button, [role="button"], div, span').filter(has_text=btn_text).first
-                    if (
-                        await btn.count() > 0
-                        and await btn.is_visible()
-                        and await btn.is_enabled()
-                    ):
-                        await btn.scroll_into_view_if_needed()
-                        await asyncio.sleep(0.3)
-                        await btn.click()
-                        logger.info(f"Clicked Save button via page-wide Playwright fallback: '{btn_text}'")
-                        await asyncio.sleep(1)
-                        return True
-                except Exception:
-                    pass
-
-            # ── Strategy 4: JS fallback — any visible button on the page with "Save" text ──
-            # This catches buttons in non-standard containers that earlier strategies missed.
-            try:
-                any_save_clicked = await page.evaluate(
-                    r"""() => {
-                        const saveTexts = ['save', 'submit', 'next', 'continue', 'apply', 'apply now', 'send'];
-                        const candidates = Array.from(document.querySelectorAll(
-                            'button, [role="button"], a, input[type="submit"], input[type="button"], ' +
-                            '[class*="btn" i], [class*="button" i], [class*="save" i], span, div'
-                        ));
-                        const results = [];
-                        for (const el of candidates) {
-                            const text = (el.textContent || el.innerText || el.value || '').trim().toLowerCase();
-                            if (!text || !saveTexts.some(st => text === st || text.startsWith(st + ' ') || text.startsWith(st + '&'))) continue;
-                            const style = window.getComputedStyle(el);
-                            if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width < 20 || rect.height < 20) continue;
-                            if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
-
-                            let score = 0;
-                            if (el.tagName === 'BUTTON') score += 20;
-                            if (text === 'save') score += 30;
-                            else if (text.startsWith('save')) score += 20;
-
-                            // Prefer leaf elements (fewer descendants)
-                            const descendantCount = el.querySelectorAll('*').length;
-                            score -= descendantCount * 2;
-
-                            // Boost for primary/CTA styling (colored background)
-                            const bg = style.backgroundColor;
-                            if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') score += 15;
-                            if (el.className.toLowerCase().includes('primary') || el.className.toLowerCase().includes('cta')) score += 10;
-
-                            // Boost if inside a chatbot/modal/drawer container
-                            if (el.closest('[class*="chatbot" i], [class*="bot" i], [class*="chat" i], [class*="modal" i], [class*="dialog" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
-                                score += 100;
-                            }
-
-                            results.push({ el, score, text });
-                        }
-                        if (results.length === 0) return null;
-                        results.sort((a, b) => b.score - a.score);
-                        const best = results[0].el;
-                        best.scrollIntoView({ behavior: 'instant', block: 'center' });
-                        if (best.disabled) best.disabled = false;
-                        best.removeAttribute('disabled');
-                        best.removeAttribute('aria-disabled');
-
-                        best.setAttribute('data-agent-click-target', 'true');
-                        return results[0].text;
-                    }"""
-                )
-                if any_save_clicked:
-                    # Click using Playwright
-                    target = page.locator('[data-agent-click-target="true"]').first
-                    clicked_via_playwright = False
-                    if await target.count() > 0:
-                        try:
-                            await target.scroll_into_view_if_needed()
-                            await asyncio.sleep(0.1)
-                            await target.click(timeout=3000)
-                            clicked_via_playwright = True
-                            logger.info(f"Clicked Save button via page-wide Playwright: '{any_save_clicked}'")
-                        except Exception as pe:
-                            logger.debug(f"Page-wide Playwright native click failed: {pe}")
-
-                    if not clicked_via_playwright:
-                        await page.evaluate(
-                            r"""() => {
-                                const el = document.querySelector('[data-agent-click-target="true"]');
-                                if (el) {
-                                    el.click();
-                                    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-                                    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
-                                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                                }
-                            }"""
-                        )
-                        logger.info(f"Clicked Save button via page-wide JS fallback: '{any_save_clicked}'")
-
-                    # Clean up the target attribute
-                    with contextlib.suppress(Exception):
-                        await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
-
-                    await asyncio.sleep(1)
+                    await candidate.click(timeout=3000)
                     return True
-            except Exception as e:
-                logger.debug(f"Page-wide JS Save fallback failed: {e}")
-
-            await asyncio.sleep(0.8)
-
-        logger.debug("Chatbot Save button not found after 3 attempts")
+                except PlaywrightError as error:
+                    logger.warning(f"Screening action could not be confirmed: {error}")
+                    return False
         return False
+
+    async def click_chatbot_save_button(self) -> bool:
+        """Advance an answered chatbot question without clicking listing Save/Apply."""
+        return await self._click_screening_action(r"save(?:\s*(?:&|and)\s*(?:next|continue))?|next|continue", chatbot_only=True)
 
     async def click_intermediate_save_button(self) -> bool:
-        """Click an intermediate Save/Next/Continue button (NOT Submit/Apply).
-
-        In Naukri's screening flow, after filling a question there is often a
-        'Save' button that must be clicked before the answer registers.
-
-        For chatbot flows, delegates to click_chatbot_save_button() first.
-        For standard forms, tries Playwright locators then JS broad scan with retry.
-        Returns True if a Save/Next/Continue button was found and clicked.
-        """
-        # For chatbot flows, use the dedicated chatbot-scoped method first
+        """Advance only an enabled Save/Next/Continue control in the active form."""
         if await self.is_chatbot_flow():
-            result = await self.click_chatbot_save_button()
-            if result:
-                return True
-            # Fall through to generic strategies if chatbot-specific method fails
-
-        page = self._engine.page
-
-        for _retry in range(3):
-            # ── Strategy 1: Playwright native locators ──
-            for text in ("Save", "Save & Next", "Save and Continue", "Next", "Continue"):
-                try:
-                    btn = page.locator(
-                        'button, input[type="submit"], input[type="button"], '
-                        '[role="button"]'
-                    ).filter(has_text=text).first
-                    if (
-                        await btn.count() > 0
-                        and await btn.first.is_visible()
-                        and await btn.first.is_enabled()
-                    ):
-                        await btn.first.scroll_into_view_if_needed()
-                        await asyncio.sleep(0.2)
-                        await btn.first.click()
-                        logger.debug(f"Clicked Save button via Playwright: '{text}'")
-                        return True
-                except Exception:
-                    pass
-
-            # ── Strategy 2: JS broad scan (catches non-standard
-            #    elements like <div>, <span>, <a> with matching text) ──
-            js = """() => {
-                const saveTexts = ['save', 'next', 'continue'];
-                const candidates = Array.from(
-                    document.querySelectorAll(
-                        'button, input[type=\"button\"], input[type=\"submit\"], ' +
-                        'a, [role=\"button\"], [onclick], ' +
-                        '[class*=\"btn\" i], [class*=\"button\" i], ' +
-                        '[class*=\"save\" i], [class*=\"submit\" i], ' +
-                        'span, div, label'
-                    )
-                );
-                const results = [];
-                for (const el of candidates) {
-                    const text = (el.textContent || el.innerText || el.value || '').trim().toLowerCase();
-                    if (!text) continue;
-                    const match = saveTexts.some(st =>
-                        text === st || text.startsWith(st + ' ') || text.startsWith(st + '&')
-                    );
-                    if (!match) continue;
-                    const style = window.getComputedStyle(el);
-                    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) === 0) continue;
-                    const rect = el.getBoundingClientRect();
-                    if (rect.width < 20 || rect.height < 20) continue;
-                    if (el.disabled || el.getAttribute('aria-disabled') === 'true') continue;
-                    let depth = (el.tagName === 'BUTTON' || el.tagName === 'INPUT' || el.tagName === 'A') ? 0 : 1;
-
-                    // Prefer leaf elements (fewer descendants)
-                    const descendantCount = el.querySelectorAll('*').length;
-                    depth += descendantCount * 0.1;
-
-                    // Prefer buttons inside modal/chatbot/drawer/slider containers
-                    if (el.closest('[class*="modal" i], [class*="chatbot" i], [class*="dialog" i], [class*="apply" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
-                        depth -= 5;
-                    }
-                    results.push({ el, depth, text });
-                }
-                if (results.length === 0) return null;
-                results.sort((a, b) => a.depth - b.depth);
-                const best = results[0].el;
-                best.scrollIntoView({ behavior: 'instant', block: 'center' });
-                if (best.disabled) best.disabled = false;
-                best.removeAttribute('disabled');
-                best.removeAttribute('aria-disabled');
-
-                best.setAttribute('data-agent-click-target', 'true');
-                return results[0].text;
-            }"""
-            try:
-                clicked_text = await page.evaluate(js)
-                if clicked_text:
-                    # Click using Playwright's trusted pointer events click
-                    target = page.locator('[data-agent-click-target="true"]').first
-                    clicked_via_playwright = False
-                    if await target.count() > 0:
-                        try:
-                            await target.scroll_into_view_if_needed()
-                            await asyncio.sleep(0.1)
-                            await target.click(timeout=3000)
-                            clicked_via_playwright = True
-                            logger.debug(f"Clicked Save button via Playwright: '{clicked_text}'")
-                        except Exception as pe:
-                            logger.debug(f"Playwright native click failed on intermediate Save: {pe}")
-
-                    if not clicked_via_playwright:
-                        await page.evaluate(
-                            r"""() => {
-                                const el = document.querySelector('[data-agent-click-target="true"]');
-                                if (el) {
-                                    el.click();
-                                    el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-                                    el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
-                                    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                                    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                                }
-                            }"""
-                        )
-                        logger.debug(f"Clicked Save button via JS fallback: '{clicked_text}'")
-
-                    # Clean up the target attribute
-                    with contextlib.suppress(Exception):
-                        await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
-
-                    return True
-            except Exception as e:
-                logger.debug(f"JS intermediate save click failed: {e}")
-
-            await asyncio.sleep(0.8)
-
-        return False
+            return await self.click_chatbot_save_button()
+        return await self._click_screening_action(r"save(?:\s*(?:&|and)\s*(?:next|continue))?|next|continue")
 
     async def submit_application(self) -> bool:
         """Click the submit/apply button to finalize the application.
@@ -2492,131 +2002,15 @@ class JobDetailPage(BasePage):
         page = self._engine.page
         is_chatbot = await self.is_chatbot_flow()
 
-        # For chatbot flows, try the dedicated chatbot Save button first
+        # Native validity is a final gate even if a required control could not
+        # be mapped to screening metadata. Never submit an incomplete form.
+        complete = await page.evaluate("""() => [...document.querySelectorAll('input[required], select[required], textarea[required]')].filter(el => el.getClientRects().length).every(el => el.checkValidity())""")
+        if not complete:
+            return False
+
         if is_chatbot:
-            save_clicked = await self.click_chatbot_save_button()
-            if save_clicked:
-                logger.info("submit_application: Used chatbot Save button for submission")
-                return True
-
-        # Try a robust JavaScript evaluator click to find the best visible, enabled button
-        # In chatbot flows, "Save" gets the highest score since it's the submit action
-        js_click_script = """
-        (isChatbot) => {
-            const getScore = (el) => {
-                const text = el.textContent.trim().toLowerCase() || el.value?.trim().toLowerCase() || "";
-                let score = 0;
-
-                if (isChatbot) {
-                    // In chatbot flows, Save IS the submit action — highest priority
-                    if (text === 'save' || text.startsWith('save ') || text.startsWith('save&')) score = 150;
-                    else if (text.includes('submit') || text === 'apply' || text === 'apply now') score = 100;
-                    else if (text.includes('next') || text.includes('continue') || text.includes('send')) score = 80;
-                    else if (text.includes('confirm') || text.includes('proceed')) score = 70;
-                } else {
-                    if (text.includes('submit') || text === 'apply' || text === 'apply now') score = 100;
-                    else if (text.includes('save') || text.includes('next') || text.includes('continue') || text.includes('send')) score = 80;
-                    else if (text.includes('confirm') || text.includes('proceed')) score = 70;
-                }
-
-                if (score > 0) {
-                    // Boost score if inside a modal, popup, or chatbot container
-                    if (el.closest('[class*="modal" i], [class*="dialog" i], [class*="popup" i], [class*="chatbot"], [class*="chat" i], [class*="bot" i], [class*="drawer" i], [class*="slider" i], [class*="overlay" i]')) {
-                        score += 50;
-                    }
-                    // Boost if it's a primary-styled button (has background color)
-                    const style = window.getComputedStyle(el);
-                    const bg = style.backgroundColor;
-                    if (bg && bg !== 'rgba(0, 0, 0, 0)' && bg !== 'transparent' && bg !== 'rgb(255, 255, 255)') {
-                        score += 10;
-                    }
-                    // Prefer leaf elements
-                    const descendantCount = el.querySelectorAll('*').length;
-                    score -= descendantCount * 2;
-                }
-                return score;
-            };
-
-            const candidates = Array.from(document.querySelectorAll('button, input[type="button"], input[type="submit"], a.btn, a.button, [class*="btn" i], [class*="button" i], span, div'));
-
-            const validCandidates = candidates.filter(el => {
-                const style = window.getComputedStyle(el);
-                if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-                const rect = el.getBoundingClientRect();
-                if (rect.width === 0 || rect.height === 0) return false;
-
-                if (el.disabled || el.getAttribute('aria-disabled') === 'true' || el.classList.contains('disabled')) return false;
-
-                return getScore(el) > 0;
-            });
-
-            if (validCandidates.length > 0) {
-                validCandidates.sort((a, b) => getScore(b) - getScore(a));
-                const best = validCandidates[0];
-                best.scrollIntoView({ behavior: 'instant', block: 'center' });
-                best.setAttribute('data-agent-click-target', 'true');
-                return true;
-            }
-            return false;
-        }
-        """
-        try:
-            clicked = await page.evaluate(js_click_script, is_chatbot)
-            if clicked:
-                target = page.locator('[data-agent-click-target="true"]').first
-                clicked_via_playwright = False
-                if await target.count() > 0:
-                    try:
-                        await target.scroll_into_view_if_needed()
-                        await asyncio.sleep(0.1)
-                        await target.click(timeout=3000)
-                        clicked_via_playwright = True
-                        logger.debug("Successfully clicked submit/apply button via Playwright.")
-                    except Exception as pe:
-                        logger.debug(f"Playwright native submit click failed, falling back: {pe}")
-
-                if not clicked_via_playwright:
-                    await page.evaluate(
-                        r"""() => {
-                            const el = document.querySelector('[data-agent-click-target="true"]');
-                            if (el) {
-                                el.click();
-                                el.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
-                                el.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
-                                el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
-                                el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-                            }
-                        }"""
-                    )
-                    logger.debug("Successfully clicked submit/apply button via JS fallback.")
-
-                # Clean up target attribute
-                with contextlib.suppress(Exception):
-                    await page.evaluate("() => { const el = document.querySelector('[data-agent-click-target=\"true\"]'); if (el) el.removeAttribute('data-agent-click-target'); }")
-
-                return True
-        except Exception as e:
-            logger.debug(f"JS submit click failed: {e}")
-
-        # Fallback to standard Playwright selectors
-        submit_selectors = [
-            ApplyFlowSelectors.SUBMIT_BUTTON,
-            ApplyFlowSelectors.NEXT_BUTTON,
-            ApplyFlowSelectors.GENERIC_SUBMIT,
-            ApplyFlowSelectors.GENERIC_APPLY,
-            ApplyFlowSelectors.GENERIC_SUBMIT_TYPE,
-            'input[type="submit"]',
-            'input[type="button"][value*="Submit" i]',
-            'input[type="button"][value*="Apply" i]',
-        ]
-
-        for selector in submit_selectors:
-            clicked = await self._interactions.safe_click(selector, timeout=2000)
-            if clicked:
-                logger.debug(f"Clicked submit with fallback selector: {selector}")
-                return True
-
-        return False
+            return await self.click_chatbot_save_button()
+        return await self._click_screening_action(r"submit(?: application)?|apply(?: now)?|send application")
 
     async def check_application_failure(self) -> str | None:
         """Check if the application failed with an explicit error/warning on the page."""
@@ -2638,48 +2032,20 @@ class JobDetailPage(BasePage):
         return None
 
     async def check_application_success(self) -> bool:
-        """Check if the application was submitted successfully."""
-        page = self._engine.page
-
-        # Check for success indicators via selectors
-        success_selectors = [
-            ApplyFlowSelectors.APPLICATION_SUCCESS,
-            '//*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "applied successfully")]',
-            '//*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "successfully applied")]',
-            ApplyFlowSelectors.SUCCESS_SUBMITTED,
-            ApplyFlowSelectors.SUCCESS_RECEIVED,
-            '//button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "applied") and not(contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "apply "))]',
-        ]
-
-        for selector in success_selectors:
-            if await self._interactions.element_exists(selector):
-                return True
-
-        # Check page content for success messages
+        """Require a visible platform confirmation, never text from a job description."""
         try:
-            body_text = await page.evaluate("document.body.innerText")
-            success_phrases = [
-                "applied successfully",
-                "application submitted",
-                "application received",
-                "successfully applied",
-                "thank you for applying",
-                "application sent",
-                "your application has been sent",
-                "we have received your application",
-                "your application is submitted",
-                "application has been submitted",
-                "you have successfully applied",
-                "successfully submitted",
-                "applied on",
-            ]
-            for phrase in success_phrases:
-                if phrase in body_text.lower():
-                    return True
+            return bool(await self._engine.page.evaluate(r"""() => {
+                const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+                const success = /applied successfully|successfully applied|(?:your )?application (?:has been |was |is )?(?:submitted|sent|received)|thank you for applying|we have received your application/i;
+                const nodes = document.querySelectorAll('[role="alert"], [role="status"], [role="dialog"], [class*="success" i], [class*="confirmation" i], [class*="apply-message" i], [class*="applyResponse" i], h1, h2, h3');
+                return [...nodes].some(el => {
+                    if (!visible(el) || el.closest('[class*="job-desc"], [class*="jobDescription"], [class*="recommend"], article')) return false;
+                    const text=(el.innerText || '').trim();
+                    return text.length < 2000 && success.test(text);
+                });
+            }""")) or await self.is_already_applied()
         except PlaywrightError:
-            pass
-
-        return False
+            return False
 
     async def get_external_apply_url(self) -> str | None:
         """
@@ -2691,7 +2057,7 @@ class JobDetailPage(BasePage):
 
         try:
             # 1. Try to extract URL directly from DOM first
-            element = await page.query_selector(JobDetailSelectors.EXTERNAL_APPLY)
+            element = await self._external_apply_button()
             if element:
                 href = await element.get_attribute("href")
                 if not href:

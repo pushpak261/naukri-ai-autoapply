@@ -62,42 +62,10 @@ class JobFilter:
         We parse the *minimum* required experience from the range and check
         that it doesn't exceed our configured maximum.
         """
-        exp_text = exp_text.lower()
+        from libs.common.resume_facts import minimum_experience_years
 
-        # If the text contains a month abbreviation, it's likely a walk-in date wrongly parsed as experience
-        months = [
-            "jan",
-            "feb",
-            "mar",
-            "apr",
-            "may",
-            "jun",
-            "jul",
-            "aug",
-            "sep",
-            "oct",
-            "nov",
-            "dec",
-        ]
-        if any(month in exp_text for month in months):
-            return True
-
-        # Try to match range format first: "X-Y" or "X to Y"
-        range_match = re.search(r"(\d+)\s*(?:[-–]|\bto\b)\s*(\d+)", exp_text)
-        if range_match:
-            min_req = int(range_match.group(1))
-            if min_req > self.max_experience:
-                return False
-            # A 0-4 year role accepts junior applicants too. Its upper bound
-            # is not a minimum requirement.
-            return True
-        # Single number format: "5 Yrs"
-        single_match = re.search(r"(\d+)", exp_text)
-        if single_match:
-            min_req = int(single_match.group(1))
-            if min_req > self.max_experience:
-                return False
-        return True
+        minimum = minimum_experience_years(exp_text)
+        return minimum is None or minimum <= self.max_experience
 
     def _passes_freshness_filter(self, date_text: str) -> bool:
         """Check if the job posting age is within limits."""

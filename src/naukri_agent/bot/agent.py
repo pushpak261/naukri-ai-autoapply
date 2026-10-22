@@ -482,6 +482,10 @@ class NaukriAgent:
         company_policy = CompanyPolicy(self._settings, "naukri")
         job_queue: list[tuple[float, int, Job]] = []
         for idx, job in enumerate(jobs):
+            required_titles = self._settings.search.required_title_keywords
+            if required_titles and not any(re.search(r"\b" + re.escape(term) + r"\b", job.title or "", re.I) for term in required_titles):
+                self._jobs_skipped += 1
+                continue
             # Compute heuristic score first for dynamic exclusion gating
             heuristic_score = 0.0
             if self._settings.search.enable_heuristics:
@@ -541,7 +545,7 @@ class NaukriAgent:
 
                 # Skip jobs with very low heuristic scores — clearly irrelevant
                 MIN_HEURISTIC_SCORE = 0.08
-                if score < MIN_HEURISTIC_SCORE:
+                if self._settings.ai.use_gemini and score < MIN_HEURISTIC_SCORE:
                     logger.debug(
                         f"Skipping job: heuristic score {score:.3f} below {MIN_HEURISTIC_SCORE} "
                         f"({job.title} @ {job.company})"
@@ -635,9 +639,14 @@ class NaukriAgent:
                     login_handler = self._login_handler
                     if not login_handler:
                         raise RuntimeError("LoginHandler not configured.")
-                    await login_handler.login()
+                    if not await login_handler.login():
+                        self._run_error = True
+                        log_error("Re-login failed; stopping before further job actions.")
+                        break
                 except (PlaywrightTimeoutError, PlaywrightError) as e:
                     logger.error(f"Failed to re-login after restart: {e}")
+                    self._run_error = True
+                    break
 
             # Get description & key skills if not already present
             if not job.description:
@@ -645,6 +654,12 @@ class NaukriAgent:
                 job.description = details.get("description", "")
                 if details.get("skills"):
                     job.skills = details["skills"]
+                if details.get("experience_detail"):
+                    job.experience = details["experience_detail"]
+                if details.get("location_detail"):
+                    job.location = details["location_detail"]
+                if details.get("salary_detail"):
+                    job.salary = details["salary_detail"]
                 job.openings = details.get("openings", 0)
                 job.has_company_logo = details.get("has_company_logo", False)
 
@@ -708,7 +723,12 @@ class NaukriAgent:
                 continue
 
             if self._settings.ai.enable_matching:
-                match_result = await matcher.match(resume_profile, job)
+                try:
+                    match_result = await matcher.match(resume_profile, job)
+                except Exception as error:
+                    logger.error("Assessment failed for %s; the job was not approved: %s", job.naukri_job_id, error)
+                    self._jobs_failed += 1
+                    continue
             else:
                 match_result = JobApplication(
                     match_score=100.0, should_apply=True,
@@ -915,37 +935,21 @@ class NaukriAgent:
 
         max_exp = self._settings.search.experience_max
 
-        # 1) Experience ceiling — only junior/associate roles (0-2 yrs).
-        exp_text = str(job.experience or "").lower()
-        if exp_text:
-            months = [
-                "jan", "feb", "mar", "apr", "may", "jun",
-                "jul", "aug", "sep", "oct", "nov", "dec",
-            ]
-            if not any(m in exp_text for m in months):
-                # Use a simpler pattern with explicit alternation to avoid backtracking
-                range_match = re.search(r"(\d+)\s*(?:[-–]|\bto\b)\s*(\d+)", exp_text)
-                single_match = re.search(r"(\d+)", exp_text)
-                min_req = 0
-                max_req = 0
-                if range_match:
-                    min_req = int(range_match.group(1))
-                    max_req = int(range_match.group(2))
-                elif single_match:
-                    min_req = int(single_match.group(1))
-                    max_req = min_req
+        required_titles = self._settings.search.required_title_keywords
+        if required_titles and not any(re.search(r"\b" + re.escape(term) + r"\b", job.title or "", re.I) for term in required_titles):
+            return False, "Title does not match the configured role keywords"
 
-                if min_req > max_exp:
-                    return (
-                        False,
-                        f"Experience required ({min_req} Yrs) exceeds {max_exp} Yrs target",
-                    )
-                # Skip clearly senior ranges even if the lower bound is within range.
-                if self._settings.exclusions.legacy_domain_filter and min_req >= 3 and max_req >= 4:
-                    return (
-                        False,
-                        f"Senior role ({min_req}-{max_req} Yrs) exceeds {max_exp} Yrs target",
-                    )
+        from libs.common.resume_facts import minimum_experience_years
+        exp_text = str(job.experience or "").lower()
+        min_req = minimum_experience_years(exp_text)
+        if min_req is not None:
+            if min_req > max_exp:
+                return False, f"Experience required ({min_req:g} Yrs) exceeds {max_exp} Yrs target"
+            if self._resume_profile is not None and min_req > self._resume_profile.total_experience_years:
+                return False, f"Required experience ({min_req:g} years) exceeds the saved candidate experience"
+            range_match = re.search(r"(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)\s*(?:years?|yrs?)", exp_text)
+            if self._settings.exclusions.legacy_domain_filter and range_match and min_req >= 3 and float(range_match[2]) >= 4:
+                return False, f"Senior role ({range_match[1]}-{range_match[2]} Yrs) exceeds {max_exp} Yrs target"
 
         if not self._settings.exclusions.legacy_domain_filter:
             return True, "Experience fits; relevance is determined from the uploaded resume"
@@ -962,6 +966,7 @@ class NaukriAgent:
         # Send external jobs email if needed
         if (
             getattr(self._settings.application, "collect_external_jobs", False)
+            and self._settings.application.email_notifications_enabled
             and self._external_jobs
         ):
             from src.naukri_agent.utils.email_sender import send_external_jobs_email
@@ -1016,7 +1021,7 @@ class NaukriAgent:
                 f"  Match Threshold: {self._settings.application.match_score_threshold}%\n"
                 f"  Matching: {'Gemini' if self._settings.ai.use_gemini and self._settings.ai.enable_matching else 'Local resume rules'}\n"
                 f"  Dry Run: {'Yes' if self._settings.application.dry_run else 'No'}\n"
-                f"  AI Model: {self._settings.ai.model}",
+                f"  AI Model: {self._settings.ai.model if self._settings.ai.use_gemini else 'Disabled (offline rules)'}",
                 border_style="cyan",
                 padding=(1, 2),
             )

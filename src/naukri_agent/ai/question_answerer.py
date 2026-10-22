@@ -327,46 +327,28 @@ class QuestionAnswerer(IQuestionAnswerer):
             if resume_profile.total_experience_years
             else None
         )
-        self._direct_answers = {
-            "current_ctc": settings.profile.current_ctc or "4.5 LPA",
-            "expected_ctc": settings.profile.expected_ctc or "6 LPA",
-            "notice_period": settings.profile.notice_period or "Immediate",
-            "total_experience": settings.profile.total_experience
-            or profile_experience
-            or "1 years",
-            "current_location": settings.profile.current_location
-            or resume_profile.current_title
-            or "Pune",
-            "preferred_location": ", ".join(settings.profile.preferred_locations) or "Pune",
-            "candidate_name": resume_profile.name or "Candidate",
-            "candidate_email": resume_profile.email or settings.naukri.email or "",
-            "candidate_phone": resume_profile.phone or settings.naukri.mobile_number or "",
-            "reloc_consent": "Yes",
-            "graduation_year": "2023",
-            "qualification": "PG-DAC / Bachelor of Mechanical Engineering",
-            "gender": "Male",
-            "date_of_birth": settings.profile.date_of_birth or "",
-            "marital_status": settings.profile.marital_status or "",
-            "languages": ", ".join(settings.profile.languages) or "English, Hindi, Marathi",
-            "github_url": settings.profile.github_url or "",
-            "linkedin_url": settings.profile.linkedin_url or "",
-        }
-
         education = next((entry for entry in resume_profile.education if isinstance(entry, dict)), {})
         explicit = getattr(settings.profile, 'model_fields_set', set())
-        self._direct_answers.update({
+        self._direct_answers = {
             'current_ctc': settings.profile.current_ctc or '',
             'expected_ctc': settings.profile.expected_ctc or '',
             'notice_period': settings.profile.notice_period or '',
             'total_experience': settings.profile.total_experience or profile_experience or '',
             'current_location': settings.profile.current_location or '',
             'preferred_location': ', '.join(settings.profile.preferred_locations),
+            'candidate_name': resume_profile.name or '',
+            'candidate_email': resume_profile.email or settings.naukri.email or '',
+            'candidate_phone': resume_profile.phone or settings.naukri.mobile_number or '',
             'gender': '',
             'qualification': education.get('degree', ''),
             'graduation_year': education.get('year', ''),
             'reloc_consent': ('Yes' if settings.profile.willing_to_relocate else 'No') if 'willing_to_relocate' in explicit else '',
             'languages': ', '.join(settings.profile.languages if 'languages' in explicit else resume_profile.languages),
-        })
+            'date_of_birth': settings.profile.date_of_birth or '',
+            'marital_status': settings.profile.marital_status or '',
+            'github_url': settings.profile.github_url or '',
+            'linkedin_url': settings.profile.linkedin_url or '',
+        }
 
         # Load local QA cache to save API tokens
         # Do not reuse legacy guessed answers or answers for a different resume.

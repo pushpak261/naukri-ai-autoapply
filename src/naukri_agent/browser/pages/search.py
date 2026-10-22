@@ -24,32 +24,12 @@ class SearchPage(BasePage):
     """
 
     async def enforce_visual_slider(self, min_exp: int, max_exp: int) -> None:
+        """Compatibility hook; real experience limits are enforced by JobFilter.
+
+        Never rewrite the website's displayed controls to pretend a server-side
+        filter was applied.
         """
-        The Strongest Algorithm: Forcefully overrides Naukri's broken UI slider text
-        to reflect the actual configuration. This prevents visual confusion caused by
-        Naukri's backend ignoring `experiencemax`.
-        """
-        page = self._engine.page
-        try:
-            # We target the specific span container that holds the selected slider text
-            # Depending on Naukri's A/B testing, it might be in different places, so we use a robust query
-            js_payload = f"""
-                (() => {{
-                    const sliderContainers = document.querySelectorAll('.styles_slider-container__2M_h3, .styles_slider-labels, .slider-label');
-                    sliderContainers.forEach(container => {{
-                        if (container.innerText.includes('Yrs') || container.innerText.includes('Any')) {{
-                            container.innerHTML = '<b>{min_exp} Yrs - {max_exp} Yrs</b>';
-                            container.style.color = '#ff6c00'; // Highlight our override in orange
-                            container.style.fontSize = '14px';
-                            container.title = 'Agent Override Active';
-                        }}
-                    }});
-                }})();
-            """
-            await page.evaluate(js_payload)
-            logger.debug(f"Successfully enforced visual UI slider to {min_exp} - {max_exp} Yrs")
-        except Exception as e:
-            logger.debug(f"Failed to enforce visual slider: {e}")
+        logger.debug("Experience limits are enforced locally: %s-%s", min_exp, max_exp)
 
     async def navigate_to_search(self, search_url: str) -> None:
         """Navigate to a specific job search URL with retries and race condition prevention."""
