@@ -50,13 +50,29 @@ class JobDetailPage(BasePage):
         except PlaywrightError:
             return False
 
+    async def _external_apply_button(self):
+        import re
+        candidates = self._engine.page.locator('button, a, [role="button"]').filter(
+            has_text=re.compile(r'^\s*apply on company(?:\s+(?:site|website))?\s*$', re.I)
+        )
+        for candidate in await candidates.all():
+            if await candidate.is_visible() and not await candidate.evaluate(
+                "el => !!el.closest('[class*=recommend], [class*=job-desc], article')"
+            ):
+                return candidate
+        return None
+
     async def is_external_apply(self) -> bool:
-        """Check if the job apply button redirects to an external site."""
-        return await self._interactions.element_exists(JobDetailSelectors.EXTERNAL_APPLY)
+        """Use the listing's visible external action, excluding hidden templates."""
+        return await self._external_apply_button() is not None
 
     async def click_external_apply_button(self) -> bool:
         """Click the external apply button to navigate to the company site."""
-        return await self._interactions.safe_click(JobDetailSelectors.EXTERNAL_APPLY, timeout=5000)
+        button = await self._external_apply_button()
+        if button is None or not await button.is_enabled():
+            return False
+        await button.click(timeout=5000)
+        return True
 
     async def is_external_apply_successful(self) -> bool:
         """Check if the external apply page shows a success/confirmation."""
@@ -2041,7 +2057,7 @@ class JobDetailPage(BasePage):
 
         try:
             # 1. Try to extract URL directly from DOM first
-            element = await page.query_selector(JobDetailSelectors.EXTERNAL_APPLY)
+            element = await self._external_apply_button()
             if element:
                 href = await element.get_attribute("href")
                 if not href:

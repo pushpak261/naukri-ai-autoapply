@@ -339,3 +339,14 @@ async def test_job_highlights_override_incorrect_zero_year_listing(native_page):
     result = local_match(ResumeProfile(skills=["Java", "Spring Boot"], total_experience_years=1), job, 70)
     assert result[1] is False
     assert 'Required experience is 6 years' in result[2]
+
+
+@pytest.mark.asyncio
+async def test_external_apply_ignores_hidden_templates_and_recommendations(native_page):
+    detail, page = native_page
+    await page.set_content('''<button>Apply</button><div hidden><button>Apply on company site</button></div>
+        <div class="recommendations"><button>Apply on company site</button></div>
+        <p>A job may require you to apply on company site</p>''')
+    assert not await detail.is_external_apply()
+    await page.set_content('<a href="https://example.invalid/careers">Apply on company site</a>')
+    assert await detail.is_external_apply()
