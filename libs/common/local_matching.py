@@ -88,14 +88,14 @@ def local_match(profile, job, threshold):
     from libs.common.resume_facts import minimum_experience_years
 
     required_years = minimum_experience_years(job.experience or "")
-    if required_years is None:
-        stated = re.search(
-            r"\b\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)\s+(?:of\s+)?(?:professional\s+|relevant\s+|work\s+)?experience\b",
-            job.description or "",
-            re.I,
-        )
-        if stated:
-            required_years = minimum_experience_years(stated[0])
+    stated = re.search(
+        r"\b\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)\s+(?:of\s+)?(?:professional\s+|relevant\s+|work\s+)?experience\b",
+        job.description or "",
+        re.I,
+    )
+    if stated:
+        stated_years = minimum_experience_years(stated[0])
+        required_years = max(required_years or 0, stated_years or 0)
     if required_years is not None and required_years > profile.total_experience_years:
         approved = False
         reason += f" Required experience is {required_years:g} years; the saved resume supports {profile.total_experience_years:g}."

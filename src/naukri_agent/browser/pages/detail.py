@@ -36,30 +36,19 @@ class JobDetailPage(BasePage):
         await asyncio.sleep(2)
 
     async def is_already_applied(self) -> bool:
-        """Check if the job has already been applied to."""
-        if await self._interactions.element_exists(JobDetailSelectors.ALREADY_APPLIED):
-            return True
-
-        page = self._engine.page
+        """Read a visible application state, excluding description/recommendation text."""
         try:
-            btn_texts = await page.evaluate(
-                """
-                () => {
-                    const elements = [...document.querySelectorAll('button, a, .apply-button, .applyBtn, [class*="apply" i], [class*="walkin" i]')];
-                    return elements.map(el => (el.textContent || '').trim().toLowerCase());
-                }
-                """
-            )
-            for text in btn_texts:
-                if not text:
-                    continue
-                # Check for past-tense indicators of a completed application to avoid false positive on "apply"
-                if any(x in text for x in ["applied", "already applied", "submitted", "received"]):
-                    return True
+            return bool(await self._engine.page.evaluate(r"""() => {
+                const nodes = document.querySelectorAll('#already-applied, .already-applied, button, [role="status"], [role="alert"], [class*="apply-button"], [class*="apply-status"], [class*="applied-status"]');
+                return [...nodes].some(el => {
+                    if (!el.getClientRects().length || getComputedStyle(el).visibility === 'hidden') return false;
+                    if (el.closest('[class*="job-desc"], [class*="jobDescription"], [class*="recommend"], article')) return false;
+                    const text=(el.innerText || '').trim();
+                    return /^(?:already\s+)?applied(?:\s+on\s+.+)?[.!]?$/i.test(text);
+                });
+            }"""))
         except PlaywrightError:
-            pass
-
-        return False
+            return False
 
     async def is_external_apply(self) -> bool:
         """Check if the job apply button redirects to an external site."""
@@ -137,118 +126,13 @@ class JobDetailPage(BasePage):
         }
 
     async def click_apply_button(self) -> bool:
-        """
-        Find and click the Apply button using multiple strategies.
-
-        Returns:
-            True if the button was clicked successfully.
-        """
-        # Strategy 1: XPath text-based selector
-        clicked = await self._interactions.safe_click(
-            JobDetailSelectors.APPLY_BUTTON, timeout=ELEMENT_TIMEOUT
-        )
-        if clicked:
-            return True
-
-        # Strategy 2: Additional XPath variations
-        xpath_patterns = [
-            '//a[contains(translate(., "APPLY", "apply"), "apply") and not(contains(translate(., "APPLIED", "applied"), "applied"))]',
-            '//*[@role="button" and contains(translate(., "APPLY", "apply"), "apply") and not(contains(translate(., "APPLIED", "applied"), "applied"))]',
-            '//input[@type="button" or @type="submit"][contains(translate(@value, "APPLY", "apply"), "apply")]',
-            '//button[contains(translate(., "WALK-IN", "walk-in"), "walk-in") or contains(translate(., "WALKIN", "walkin"), "walkin")]',
-            '//a[contains(translate(., "WALK-IN", "walk-in"), "walk-in") or contains(translate(., "WALKIN", "walkin"), "walkin")]',
-        ]
-        for pattern in xpath_patterns:
-            clicked = await self._interactions.safe_click(pattern, timeout=3000)
-            if clicked:
+        """Click only an explicit native Apply action; walk-in registration is separate."""
+        import re
+        buttons = self._engine.page.locator('button:visible, a:visible, [role="button"]:visible').filter(has_text=re.compile(r'^\s*apply(?: now)?\s*$', re.I))
+        for button in await buttons.all():
+            if await button.is_enabled():
+                await button.click(timeout=5000)
                 return True
-
-        # Strategy 3: Try common CSS patterns
-        css_patterns = [
-            'button[class*="apply"]',
-            'button[id*="apply"]',
-            'a[class*="apply"]',
-            '[class*="apply-button"]',
-            '[class*="applyBtn"]',
-            'button[class*="walkin"]',
-            'a[class*="walkin"]',
-        ]
-        for pattern in css_patterns:
-            clicked = await self._interactions.safe_click(pattern, timeout=3000)
-            if clicked:
-                return True
-
-        # Strategy 4: JavaScript click (bypasses overlays and handles non-standard elements)
-        page = self._engine.page
-        try:
-            result = await page.evaluate(
-                """
-                () => {
-                    const elements = [...document.querySelectorAll('button, a, input, [role="button"], [class*="apply" i], [class*="walkin" i]')];
-
-                    const visibleCandidates = elements.filter(el => {
-                        try {
-                            const rect = el.getBoundingClientRect();
-                            if (rect.width === 0 || rect.height === 0) return false;
-                            const style = window.getComputedStyle(el);
-                            if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') return false;
-                            return true;
-                        } catch(e) {
-                            return false;
-                        }
-                    });
-
-                    // 1. Tag-specific check with strict text
-                    for (const el of visibleCandidates) {
-                        const tag = el.tagName.toLowerCase();
-                        let text = (tag === 'input' ? (el.value || '') : (el.textContent || '')).trim().toLowerCase();
-                        if (text.includes('applied') || text.includes('already applied')) continue;
-
-                        if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
-                            if (text === 'apply' || text === 'apply now' || (text.startsWith('apply') && !text.includes('application') && !text.includes('applicant') && !text.includes('applying')) || text.includes('walk-in') || text.includes('walkin') || text === 'interested') {
-                                el.click();
-                                return true;
-                            }
-                        }
-                    }
-
-                    // 2. Class/Id matching
-                    for (const el of visibleCandidates) {
-                        const tag = el.tagName.toLowerCase();
-                        let text = (tag === 'input' ? (el.value || '') : (el.textContent || '')).trim().toLowerCase();
-                        if (text.includes('applied') || text.includes('already applied')) continue;
-
-                        const id = (el.id || '').toLowerCase();
-                        const className = (el.className || '').toString().toLowerCase();
-
-                        if (['button', 'a', 'input'].includes(tag) || el.getAttribute('role') === 'button') {
-                            if (id.includes('apply') || className.includes('apply') || className.includes('walk-in') || className.includes('walkin')) {
-                                el.click();
-                                return true;
-                            }
-                        }
-                    }
-
-                    // 3. General text content matching
-                    for (const el of visibleCandidates) {
-                        let text = (el.textContent || '').trim().toLowerCase();
-                        if (text.includes('applied') || text.includes('already applied')) continue;
-
-                        if (text === 'apply' || text === 'apply now' || text.includes('walk-in') || text.includes('walkin')) {
-                            el.click();
-                            return true;
-                        }
-                    }
-
-                    return false;
-                }
-                """
-            )
-            if result:
-                return True
-        except PlaywrightError as e:
-            logger.debug(f"JS apply click failed: {e}")
-
         return False
 
     async def is_chatbot_flow(self) -> bool:
@@ -898,7 +782,8 @@ class JobDetailPage(BasePage):
                         const el = firstEl;
                         el.setAttribute('data-agent-field-id', fieldId);
                         stableSelector = generateStableSelector(el);
-                        value = el.value || "";
+                        const selected = el.selectedOptions?.[0];
+                        value = selected && !selected.disabled && !/^(select|choose|please select|--)/i.test(selected.textContent.trim()) ? (el.value || "") : "";
                         el.querySelectorAll('option').forEach(opt => {
                             const optText = opt.textContent.trim();
                             if (optText && !/select|choose|--/i.test(optText)) {
@@ -1109,6 +994,14 @@ class JobDetailPage(BasePage):
                     }
                 }
 
+                const fileInputs = formContainer.querySelectorAll('input[type="file"]');
+                fileInputs.forEach((input, index) => {
+                    if (formContainer === document.body && !input.closest('[role="dialog"], [class*="apply" i], [class*="screening" i], form')) return;
+                    const marker = 'upload-' + index;
+                    input.setAttribute('data-agent-file-id', marker);
+                    const label = input.id ? document.querySelector('label[for="' + CSS.escape(input.id) + '"]') : input.closest('label');
+                    questions.push({id: marker, question: (label?.innerText || input.getAttribute('aria-label') || 'File attachment').trim(), type:'file', required:input.required || input.getAttribute('aria-required')==='true', value:input.files?.[0]?.name || '', selector:'[data-agent-file-id="' + marker + '"]'});
+                });
                 return JSON.stringify(questions);
             }
             """
@@ -1119,6 +1012,18 @@ class JobDetailPage(BasePage):
         except Exception as e:
             logger.error(f"Error during JS-based question extraction: {e}")
             return []
+
+    async def upload_resume_file(self, question: dict, file_path: str) -> bool:
+        """Upload only to the particular resume field identified during extraction."""
+        selector = question.get("selector", "")
+        if not selector.startswith('[data-agent-file-id="upload-'):
+            return False
+        try:
+            field = self._engine.page.locator(selector)
+            await field.set_input_files(file_path)
+            return bool(await field.evaluate("el => el.files.length > 0"))
+        except PlaywrightError:
+            return False
 
     async def fill_answer_by_metadata(self, question: dict, answer: str) -> bool:
         """
@@ -2492,6 +2397,12 @@ class JobDetailPage(BasePage):
         page = self._engine.page
         is_chatbot = await self.is_chatbot_flow()
 
+        # Native validity is a final gate even if a required control could not
+        # be mapped to screening metadata. Never submit an incomplete form.
+        complete = await page.evaluate("""() => [...document.querySelectorAll('input[required], select[required], textarea[required]')].filter(el => el.getClientRects().length).every(el => el.checkValidity())""")
+        if not complete:
+            return False
+
         # For chatbot flows, try the dedicated chatbot Save button first
         if is_chatbot:
             save_clicked = await self.click_chatbot_save_button()
@@ -2638,48 +2549,20 @@ class JobDetailPage(BasePage):
         return None
 
     async def check_application_success(self) -> bool:
-        """Check if the application was submitted successfully."""
-        page = self._engine.page
-
-        # Check for success indicators via selectors
-        success_selectors = [
-            ApplyFlowSelectors.APPLICATION_SUCCESS,
-            '//*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "applied successfully")]',
-            '//*[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "successfully applied")]',
-            ApplyFlowSelectors.SUCCESS_SUBMITTED,
-            ApplyFlowSelectors.SUCCESS_RECEIVED,
-            '//button[contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "applied") and not(contains(translate(., "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz"), "apply "))]',
-        ]
-
-        for selector in success_selectors:
-            if await self._interactions.element_exists(selector):
-                return True
-
-        # Check page content for success messages
+        """Require a visible platform confirmation, never text from a job description."""
         try:
-            body_text = await page.evaluate("document.body.innerText")
-            success_phrases = [
-                "applied successfully",
-                "application submitted",
-                "application received",
-                "successfully applied",
-                "thank you for applying",
-                "application sent",
-                "your application has been sent",
-                "we have received your application",
-                "your application is submitted",
-                "application has been submitted",
-                "you have successfully applied",
-                "successfully submitted",
-                "applied on",
-            ]
-            for phrase in success_phrases:
-                if phrase in body_text.lower():
-                    return True
+            return bool(await self._engine.page.evaluate(r"""() => {
+                const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+                const success = /applied successfully|successfully applied|(?:your )?application (?:has been |was |is )?(?:submitted|sent|received)|thank you for applying|we have received your application/i;
+                const nodes = document.querySelectorAll('[role="alert"], [role="status"], [role="dialog"], [class*="success" i], [class*="confirmation" i], [class*="apply-message" i], [class*="applyResponse" i], h1, h2, h3');
+                return [...nodes].some(el => {
+                    if (!visible(el) || el.closest('[class*="job-desc"], [class*="jobDescription"], [class*="recommend"], article')) return false;
+                    const text=(el.innerText || '').trim();
+                    return text.length < 2000 && success.test(text);
+                });
+            }""")) or await self.is_already_applied()
         except PlaywrightError:
-            pass
-
-        return False
+            return False
 
     async def get_external_apply_url(self) -> str | None:
         """

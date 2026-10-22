@@ -44,11 +44,14 @@ class JobSearcher:
         detail_page: JobDetailPage,
         engine: IBrowserEngine,
         settings: Settings,
+        repository=None,
     ) -> None:
         self._search_page = search_page
         self._detail_page = detail_page
         self._engine = engine
         self._settings = settings
+        self._repository = repository
+        self._discovered_ids: set[str] = set()
         # Running count of unique jobs discovered so far. Exposed so the
         # orchestrator can report an accurate total even when the search is
         # interrupted mid-way (e.g. by a shutdown signal).
@@ -75,6 +78,8 @@ class JobSearcher:
             List of job domain entities (partial on interruption).
         """
         all_jobs: dict[str, Job] = {}
+        self._discovered_ids.clear()
+        self.total_found = 0
 
         search_config = self._settings.search
 
@@ -190,13 +195,6 @@ class JobSearcher:
                 await self._search_page.navigate_to_search(search_url)
                 await self._search_page.close_popups()
 
-                # Enforce the visual UI slider to fix Naukri's frontend bug, which
-                # ignores `experiencemax` and can reset the slider on refresh.
-                await self._search_page.enforce_visual_slider(
-                    min_exp=self._settings.search.experience_min,
-                    max_exp=self._settings.search.experience_max,
-                )
-
                 # Check if the page redirected and stripped our search/filter parameters
                 current_url = self._engine.page.url
                 if "k=" in search_url and "k=" not in current_url:
@@ -247,6 +245,21 @@ class JobSearcher:
                 )
 
                 filtered_jobs = job_filter.filter(jobs_on_page)
+
+                # Persist each completed page so stopping during discovery does
+                # not discard every listing collected by the run.
+                for job in filtered_jobs:
+                    if job.naukri_job_id in self._discovered_ids:
+                        continue
+                    if self._repository is not None:
+                        import dataclasses
+                        fields = dataclasses.asdict(job)
+                        fields.pop("id", None)
+                        fields.pop("scraped_at", None)
+                        saved = await self._repository.save_job(**fields)
+                        job.id = saved.id
+                    self._discovered_ids.add(job.naukri_job_id)
+                self.total_found = len(self._discovered_ids)
 
                 all_jobs.extend(filtered_jobs)
                 logger.info(

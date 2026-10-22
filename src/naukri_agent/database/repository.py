@@ -170,9 +170,14 @@ class SQLAlchemyRepository(IRepository):
             existing = result.scalar_one_or_none()
 
             if existing:
-                # Update description if it was previously empty
-                if description and not existing.description:
-                    existing.description = description
+                for key, value in {
+                    "title": title, "company": company, "url": url,
+                    "description": description, "skills": skills,
+                    "location": location, "experience": experience,
+                    "salary": salary, "posted_date": posted_date,
+                }.items():
+                    if value:
+                        setattr(existing, key, value)
                 # Update authenticity info
                 existing.openings = openings
                 existing.has_company_logo = has_company_logo

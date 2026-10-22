@@ -610,7 +610,7 @@ class TestDirectAnswerLookupTable:
         assert direct["total_experience"] == ""
         assert direct["current_location"] == ""
         assert direct["preferred_location"] == ""
-        assert direct["candidate_name"] == "Candidate"
+        assert direct["candidate_name"] == ""
         assert direct["candidate_email"] == ""
         assert direct["candidate_phone"] == ""
         assert direct["date_of_birth"] == ""

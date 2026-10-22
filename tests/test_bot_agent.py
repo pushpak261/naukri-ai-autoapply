@@ -1397,7 +1397,7 @@ class TestCleanup:
         agent._repo.update_run_log.assert_not_awaited()
 
     async def test_external_jobs_email_is_sent(self, tmp_path):
-        settings = make_settings(tmp_path, application={"collect_external_jobs": True})
+        settings = make_settings(tmp_path, application={"collect_external_jobs": True, "email_notifications_enabled": True})
         agent = make_agent(tmp_path, settings=settings)
         job = java_job()
         agent._external_jobs = [(job, "https://careers.example.com")]
@@ -1411,7 +1411,7 @@ class TestCleanup:
         send_email.assert_called_once_with([(job, "https://careers.example.com")], settings)
 
     async def test_external_jobs_email_failure_is_swallowed(self, tmp_path):
-        settings = make_settings(tmp_path, application={"collect_external_jobs": True})
+        settings = make_settings(tmp_path, application={"collect_external_jobs": True, "email_notifications_enabled": True})
         agent = make_agent(tmp_path, settings=settings)
         agent._external_jobs = [(java_job(), None)]
 

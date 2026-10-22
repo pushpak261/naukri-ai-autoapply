@@ -72,6 +72,12 @@ class JobApplier:
         """
         apply_started = False
         try:
+            from urllib.parse import urlsplit
+            from src.naukri_agent.utils.helpers import extract_naukri_job_id
+            current_url = self._detail_page._engine.page.url
+            parsed = urlsplit(current_url)
+            if parsed.scheme != "https" or parsed.hostname not in ("naukri.com", "www.naukri.com") or extract_naukri_job_id(current_url) != job.naukri_job_id:
+                return {"status": ApplicationStatus.ERROR, "error_message": "The browser is not on the expected Naukri listing; no application was attempted."}
             # Step 1: Close any blocking popups/chatbots
             await self._detail_page.close_popups()
             await asyncio.sleep(1)
@@ -117,6 +123,15 @@ class JobApplier:
 
             # Step 5: Handle the apply flow (questions, confirmation, etc.)
             result = await self._handle_apply_flow(job)
+            if result.get("status") == ApplicationStatus.UNCERTAIN:
+                # Naukri may finish on a post-apply page without a success
+                # dialog. Read the original listing's authoritative Applied
+                # state; never click Apply a second time to find out.
+                await self._detail_page._engine.page.goto(job.url, wait_until="domcontentloaded", timeout=30000)
+                with contextlib.suppress(PlaywrightTimeoutError):
+                    await self._detail_page._engine.page.locator("#already-applied, .already-applied").first.wait_for(state="visible", timeout=5000)
+                if await self._detail_page.is_already_applied():
+                    return {"status": ApplicationStatus.APPLIED, "error_message": "Confirmed by the listing's Applied state after submission."}
             return result
 
         except (PlaywrightTimeoutError, PlaywrightError) as e:
@@ -180,14 +195,18 @@ class JobApplier:
                     "error_message": "Skipped: Screening questions detected and answer_questions_with_pdf is false",
                 }
 
-            log_info("Screening questions detected — filling with AI...")
+            log_info("Screening questions detected — filling from candidate evidence...")
 
             # Save-then-Submit loop: fill → save intermediate → submit → retry
-            for submit_attempt in range(3):
+            for submit_attempt in range(1):
                 answered = await self._fill_screening_questions(job)
                 if not answered:
                     log_warning("Could not fill all screening questions")
-                    return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Required screening answers could not be verified. Update the profile or review this form."}
+                    missing = "; ".join(getattr(self, "unanswered_questions", []))
+                    return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Required screening answers need review: " + (missing or "Update the profile or review this form.")}
+
+                if await self._detail_page.check_application_success():
+                    return {"status": ApplicationStatus.APPLIED, "error_message": ""}
 
                 # Let framework reactivity settle before submit
                 await asyncio.sleep(1)
@@ -198,6 +217,8 @@ class JobApplier:
                 if save_clicked:
                     logger.info("Clicked Save/Next button after filling questions")
                     await asyncio.sleep(1.5)
+                    if await self._detail_page.check_application_success():
+                        return {"status": ApplicationStatus.APPLIED, "error_message": ""}
                     # After Save, more questions might appear — try extracting
                     more_questions = await self._detail_page.extract_screening_questions()
                     unfilled = [
@@ -239,13 +260,7 @@ class JobApplier:
                         "error_message": f"Application rejected: {failure_msg}",
                     }
 
-                logger.warning(
-                    f"Submit attempt {submit_attempt + 1}/3 triggered validation error. "
-                    "Re-filling and retrying..."
-                )
-                # Force-fill via JS as retry strategy
-                await self._force_fill_all_required_via_js()
-                await asyncio.sleep(1)
+                return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"The platform rejected screening values: {failure_msg}. Review before retrying."}
 
             # Final state checks after retry loop
             if await self._detail_page.check_application_success():
@@ -359,6 +374,7 @@ class JobApplier:
         deterministically or don't change between iterations.
         Uses JS-based force fill as a last-resort when DOM selectors fail.
         """
+        self.unanswered_questions = []
         try:
             max_attempts = 8
             attempt = 0
@@ -389,6 +405,19 @@ class JobApplier:
                 # Filter for unfilled fields
                 unfilled_questions = []
                 for q in questions:
+                    if q.get("type") == "file":
+                        if q.get("value"):
+                            continue
+                        import re
+                        from src.naukri_agent.utils.helpers import resolve_path_within
+                        label = str(q.get("question", ""))
+                        selected = resolve_path_within(self._settings.resume.path, self._settings.resumes_dir)
+                        is_resume = re.search(r"\b(?:resume|résumé|cv)\b", label, re.I)
+                        uploaded = bool(is_resume and selected and selected.is_file() and await self._detail_page.upload_resume_file(q, str(selected)))
+                        if not uploaded and q.get("required", True):
+                            self.unanswered_questions.append(label + " (attachment requires review)")
+                            return False
+                        continue
                     val = (q.get("value") or "").strip()
                     is_unfilled = not val or val.lower() in ("select", "--select--", "choose")
                     if is_unfilled:
@@ -497,14 +526,6 @@ class JobApplier:
                             for uq in unfilled_questions
                             if (q_id and uq.get("id") == q_id)
                             or (q_text and uq.get("question") == q_text)
-                            or (
-                                q_text
-                                and uq.get("question")
-                                and (
-                                    q_text.lower() in uq.get("question", "").lower()
-                                    or uq.get("question", "").lower() in q_text.lower()
-                                )
-                            )
                         ),
                         None,
                     )
@@ -562,8 +583,8 @@ class JobApplier:
                             await self._detail_page.click_chatbot_save_button()
                             await asyncio.sleep(1.5)
                     else:
-                        # Fallback to generic submit if chatbot Save not found
-                        await self._detail_page.submit_application()
+                        logger.warning("Chatbot answer could not be saved; leaving the form for review.")
+                        return False
                 elif not filled_any:
                     break
 
@@ -582,7 +603,7 @@ class JobApplier:
             unanswered_required = [
                 q
                 for q in final_questions
-                if q.get("required")
+                if q.get("required", q.get("is_required", True))
                 and (
                     not (q.get("value") or "").strip()
                     or (q.get("value") or "").strip().lower() in ("select", "--select--", "choose")
@@ -596,6 +617,9 @@ class JobApplier:
                 )
                 for q in unanswered_required:
                     fallback = self._generate_safe_fallback_for_question(q)
+                    if not fallback:
+                        self.unanswered_questions.append(q.get("question", "Unlabelled required field"))
+                        return False
                     logger.info(
                         f"Last-ditch fallback: filling '{q.get('question')}' with '{fallback}'"
                     )
@@ -612,7 +636,7 @@ class JobApplier:
                 still_empty = [
                     q
                     for q in final_check
-                    if q.get("required")
+                    if q.get("required", q.get("is_required", True))
                     and (
                         not (q.get("value") or "").strip()
                         or (q.get("value") or "").strip().lower()
@@ -631,7 +655,7 @@ class JobApplier:
                     still_empty2 = [
                         q
                         for q in final_check2
-                        if q.get("required")
+                        if q.get("required", q.get("is_required", True))
                         and (
                             not (q.get("value") or "").strip()
                             or (q.get("value") or "").strip().lower()

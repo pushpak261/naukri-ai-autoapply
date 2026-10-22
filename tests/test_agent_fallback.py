@@ -21,6 +21,7 @@ def mock_settings():
     settings.ai.abort_on_quota = True
     settings.search.enable_heuristics = False
     settings.search.experience_max = 2
+    settings.search.required_title_keywords = []
     return settings
 
 
