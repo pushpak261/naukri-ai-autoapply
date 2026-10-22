@@ -130,7 +130,12 @@ class JobApplier:
                 await self._detail_page._engine.page.goto(job.url, wait_until="domcontentloaded", timeout=30000)
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await self._detail_page._engine.page.locator("#already-applied, .already-applied").first.wait_for(state="visible", timeout=5000)
-                if await self._detail_page.is_already_applied():
+                confirmed_url = self._detail_page._engine.page.url
+                confirmed_location = urlsplit(confirmed_url)
+                if (confirmed_location.scheme == "https"
+                    and confirmed_location.hostname in ("naukri.com", "www.naukri.com")
+                    and extract_naukri_job_id(confirmed_url) == job.naukri_job_id
+                    and await self._detail_page.is_already_applied()):
                     return {"status": ApplicationStatus.APPLIED, "error_message": "Confirmed by the listing's Applied state after submission."}
             return result
 
@@ -378,7 +383,7 @@ class JobApplier:
         try:
             max_attempts = 8
             attempt = 0
-            seen_questions: set[str] = set()
+            seen_questions: set[tuple[str, str]] = set()
             last_unfilled_count = 0
             stale_iterations = 0
             last_question_texts: frozenset[str] = frozenset()
@@ -473,7 +478,7 @@ class JobApplier:
                 fresh_questions = [
                     q
                     for q in unfilled_questions
-                    if (q.get("question", "") if q.get("id") == "agent_chat_q" else (q.get("id") or q.get("question", ""))) not in seen_questions
+                    if (str(q.get("id", "")), str(q.get("question", ""))) not in seen_questions
                 ]
                 if not fresh_questions:
                     logger.info(
@@ -499,9 +504,7 @@ class JobApplier:
                     break
 
                 for q in fresh_questions:
-                    qid = q.get("question", "") if q.get("id") == "agent_chat_q" else (q.get("id") or q.get("question", ""))
-                    if qid:
-                        seen_questions.add(qid)
+                    seen_questions.add((str(q.get("id", "")), str(q.get("question", ""))))
 
                 logger.info(
                     f"Found {len(unfilled_questions)} unfilled questions "
@@ -556,32 +559,6 @@ class JobApplier:
                     if save_ok:
                         logger.info("Chatbot: clicked Save after filling questions")
                         await asyncio.sleep(1.5)
-                        # Verify Save was effective — check if Save button is still visible
-                        # If still there, retry the click
-                        for retry_click in range(2):
-                            still_has_save = await self._detail_page._engine.page.evaluate(
-                                r"""() => {
-                                    const btns = document.querySelectorAll('button, [role="button"], a');
-                                    for (const btn of btns) {
-                                        const text = (btn.textContent || btn.innerText || '').trim().toLowerCase();
-                                        if (text === 'save' || text.startsWith('save ') || text.startsWith('save&')) {
-                                            const style = window.getComputedStyle(btn);
-                                            if (style.display !== 'none' && style.visibility !== 'hidden') {
-                                                const rect = btn.getBoundingClientRect();
-                                                if (rect.width > 15 && rect.height > 15) return true;
-                                            }
-                                        }
-                                    }
-                                    return false;
-                                }"""
-                            )
-                            if not still_has_save:
-                                break
-                            logger.warning(
-                                f"Chatbot Save button still visible after click (retry {retry_click + 1}/2). Re-clicking..."
-                            )
-                            await self._detail_page.click_chatbot_save_button()
-                            await asyncio.sleep(1.5)
                     else:
                         logger.warning("Chatbot answer could not be saved; leaving the form for review.")
                         return False

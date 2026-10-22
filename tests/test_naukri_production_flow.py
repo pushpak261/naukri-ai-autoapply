@@ -67,14 +67,19 @@ async def test_descriptions_and_hidden_messages_cannot_confirm_submission(native
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("correct_listing", [True, False])
 async def test_uncertain_post_apply_is_confirmed_by_reading_listing_without_reclick(
-    native_page, tmp_path
+    native_page, tmp_path, correct_listing
 ):
     detail, page = native_page
     url = "https://www.naukri.com/job-java-123456789012"
     applied = False
 
     async def job_page(route):
+        if applied and not correct_listing:
+            await route.fulfill(content_type="text/html", body='''<span id="already-applied">Applied</span>
+                <script>history.replaceState({}, '', '/job-java-999999999999')</script>''')
+            return
         await route.fulfill(
             content_type="text/html",
             body=(
@@ -95,7 +100,7 @@ async def test_uncertain_post_apply_is_confirmed_by_reading_listing_without_recl
     with patch("src.naukri_agent.browser.apply.asyncio.sleep", new=AsyncMock()):
         result = await worker.apply_to_job(Job("123456789012", "Java", "Example", url))
     assert await detail.is_already_applied(), await page.content()
-    assert result["status"] == "applied"
+    assert result["status"] == ("applied" if correct_listing else "uncertain")
     detail.click_apply_button.assert_awaited_once()
 
 
@@ -247,3 +252,90 @@ async def test_validation_response_does_not_repeat_submit(tmp_path):
         )
     assert result["status"] == "skipped_screening"
     detail.submit_application.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_follow_up_question_reusing_input_id_is_saved(tmp_path):
+    questions = [
+        {"id": "agent_q_0", "question": label, "type": "number", "required": True, "value": ""}
+        for label in ("Current CTC in LPA", "Expected CTC in LPA")
+    ]
+    position = 0
+    saved = []
+
+    async def extract():
+        return [questions[position]] if position < len(questions) else []
+
+    async def fill(question, answer):
+        questions[position]["value"] = answer
+        return True
+
+    async def save():
+        nonlocal position
+        saved.append(questions[position]["value"])
+        position += 1
+        return True
+
+    detail = MagicMock()
+    detail.extract_screening_questions = AsyncMock(side_effect=extract)
+    detail.fill_answer_by_metadata = AsyncMock(side_effect=fill)
+    detail.click_intermediate_save_button = AsyncMock(side_effect=save)
+    detail.is_chatbot_flow = AsyncMock(return_value=False)
+    settings = Settings(project_root=tmp_path, ai={"use_gemini": False},
+                        profile={"current_ctc": "5 LPA", "expected_ctc": "9 LPA"})
+    worker = JobApplier(detail, settings, QuestionAnswerer(AsyncMock(), settings, ResumeProfile()))
+    worker._detect_questions_via_playwright = AsyncMock(return_value=[])
+    worker._force_fill_all_required_via_js = AsyncMock()
+    with patch("src.naukri_agent.browser.apply.asyncio.sleep", new=AsyncMock()):
+        assert await worker._fill_screening_questions(Job("1", "Java", "Example", "https://example.invalid"))
+    assert saved == ["5", "9"]
+
+
+@pytest.mark.asyncio
+async def test_chatbot_question_is_read_outside_nested_input_container(native_page, tmp_path):
+    detail, page = native_page
+    await page.set_content('''<div class="chatbot_Drawer chatbot_right"><div class="chatbot_MessageContainer">
+        <ul><li class="botItem"><div class="botMsg msg"><span>What is your last working date</span></div></li></ul>
+        <div class="footerWrapper"><div class="chatbot_SendMessageContainer"><div class="chatbot_InputContainer">
+        <div class="textArea" id="userInput__testInputBox" contenteditable="true"></div></div></div></div>
+        </div><div class="send disabled"><div tabindex="0" onclick="window.clicks++">Save</div></div></div>
+        <script>window.clicks=0</script>''')
+    questions = await detail.extract_screening_questions()
+    assert questions[0]["question"] == "What is your last working date"
+    assert questions[0]["required"] is True
+    settings = Settings(project_root=tmp_path, ai={"use_gemini": False}, profile={"notice_period": "30 days"})
+    worker = JobApplier(detail, settings, QuestionAnswerer(AsyncMock(), settings, ResumeProfile()))
+    with patch("src.naukri_agent.browser.apply.asyncio.sleep", new=AsyncMock()):
+        assert not await worker._fill_screening_questions(Job("1", "Java", "Example", "https://example.invalid"))
+    assert worker.unanswered_questions == ["What is your last working date"]
+    assert await page.evaluate("window.clicks") == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("disabled", [True, False])
+async def test_chatbot_save_respects_disabled_ancestor_and_never_clicks_listing_actions(native_page, disabled):
+    detail, page = native_page
+    await page.set_content(f'''<button onclick="window.outside++">Save</button><button onclick="window.outside++">Apply</button>
+        <div class="chatbot_Drawer"><div class="send {'disabled' if disabled else ''}">
+        <div tabindex="0" onclick="window.inside++">Save</div></div></div>
+        <script>window.outside=0;window.inside=0</script>''')
+    detail.is_chatbot_flow = AsyncMock(return_value=True)
+    assert await detail.submit_application() is not disabled
+    assert await page.evaluate("window.outside") == 0
+    assert await page.evaluate("window.inside") == int(not disabled)
+    assert await page.locator('.send').get_attribute('class') == ('send disabled' if disabled else 'send ')
+
+
+@pytest.mark.asyncio
+async def test_job_highlights_override_incorrect_zero_year_listing(native_page):
+    from libs.common.local_matching import local_match
+    detail, page = native_page
+    await page.set_content('''<ul class="styles_JDC__job-highlight-list__test">
+        <li>6 years Java backend development with expertise in Spring Boot</li></ul>''')
+    detail._interactions.get_text_content.return_value = ""
+    data = await detail.get_job_details()
+    assert '6 years Java backend development' in data['description']
+    job = Job("1", "Java Developer", "Example", "https://example.invalid", description=data['description'], experience="0 years", skills="Java, Spring Boot")
+    result = local_match(ResumeProfile(skills=["Java", "Spring Boot"], total_experience_years=1), job, 70)
+    assert result[1] is False
+    assert 'Required experience is 6 years' in result[2]

@@ -282,3 +282,15 @@ async def test_reviewed_resume_is_not_overwritten_by_legacy_cache_offline(tmp_pa
     assert json.loads(source.read_text(encoding="utf-8")) == reviewed
     repository.get_cached_profile.assert_not_called()
     provider.generate_content.assert_not_called()
+
+
+def test_vague_listing_tags_do_not_hide_the_description_stack():
+    profile = ResumeProfile(skills=["Java", "Spring Boot", "SQL"], current_title="Java Developer", total_experience_years=1)
+    job = Job("1", "Junior Java Developer", "Example", "https://example.invalid",
+              skills="Coding, Core, Architecture, Application, Application development",
+              description="1-3 years Java development experience. Build APIs using Java, Spring Boot and SQL.")
+    score, approved, _, matching, _ = local_match(profile, job, 70)
+    assert approved and score >= 70
+    assert {"java", "spring boot", "sql"} <= set(matching)
+    job.skills = "Java, SQL, UnlistedFrameworkA, UnlistedFrameworkB, UnlistedFrameworkC, UnlistedFrameworkD"
+    assert not local_match(profile, job, 70)[1]

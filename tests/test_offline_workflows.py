@@ -290,7 +290,9 @@ async def test_real_browser_fills_and_submits_local_screening_form_without_llm(t
             )
             engine = MagicMock()
             engine.page = page
-            detail = Detail(engine, AsyncMock())
+            interactions = AsyncMock()
+            interactions.element_exists.return_value = False
+            detail = Detail(engine, interactions)
             questions = await detail.extract_screening_questions()
             assert len(questions) == 2, questions
             answers = await Answerer(provider, settings, Profile()).answer_questions(questions, job)

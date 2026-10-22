@@ -51,6 +51,8 @@ For a LinkedIn `Remote` search target, set `search.remote_location` in the works
 
 Naukri persists discovered listings after every completed page. Set `search.required_title_keywords` in the workspace configuration to restrict role titles independently of ranking. Experience limits use the stated minimum and units; reviewed candidate experience and explicit description requirements are checked before applying. Unknown screening answers are recorded for review. A submission needs platform confirmation, including Naukri's current `Applied` status; an uncertain result is checked by reading the listing again and is never resubmitted automatically. Email reports respect the email-notification setting.
 
+Job highlights are included in requirement checks, and concrete stack requirements in the description complement listing tags. Chatbot questions are read from the active message panel, including nested contenteditable inputs. Save and Submit actions stay inside the active form and respect disabled controls and ancestors; the agent does not enable controls or click a listing's Save button to advance screening.
+
 ### Opportunity Copilot
 
 Open `/copilot` after saving your profile and collecting jobs. Copilot reviews up to 500 recent listings, explains structured skill overlap, flags location or stated-experience mismatches, and suggests practical next steps. A role preparation brief provides evidence-grounded talking points, recruiter questions, a checklist and an editable outreach starting point. It never sends messages or queues applications.
