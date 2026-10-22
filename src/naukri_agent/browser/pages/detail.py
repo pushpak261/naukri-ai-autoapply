@@ -177,14 +177,15 @@ class JobDetailPage(BasePage):
                         const style = window.getComputedStyle(panel);
                         if (style.display === 'none' || style.visibility === 'hidden') continue;
                         const text = panel.innerText || '';
-                        const hasInput = panel.querySelector('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea');
-                        const hasSaveBtn = Array.from(panel.querySelectorAll('button, [role="button"], a')).some(
+                        const hasInput = panel.querySelector('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea, [contenteditable="true"]');
+                        const hasSaveBtn = Array.from(panel.querySelectorAll('button, [role="button"], a, [tabindex]')).some(
                             b => (b.textContent || '').trim().toLowerCase().includes('save')
                         );
                         // Bot questions typically contain ? and are conversational
                         const lines = text.split('\\n').filter(l => l.trim().length > 0);
                         const questionLines = lines.filter(l => l.includes('?')).length;
-                        if (hasInput && hasSaveBtn && (questionLines >= 1 || text.toLowerCase().includes('question'))) {
+                        const hasBotMessage = panel.querySelector('.botMsg, .botItem, [class*="bot-msg"], [class*="bot-message"]');
+                        if (hasInput && hasSaveBtn && (hasBotMessage || questionLines >= 1 || text.toLowerCase().includes('question'))) {
                             return true;
                         }
                     }
@@ -924,6 +925,7 @@ class JobDetailPage(BasePage):
                         question: finalQuestionText,
                         original_question: rawQuestion || finalQuestionText,
                         type: group.type,
+                        input_type: firstEl.getAttribute('contenteditable') === 'true' ? 'contenteditable' : (firstEl.getAttribute('type') || (firstEl.tagName.toLowerCase() === 'select' ? 'select' : 'text')),
                         options: options,
                         required: required,
                         selector: "[data-agent-field-id='" + fieldId + "']",

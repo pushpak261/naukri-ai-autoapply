@@ -53,6 +53,10 @@ Naukri persists discovered listings after every completed page. Set `search.requ
 
 Job highlights are included in requirement checks, and concrete stack requirements in the description complement listing tags. Chatbot questions are read from the active message panel, including nested contenteditable inputs. Save and Submit actions stay inside the active form and respect disabled controls and ancestors; the agent does not enable controls or click a listing's Save button to advance screening.
 
+With Gemini disabled, Naukri resolves screening questions from saved facts, confirmed answers, resume introductions/projects and a local bank of common technical explanations. It collects unknown questions in **Applications → Screening answers** before saving or submitting an incomplete form, including unanswered optional text questions. Confirm an answer once and it is reused for the same question and units; company-specific answers stay scoped to that job. **Save and retry ready jobs** queues only jobs whose collected questions are resolved, while applied or uncertain applications remain protected against repeated submissions. Learning is stored privately in the user's `data/screening_review.db`; preserve that file with the user's workspace backup.
+
+Set employment status and whether notice is currently being served in Preferences. A notice duration does not establish a resignation date: someone employed and not serving notice receives a truthful "not fixed" answer in text fields. A mandatory date control still needs a confirmed date. Unsupported questions, declarations and attachments require the user's input instead of invented facts.
+
 ### Opportunity Copilot
 
 Open `/copilot` after saving your profile and collecting jobs. Copilot reviews up to 500 recent listings, explains structured skill overlap, flags location or stated-experience mismatches, and suggests practical next steps. A role preparation brief provides evidence-grounded talking points, recruiter questions, a checklist and an editable outreach starting point. It never sends messages or queues applications.

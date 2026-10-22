@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw, RotateCcw, Loader2, AlertTriangle, CheckCircle } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
+import ScreeningReview from '../components/ScreeningReview';
 import { api } from '../lib/api';
 
 export default function Applications() {
@@ -114,6 +115,8 @@ export default function Applications() {
           {message.text}
         </div>
       )}
+
+      <ScreeningReview />
 
       <div className="flex gap-2 flex-wrap">
         <button

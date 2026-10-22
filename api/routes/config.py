@@ -1,9 +1,9 @@
-from typing import Any, Annotated
+from typing import Any, Annotated, Literal
 
 import asyncio
 import yaml
 from fastapi import APIRouter
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api.deps import state
 from libs.common.security import encrypt_value
@@ -37,6 +37,9 @@ class ConfigUpdate(BaseModel):
     current_location: str | None = None
     preferred_locations: list[str] | None = None
     total_experience: str | None = None
+    employment_status: Literal["", "employed", "unemployed", "student"] | None = None
+    serving_notice: bool | None = None
+    last_working_date: str | None = None
     confirmed_answers: dict[str, str] | None = Field(default=None, max_length=100)
     skill_experience_years: dict[str, Annotated[float, Field(ge=0, le=80, allow_inf_nan=False)]] | None = Field(default=None, max_length=100)
     delay_between_applies_min: int | None = None
@@ -54,6 +57,14 @@ class ConfigUpdate(BaseModel):
     notify_on_scam: bool | None = None
     notify_on_match: bool | None = None
     enable_scam_filter: bool | None = None
+
+    @field_validator("last_working_date")
+    @classmethod
+    def validate_last_working_date(cls, value):
+        if value:
+            from datetime import date
+            date.fromisoformat(value)
+        return value
 
 def _set_nested(d: dict, keys: list[str], value: Any) -> None:
     for key in keys[:-1]:
@@ -113,6 +124,9 @@ async def get_config():
             "preferred_locations": s.profile.preferred_locations,
             "total_experience": s.profile.total_experience,
             "confirmed_answers": s.profile.confirmed_answers,
+            "employment_status": s.profile.employment_status,
+            "serving_notice": s.profile.serving_notice,
+            "last_working_date": s.profile.last_working_date,
             "skill_experience_years": s.profile.skill_experience_years,
         },
         "logging": {
@@ -206,6 +220,9 @@ async def update_config(update: ConfigUpdate):
         (["profile", "current_location"], update.current_location, False),
         (["profile", "preferred_locations"], update.preferred_locations, False),
         (["profile", "total_experience"], update.total_experience, False),
+        (["profile", "employment_status"], update.employment_status, False),
+        (["profile", "serving_notice"], update.serving_notice, False),
+        (["profile", "last_working_date"], update.last_working_date, False),
         (["profile", "confirmed_answers"], update.confirmed_answers, False),
         (["profile", "skill_experience_years"], update.skill_experience_years, False),
         (["application", "delay_between_applies_min"], update.delay_between_applies_min, False),
@@ -222,7 +239,7 @@ async def update_config(update: ConfigUpdate):
     ]
 
     for keys, value, is_secret in updates:
-        if value is not None:
+        if value is not None or (keys == ["profile", "serving_notice"] and "serving_notice" in update.model_fields_set):
             if is_secret:
                 env_var_map: dict[tuple[str, ...], str] = {
                     ("naukri", "email"): "NAUKRI_EMAIL",

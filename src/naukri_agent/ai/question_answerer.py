@@ -531,14 +531,27 @@ class QuestionAnswerer(IQuestionAnswerer):
         ai_questions = []
 
         # First pass: try direct answers and CACHE
+        offline_sources = {}
+        review_store = None
+        if not self._settings.ai.use_gemini:
+            from libs.common.screening_review import ScreeningReviewStore
+            review_store = ScreeningReviewStore(self._settings.project_root)
         for index, original_question in enumerate(questions):
             q = {**original_question, "index": original_question.get("index", index)}
             question_text = q.get("question", "")
             q_type = q.get("type", "text")
             options = q.get("options", [])
-            from libs.common.screening import evidence_answer
-            direct = (self._try_direct_answer(question_text, q_type, options) if self._settings.ai.use_gemini
-                      else evidence_answer(q, self._settings, self._profile))
+            if self._settings.ai.use_gemini:
+                direct = self._try_direct_answer(question_text, q_type, options)
+            else:
+                from libs.common.offline_screening import offline_answer
+                direct, source = offline_answer(q, self._settings, self._profile, job)
+                if not direct:
+                    direct = await asyncio.to_thread(review_store.answer_for, q, job)
+                    source = "confirmed_answer" if direct else "needs_input"
+                offline_sources[q["index"]] = source
+                if not direct:
+                    await asyncio.to_thread(review_store.remember, q, job)
             q_key = _normalize_question_text(question_text)
             # Offline answers are cheap and must reflect the current saved
             # facts. Never resurrect an old AI/cache answer after facts change.
@@ -555,6 +568,7 @@ class QuestionAnswerer(IQuestionAnswerer):
                         "question": question_text,
                         "answer": direct,
                         "confidence": "high",
+                        "source": offline_sources.get(q["index"], "ai_or_facts"),
                         "index": q.get("index", len(answers)),
                     }
                 )
@@ -575,13 +589,15 @@ class QuestionAnswerer(IQuestionAnswerer):
         # Second pass: use AI for remaining questions
         if ai_questions:
             if not self._settings.ai.use_gemini:
-                logger.info("Gemini AI is disabled. Skipping complex AI questions.")
+                logger.info("Offline screening needs confirmed answers for %s questions; saved them for review.", len(ai_questions))
                 ai_answers = [
                     {
                         "id": q.get("id"),
                         "question": q.get("question", ""),
                         "answer": "",
-                        "confidence": "low",
+                        "confidence": "needs_input",
+                        "source": "needs_input",
+                        "reason": "Confirm this answer in Applications → Screening answers; it will be reused without Gemini.",
                         "index": q.get("index", 0),
                     }
                     for q in ai_questions

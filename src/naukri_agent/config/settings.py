@@ -7,7 +7,7 @@ overrides. Provides typed, validated access to all settings.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 import base64
 import hashlib
@@ -143,6 +143,17 @@ class ProfileSettings(BaseModel):
     """User profile details for auto-filling forms."""
 
     confirmed_answers: dict[str, str] = Field(default_factory=dict)
+    employment_status: Literal["", "employed", "unemployed", "student"] = ""
+    serving_notice: bool | None = None
+    last_working_date: str = ""
+
+    @field_validator("last_working_date")
+    @classmethod
+    def validate_last_working_date(cls, value):
+        if value:
+            from datetime import date
+            date.fromisoformat(value)
+        return value
     skill_experience_years: dict[str, Annotated[float, Field(ge=0, le=80, allow_inf_nan=False)]] = Field(default_factory=dict)
     current_ctc: str = ""
     expected_ctc: str = ""

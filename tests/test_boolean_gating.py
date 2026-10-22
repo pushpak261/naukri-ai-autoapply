@@ -174,7 +174,8 @@ class TestQuestionAnswererGating:
         answers = await qa.answer_questions(questions, _make_job("qa3"))
         mock_llm.generate_content.assert_not_called()
         assert answers[0]["answer"] == ""
-        assert answers[0]["confidence"] == "low"
+        assert answers[0]["confidence"] == "needs_input"
+        assert answers[0]["source"] == "needs_input"
 
     @pytest.mark.asyncio
     async def test_both_false_skips_gemini(self):
@@ -186,7 +187,8 @@ class TestQuestionAnswererGating:
         answers = await qa.answer_questions(questions, _make_job("qa4"))
         mock_llm.generate_content.assert_not_called()
         assert answers[0]["answer"] == ""
-        assert answers[0]["confidence"] == "low"
+        assert answers[0]["confidence"] == "needs_input"
+        assert answers[0]["source"] == "needs_input"
 
     @pytest.mark.asyncio
     async def test_direct_answers_still_work_when_gemini_skipped(self):
