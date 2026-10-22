@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import contextlib
 from collections.abc import Callable
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -27,6 +28,24 @@ from src.naukri_agent.utils.logger import (
 )
 
 logger = get_logger(__name__)
+
+
+def _same_search_page(requested_url: str, current_url: str) -> bool:
+    """Allow canonical URLs only when the query and pagination context survive."""
+    requested, current = urlsplit(requested_url), urlsplit(current_url)
+    allowed_hosts = {"naukri.com", "www.naukri.com"}
+    if current.scheme != "https" or current.hostname not in allowed_hosts:
+        return False
+    if current.path.rstrip("/") != requested.path.rstrip("/"):
+        return False
+    requested_query = parse_qs(requested.query, keep_blank_values=True)
+    current_query = parse_qs(current.query, keep_blank_values=True)
+    # Keywords, location and page are also encoded in our route. Missing query
+    # values are safe on that same route; conflicting values mean a query reset.
+    return all(
+        key not in current_query or current_query[key] == requested_query.get(key)
+        for key in ("k", "l", "pageNo")
+    )
 
 
 class JobSearcher:
@@ -195,14 +214,21 @@ class JobSearcher:
                 await self._search_page.navigate_to_search(search_url)
                 await self._search_page.close_popups()
 
-                # Check if the page redirected and stripped our search/filter parameters
+                # Naukri can canonicalize a valid search by stripping its query
+                # string. Verify the route before parsing rather than discarding
+                # that page. Local experience/freshness filters still run below.
                 current_url = self._engine.page.url
-                if "k=" in search_url and "k=" not in current_url:
-                    logger.info(
-                        f"Search parameters stripped by redirection (Target: {search_url} -> Actual: {current_url}). "
-                        f"Likely out-of-bounds page or query reset. Aborting search."
+                if not _same_search_page(search_url, current_url):
+                    logger.warning(
+                        "Search redirected outside the requested query/page; stopping this search "
+                        "without collecting unrelated results (requested: %s, actual: %s).",
+                        search_url, current_url,
                     )
                     break
+                if "k=" in search_url and "k=" not in current_url:
+                    logger.info(
+                        "Search query string removed on the same route; checking results with local filters."
+                    )
 
                 # Check for no results
                 no_results = await self._search_page.has_no_results()
