@@ -326,3 +326,17 @@ async def test_offline_screening_facts_save_and_are_shared_with_linkedin(dashboa
         shared = load_linkedin_workspace_config(runtime.settings.project_root)
         assert shared['profile']['skill_experience_years']['Java'] == 1.5
         assert (await user.put('/api/config', json={'skill_experience_years':{'Java':-1}})).status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_employment_facts_round_trip_and_unknown_notice_can_be_cleared(dashboard):
+    async with register_client('employment-facts@example.invalid') as user:
+        response = await user.put('/api/config', json={'employment_status': 'employed', 'serving_notice': False, 'last_working_date': ''})
+        assert response.status_code == 200
+        profile = (await user.get('/api/config')).json()['profile']
+        assert profile['employment_status'] == 'employed'
+        assert profile['serving_notice'] is False
+        assert profile['last_working_date'] == ''
+        assert (await user.put('/api/config', json={'last_working_date': 'not fixed'})).status_code == 422
+        assert (await user.put('/api/config', json={'serving_notice': None})).status_code == 200
+        assert (await user.get('/api/config')).json()['profile']['serving_notice'] is None

@@ -725,7 +725,7 @@ class TestAnswerQuestionsFlow:
         llm.generate_content.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_disabled_gemini_yields_blank_low_confidence_answers(self, tmp_path):
+    async def test_disabled_gemini_collects_unknown_answers_for_confirmation(self, tmp_path):
         llm = make_llm()
         settings = make_settings(tmp_path)
         settings.ai.use_gemini = False
@@ -736,7 +736,9 @@ class TestAnswerQuestionsFlow:
         )
 
         assert answers[0]["answer"] == ""
-        assert answers[0]["confidence"] == "low"
+        assert answers[0]["confidence"] == "needs_input"
+        from libs.common.screening_review import ScreeningReviewStore
+        assert ScreeningReviewStore(tmp_path).pending()[0]["question"] == UNANSWERABLE
         assert answers[0]["id"] == "c1"
         llm.generate_content.assert_not_called()
 

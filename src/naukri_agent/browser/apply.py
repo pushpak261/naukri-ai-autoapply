@@ -368,7 +368,10 @@ class JobApplier:
         )
 
     def _generate_safe_fallback_for_question(self, question: dict) -> str:
-        from libs.common.screening import evidence_answer
+        from libs.common.screening import evidence_answer, format_evidence, question_key
+        verified = getattr(self, "_verified_screening_answers", {}).get(question_key(question.get("question", "")))
+        if verified:
+            return format_evidence(verified, question, experience_in_years=False)
         return evidence_answer(question, self._settings, getattr(self._qa, '_profile', None))
 
     async def _fill_screening_questions(self, job: Job) -> bool:
@@ -380,6 +383,7 @@ class JobApplier:
         Uses JS-based force fill as a last-resort when DOM selectors fail.
         """
         self.unanswered_questions = []
+        self._verified_screening_answers = {}
         try:
             max_attempts = 8
             attempt = 0
@@ -420,6 +424,8 @@ class JobApplier:
                         is_resume = re.search(r"\b(?:resume|résumé|cv)\b", label, re.I)
                         uploaded = bool(is_resume and selected and selected.is_file() and await self._detail_page.upload_resume_file(q, str(selected)))
                         if not uploaded and q.get("required", True):
+                            from libs.common.screening_review import ScreeningReviewStore
+                            await asyncio.to_thread(ScreeningReviewStore(self._settings.project_root).remember, q, job)
                             self.unanswered_questions.append(label + " (attachment requires review)")
                             return False
                         continue
@@ -514,12 +520,29 @@ class JobApplier:
                 # Answer them (only fresh ones)
                 answers = await self._qa.answer_questions(fresh_questions, job)
 
+                # Offline completion is explicit: even optional text questions
+                # requested by the recruiter must have an answer before Save.
+                if not self._settings.ai.use_gemini:
+                    unresolved = [answer.get("question", "Unlabelled question") for answer in answers
+                                  if not str(answer.get("answer", "")).strip()
+                                  or answer.get("confidence") in ("low", "unknown", "needs_input")]
+                    answered_keys = {(answer.get("id"), answer.get("question")) for answer in answers}
+                    unresolved.extend(q.get("question", "Unlabelled question") for q in fresh_questions
+                                      if (q.get("id"), q.get("question")) not in answered_keys)
+                    if unresolved:
+                        self.unanswered_questions.extend(dict.fromkeys(unresolved))
+                        return False
+
+                from libs.common.screening import question_key
+                self._verified_screening_answers.update({question_key(answer.get("question", "")): answer["answer"]
+                    for answer in answers if answer.get("answer") and answer.get("confidence") not in ("low", "unknown", "needs_input")})
+
                 filled_any = False
                 for ans in answers:
                     q_text = ans.get("question", "")
                     q_id = ans.get("id") or ""
                     a_val = str(ans.get("answer", "")).strip()
-                    if ans.get("confidence") in ("low", "unknown"):
+                    if ans.get("confidence") in ("low", "unknown", "needs_input"):
                         a_val = ""
 
                     # Find matching question in unfilled
@@ -580,7 +603,7 @@ class JobApplier:
             unanswered_required = [
                 q
                 for q in final_questions
-                if q.get("required", q.get("is_required", True))
+                if (q.get("required", q.get("is_required", True)) or (not self._settings.ai.use_gemini and q.get("type") != "file"))
                 and (
                     not (q.get("value") or "").strip()
                     or (q.get("value") or "").strip().lower() in ("select", "--select--", "choose")
@@ -595,6 +618,8 @@ class JobApplier:
                 for q in unanswered_required:
                     fallback = self._generate_safe_fallback_for_question(q)
                     if not fallback:
+                        from libs.common.screening_review import ScreeningReviewStore
+                        await asyncio.to_thread(ScreeningReviewStore(self._settings.project_root).remember, q, job)
                         self.unanswered_questions.append(q.get("question", "Unlabelled required field"))
                         return False
                     logger.info(
@@ -613,7 +638,7 @@ class JobApplier:
                 still_empty = [
                     q
                     for q in final_check
-                    if q.get("required", q.get("is_required", True))
+                    if (q.get("required", q.get("is_required", True)) or (not self._settings.ai.use_gemini and q.get("type") != "file"))
                     and (
                         not (q.get("value") or "").strip()
                         or (q.get("value") or "").strip().lower()
@@ -632,7 +657,7 @@ class JobApplier:
                     still_empty2 = [
                         q
                         for q in final_check2
-                        if q.get("required", q.get("is_required", True))
+                        if (q.get("required", q.get("is_required", True)) or (not self._settings.ai.use_gemini and q.get("type") != "file"))
                         and (
                             not (q.get("value") or "").strip()
                             or (q.get("value") or "").strip().lower()

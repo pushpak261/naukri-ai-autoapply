@@ -20,6 +20,7 @@ from api.routes import (
     accounts as accounts_router,
     agent as agent_router,
     applications as applications_router,
+    screening as screening_router,
     auth as auth_router,
     config as config_router,
     data as data_router,
@@ -233,6 +234,7 @@ app.include_router(health_router.router)
 app.include_router(stats_router.router)
 app.include_router(jobs_router.router)
 app.include_router(applications_router.router)
+app.include_router(screening_router.router)
 app.include_router(agent_router.router)
 app.include_router(config_router.router)
 app.include_router(data_router.router)

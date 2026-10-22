@@ -1,4 +1,4 @@
-"""Explicit evidence only for browser fallbacks; unknown answers stay blank."""
+"""Format factual answers; unresolved facts are handled by screening review."""
 
 import re
 
@@ -77,9 +77,23 @@ def format_evidence(value, question, *, experience_in_years=True):
     if (
         number is not None
         and "lpa" in value.casefold()
-        and any(word in text for word in ("rupees", "inr", "per annum"))
+        and any(
+            word in text
+            for word in (
+                "rupees",
+                "inr",
+                "per annum",
+                "per year",
+                "annually",
+                "per month",
+                "monthly",
+            )
+        )
+        and not re.search(r"\b(?:lpa|lacs?|lakhs?)\b", text)
     ):
         number *= 100000
+        if "per month" in text or "monthly" in text:
+            number /= 12
     if number is not None and "notice" in text and "month" in text:
         return ""  # Converting calendar months to days requires a specified date.
     options = [
@@ -113,7 +127,10 @@ def format_evidence(value, question, *, experience_in_years=True):
                     fits = number == nums[0]
                 if fits:
                     matches.append(option)
-        return matches[0] if len(matches) == 1 else ""
+        if len(matches) == 1:
+            return matches[0]
+        # Common labels carry units, e.g. '30 Days' versus the saved '30 days'.
+        return ""
     numeric_field = question.get("type", question.get("field_type")) == "number"
     numeric_question = any(
         word in text for word in ("how many", "number of", "in days", "in years", "in months")
@@ -142,13 +159,61 @@ def evidence_answer(question, settings, candidate=None):
         )
     value = ""
     name = getattr(candidate, "name", "")
-    if "first name" in text:
+    employed = getattr(profile, "employment_status", "") == "employed"
+    serving = getattr(profile, "serving_notice", None)
+    if re.search(r"(?:last|final) working (?:date|day)|\blwd\b", text):
+        value = getattr(profile, "last_working_date", "")
+        if not value and employed and serving is False:
+            field = question.get("input_type") or question.get("type", "text")
+            if field != "date":
+                options = question.get("options", [])
+                labels = [str(o.get("text", "") if isinstance(o, dict) else o) for o in options]
+                value = (
+                    next(
+                        (
+                            o
+                            for o in labels
+                            if o.casefold().strip()
+                            in (
+                                "not applicable",
+                                "n/a",
+                                "not serving notice",
+                                "not decided",
+                                "not fixed",
+                            )
+                        ),
+                        "",
+                    )
+                    if labels
+                    else (
+                        "Not fixed; currently employed and not serving notice."
+                        + (
+                            f" My notice period is {profile.notice_period}."
+                            if profile.notice_period
+                            else ""
+                        )
+                    )
+                )
+    elif re.search(r"\b(?:serving|on|under|in)\s+(?:a\s+)?notice\b", text):
+        value = "Yes" if serving is True else "No" if serving is False else ""
+    elif re.search(
+        r"(?:are you|currently|presently).*\bemployed\b|employment status|working currently|currently working",
+        text,
+    ):
+        status = getattr(profile, "employment_status", "")
+        if status:
+            value = ("Yes" if employed else "No") if "status" not in text else status.title()
+    elif "first name" in text:
         value = getattr(profile, "first_name", "") or (name.split()[0] if name else "")
     elif "last name" in text or "surname" in text:
         value = getattr(profile, "last_name", "") or (
             name.split()[-1] if len(name.split()) > 1 else ""
         )
-    elif "experience" in text or re.search(r"\b(?:years|months)\b.*\b(?:with|using)\b", text):
+    elif (
+        "experience" in text
+        or re.search(r"\b(?:years|months)\b.*\b(?:with|using)\b", text)
+        or re.search(r"\b(?:have you worked|do you know|have you used)\b", text)
+    ):
         from libs.common.local_matching import normalize_skill, contains_skill
 
         specific = re.search(r"\b(?:with|using|in)\s+\w+", text)
@@ -168,8 +233,9 @@ def evidence_answer(question, settings, candidate=None):
                 for skill, years in facts.items()
                 if contains_skill(text, normalize_skill(skill))
             ]
-            if len(found) == 1 and len(mentioned) == 1 and found[0][1] >= 0:
-                value = format(found[0][1], "g")
+            normalized = {normalize_skill(skill): years for skill, years in found if years >= 0}
+            if mentioned and mentioned <= normalized.keys():
+                value = format(min(normalized[skill] for skill in mentioned), "g")
         elif any(
             word in text
             for word in (
@@ -184,7 +250,10 @@ def evidence_answer(question, settings, candidate=None):
             value = format(stated, "g") if stated is not None else ""
             if not value and getattr(candidate, "total_experience_years", 0) > 0:
                 value = format(candidate.total_experience_years, "g")
-        if value and re.search(r"\b(?:do you have|at least|minimum|more than)\b", text):
+        if value and re.search(
+            r"\b(?:do you have|have you worked|do you know|have you used|at least|minimum|more than)\b",
+            text,
+        ):
             required = re.search(r"(\d+(?:\.\d+)?)\s*(years?|months?)", text)
             actual = _numeric(value)
             if required and actual is not None:
@@ -192,7 +261,9 @@ def evidence_answer(question, settings, candidate=None):
                 value = (
                     "Yes" if (actual > limit if "more than" in text else actual >= limit) else "No"
                 )
-            elif actual is not None and "do you have" in text:
+            elif actual is not None and re.search(
+                r"do you have|have you worked|do you know|have you used", text
+            ):
                 value = "Yes" if actual > 0 else "No"
             else:
                 value = ""
@@ -211,7 +282,15 @@ def evidence_answer(question, settings, candidate=None):
     ):
         value = getattr(profile, "expected_ctc", "")
     elif any(
-        word in text for word in ("current salary", "current ctc", "present ctc", "current package")
+        word in text
+        for word in (
+            "current salary",
+            "current ctc",
+            "present ctc",
+            "current package",
+            "present salary",
+            "current compensation",
+        )
     ):
         value = getattr(profile, "current_ctc", "")
     elif any(word in text for word in ("github", "linkedin")):

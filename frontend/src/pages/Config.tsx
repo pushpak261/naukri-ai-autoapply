@@ -29,6 +29,9 @@ interface ConfigForm {
   current_location: string;
   preferred_locations: string;
   total_experience: string;
+  employment_status: string;
+  serving_notice: string;
+  last_working_date: string;
   confirmed_answers: {question: string; answer: string}[];
   skill_experience: {skill: string; years: string}[];
   max_retries: number;
@@ -68,6 +71,9 @@ function configToForm(config: ConfigResponse): ConfigForm {
     current_location: config.profile.current_location,
     preferred_locations: config.profile.preferred_locations.join(', '),
     total_experience: config.profile.total_experience,
+    employment_status: config.profile.employment_status ?? '',
+    serving_notice: config.profile.serving_notice == null ? '' : String(config.profile.serving_notice),
+    last_working_date: config.profile.last_working_date ?? '',
     confirmed_answers: Object.entries(config.profile.confirmed_answers ?? {}).map(([question, answer]) => ({question, answer})),
     skill_experience: Object.entries(config.profile.skill_experience_years ?? {}).map(([skill, years]) => ({skill, years: String(years)})),
     max_retries: config.application.max_retries ?? 3,
@@ -139,6 +145,9 @@ export default function Config() {
         current_location: form.current_location,
         preferred_locations: form.preferred_locations.split(',').map((s: string) => s.trim()).filter(Boolean),
         total_experience: form.total_experience,
+        employment_status: form.employment_status,
+        serving_notice: form.serving_notice === '' ? null : form.serving_notice === 'true',
+        last_working_date: form.last_working_date,
         confirmed_answers: Object.fromEntries(form.confirmed_answers.filter(row => row.question.trim() && row.answer.trim()).map(row => [row.question.trim(), row.answer.trim()])),
         skill_experience_years: Object.fromEntries(form.skill_experience.filter(row => row.skill.trim() && row.years.trim()).map(row => [row.skill.trim(), Number(row.years)])),
         email_notifications_enabled: form.email_notifications_enabled,
@@ -341,7 +350,20 @@ export default function Config() {
 
         <div className={sectionClass}>
           <h2 className="text-lg font-semibold mb-2">Gemini-free application assistant</h2>
-          <p className="text-sm muted mb-4">With Use Gemini AI off, both agents match jobs and fill forms using your resume and saved facts. Unknown required answers are left for review. No AI API key is needed.</p>
+          <p className="text-sm muted mb-4">With Use Gemini AI off, Naukri answers from saved facts, resume summaries and local technical answers. Missing facts appear under Applications → Screening answers. Confirm them once and retry without submitting empty answers. No AI API key is needed.</p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+            <div><label htmlFor="employment-status" className={labelClass}>Employment status</label>
+              <select id="employment-status" className={inputClass} value={form.employment_status} onChange={e => setForm({...form, employment_status: e.target.value})}>
+                <option value="">Not confirmed</option><option value="employed">Employed</option><option value="unemployed">Not employed</option><option value="student">Student</option>
+              </select></div>
+            <div><label htmlFor="serving-notice" className={labelClass}>Serving notice now?</label>
+              <select id="serving-notice" className={inputClass} value={form.serving_notice} onChange={e => setForm({...form, serving_notice: e.target.value})}>
+                <option value="">Not confirmed</option><option value="true">Yes</option><option value="false">No</option>
+              </select></div>
+            <div><label htmlFor="last-working-date" className={labelClass}>Confirmed last working date</label>
+              <input id="last-working-date" type="date" className={inputClass} value={form.last_working_date} onChange={e => setForm({...form, last_working_date: e.target.value})}/>
+              <p className="text-xs muted mt-1">Leave unset if no date has been agreed.</p></div>
+          </div>
           <h3 className="font-medium mb-2">Confirmed screening answers</h3>
           <p className="text-sm muted mb-3">Enter the exact question and your truthful answer. For choices, use the exact option text. Save only answers that apply whenever that same question appears.</p>
           {form.confirmed_answers.map((row, index) => <div key={index} className="grid grid-cols-1 md:grid-cols-[1fr_1fr_auto] gap-2 mb-2">
