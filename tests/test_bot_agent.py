@@ -45,6 +45,56 @@ from tests.test_bot_agent_helpers import (
 AGENT_MODULE = "src.naukri_agent.bot.agent"
 
 
+async def test_configured_role_filter_rejects_unrelated_title_before_browser_actions():
+    settings = make_settings(search={"required_title_keywords": ["Java", "Backend"]})
+    agent = make_agent(settings=settings)
+    job = java_job(title="Python Developer", description="Java integration")
+    applier, searcher, matcher, _ = await _process(agent, [job])
+    assert agent._jobs_skipped == 1
+    applier.apply_to_job.assert_not_awaited()
+    searcher.get_job_description.assert_not_awaited()
+    matcher.match.assert_not_awaited()
+    assert agent._passes_targeting(job) == (False, "Title does not match the configured role keywords")
+
+
+async def test_failed_relogin_stops_all_remaining_assessments_and_applications():
+    login = MagicMock()
+    login.login = AsyncMock(return_value=False)
+    agent = make_agent(browser_engine=make_engine(is_alive=False), login_handler=login)
+    applier, _, matcher, _ = await _process(agent, [java_job("first"), java_job("second")])
+    assert agent._run_error is True
+    login.login.assert_awaited_once()
+    matcher.match.assert_not_awaited()
+    applier.apply_to_job.assert_not_awaited()
+
+
+async def test_assessment_exception_does_not_approve_job_or_abort_next_candidate():
+    matcher = make_matcher()
+    matcher.match.side_effect = [RuntimeError("assessment unavailable"), JobApplication(match_score=90, should_apply=True)]
+    agent = make_agent(job_matcher=matcher)
+    applier, _, _, _ = await _process(agent, [java_job("first"), java_job("second")], matcher=matcher)
+    assert agent._jobs_failed == 1
+    assert agent._jobs_applied == 1
+    assert matcher.match.await_count == 2
+    applier.apply_to_job.assert_awaited_once()
+    assert applier.apply_to_job.await_args.args[0].naukri_job_id == "second"
+    agent._repo.begin_application.assert_awaited_once()
+
+
+async def test_detail_metadata_overrides_stale_card_before_candidate_experience_gate():
+    settings = make_settings(search={"experience_max": 5})
+    details = apply_job_details()
+    details.update(experience_detail="3 years", location_detail="Pune", salary_detail="9 LPA")
+    searcher = make_searcher(details=details)
+    agent = make_agent(settings=settings, job_searcher=searcher)
+    job = java_job(description="", experience="0 years")
+    applier, _, matcher, _ = await _process(agent, [job], searcher=searcher)
+    assert (job.experience, job.location, job.salary) == ("3 years", "Pune", "9 LPA")
+    assert agent._passes_targeting(job)[1] == "Required experience (3 years) exceeds the saved candidate experience"
+    matcher.match.assert_not_awaited()
+    applier.apply_to_job.assert_not_awaited()
+
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
