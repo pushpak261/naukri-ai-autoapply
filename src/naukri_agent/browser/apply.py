@@ -136,6 +136,7 @@ class JobApplier:
                     and confirmed_location.hostname in ("naukri.com", "www.naukri.com")
                     and extract_naukri_job_id(confirmed_url) == job.naukri_job_id
                     and await self._detail_page.is_already_applied()):
+                    log_success(f"Applied successfully (confirmed on listing): {job.title} @ {job.company}")
                     return {"status": ApplicationStatus.APPLIED, "error_message": "Confirmed by the listing's Applied state after submission."}
             return result
 
