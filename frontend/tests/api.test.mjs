@@ -316,3 +316,16 @@ test('answer memory uses authenticated search, correction and forget without que
   assert.equal(requests[2].options.method, 'DELETE');
   assert.ok(requests[2].url.endsWith('/screening/memory/saved'));
 });
+
+test('a 100-application run is an explicit start option', async () => {
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return json({ status: 'started' });
+  };
+  await api.agent.start('naukri', 100);
+  await api.agent.start('naukri');
+  assert.ok(requests[0].url.endsWith('/agent/start?platform=naukri&target=100'));
+  assert.ok(requests[1].url.endsWith('/agent/start?platform=naukri'));
+  assert.equal(requests[0].options.method, 'POST');
+});

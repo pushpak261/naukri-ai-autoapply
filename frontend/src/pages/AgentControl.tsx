@@ -49,6 +49,7 @@ export default function AgentControl() {
   const [useSSE, setUseSSE] = useState(true);
   const [platform, setPlatform] = useState<'naukri' | 'linkedin'>('naukri');
   const [parallelMode, setParallelMode] = useState(false);
+  const [target100, setTarget100] = useState(false);
   const [logPlatform, setLogPlatform] = useState<'naukri' | 'linkedin'>('naukri');
   const outputRef = useRef<HTMLPreElement>(null);
   const monitor = useAgentMonitor(parallelMode, logPlatform, useSSE);
@@ -67,6 +68,7 @@ export default function AgentControl() {
   }, []);
   useEffect(() => {
     if (status?.running && status.platform) setPlatform(status.platform);
+    if (status?.running && status.target_progress?.target === 100) setTarget100(true);
     if (!parallelMode && multiStatus && Object.values(multiStatus.agents).some(agent => agent.running && agent.pid !== status?.pid)) setParallelMode(true);
   }, [status, multiStatus, parallelMode]);
   const notify = (type: Notification['type'], message: string) => setNotification({ type, message });
@@ -100,7 +102,7 @@ export default function AgentControl() {
         await monitor.refresh();
 
       } else {
-        const result = await api.agent.start(platform);
+        const result = await api.agent.start(platform, platform === 'naukri' && target100 ? 100 : 0);
         notify(result.status === 'started' ? 'success' : 'info', result.message || 'Agent start request completed');
         await monitor.refresh();
       }
@@ -163,7 +165,7 @@ export default function AgentControl() {
           await api.agent.stop();
           await new Promise(r => setTimeout(r, 500));
         }
-        const result = await api.agent.start(platform);
+        const result = await api.agent.start(platform, platform === 'naukri' && target100 ? 100 : 0);
         notify(result.status === 'started' ? 'success' : 'info', result.message || 'Agent restart request completed');
         await monitor.refresh();
       }
@@ -196,7 +198,7 @@ export default function AgentControl() {
   };
 
   return (
-    <div className="space-y-6">
+      <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2" style={{ color: 'var(--color-text)' }}>
@@ -325,6 +327,14 @@ export default function AgentControl() {
         </div>
       </div>
 
+      {!parallelMode && status?.target_progress && <section className="rounded-xl border p-5 space-y-2" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }} aria-label="Run application target">
+        <h2 className="font-semibold">This run’s application target</h2>
+        <p className="text-2xl font-bold">{status.target_progress.submitted} / {status.target_progress.target} verified submissions</p>
+        <progress className="w-full" value={status.target_progress.submitted} max={status.target_progress.target} aria-label="Verified submission progress" />
+        <p className="text-sm text-[var(--color-text-secondary)]">{status.target_progress.reason || status.target_progress.state}</p>
+        {!status.running && status.target_progress.submitted < status.target_progress.target && <p role="status" className="text-sm text-amber-400">Run stopped before its target. Review the live output; this run is not complete.</p>}
+      </section>}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <h2 className="text-sm font-medium mb-3 flex items-center gap-2" style={{ color: 'var(--color-text-secondary)' }}>
@@ -399,6 +409,10 @@ export default function AgentControl() {
               )}
             </div>
           </div>
+          {!parallelMode && platform === 'naukri' && <label className="mb-4 flex items-start gap-2 text-sm">
+            <input type="checkbox" checked={target100} disabled={status?.running || actionLoading !== null} onChange={event => setTarget100(event.target.checked)} className="mt-1" />
+            <span><strong>Target 100 verified applications this run</strong><span className="block text-xs text-[var(--color-text-muted)]">Naukri Apply forms only. Skips and failures do not count. Up to three discovery passes and six hours; blocked or exhausted runs remain marked incomplete.</span></span>
+          </label>}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
             <button
               onClick={handleStart}

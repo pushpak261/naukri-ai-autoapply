@@ -8,6 +8,7 @@ import threading
 import contextvars
 from datetime import UTC, datetime
 from collections.abc import AsyncGenerator
+from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse
@@ -66,9 +67,17 @@ def _start_output_reader(process: subprocess.Popen) -> None:
 
 @router.post("/api/agent/start")
 @serialized_start
-async def start_agent(platform: str = Query("naukri", max_length=20), job_ids: list[int] | None = None):
+async def start_agent(platform: str = Query("naukri", max_length=20), job_ids: list[int] | None = None, target: Annotated[int, Query(ge=0, le=100)] = 0):
+    if target not in (0, 100):
+        raise HTTPException(422, "Choose normal mode (0) or Target 100")
     if platform not in ("naukri", "linkedin"):
         raise HTTPException(422, "Unknown platform")
+    if target and (platform != "naukri" or job_ids):
+        raise HTTPException(422, "Target 100 is available for a new Naukri discovery run only")
+    if target and state.settings.application.dry_run:
+        raise HTTPException(422, "Disable Dry Run before starting a submission target")
+    if target and state.settings.application.daily_cap < 100:
+        raise HTTPException(422, "Set the Naukri daily cap to at least 100 before starting Target 100")
     existing = platform_process(platform)
     if existing is not None:
         return {"status": "already_running", "message": "Platform agent is already running", "pid": existing.pid}
@@ -102,6 +111,8 @@ async def start_agent(platform: str = Query("naukri", max_length=20), job_ids: l
         cmd = [sys.executable, "-m", "src.linked_agent.main", "run"]
     else:
         cmd = [sys.executable, "-m", "src.naukri_agent.main", "run"]
+    if target:
+        cmd.extend(["--target", "100"])
     from api.tenants import agent_environment
     env = agent_environment()
     env.pop("AGENT_JOB_IDS", None)
@@ -194,6 +205,10 @@ async def agent_status():
     if not running:
         platform = None
 
+    from libs.common.run_target import target_progress_for
+    root = getattr(state.settings, "project_root", None)
+    target_progress = target_progress_for(root, state.agent_process if running else None) if root else None
+
     return {
         "running": running,
         "pid": state.agent_process.pid if running else None,
@@ -201,6 +216,7 @@ async def agent_status():
         "uptime_seconds": uptime_seconds,
         "last_run": last_run,
         "platform": platform,
+        "target_progress": target_progress,
     }
 
 

@@ -36,6 +36,7 @@ def cli():
 
 @cli.command()
 @click.option("--dry-run", is_flag=True, help="Score jobs without actually applying")
+@click.option("--target", type=click.Choice(["100"]), default=None, help="Target exactly 100 verified native Naukri submissions in this run")
 @click.option(
     "--cap",
     type=int,
@@ -59,9 +60,10 @@ def run(
     cap: int | None,
     threshold: int | None,
     keyword: str | None,
+    target: str | None = None,
 ):
     """Start the job application agent."""
-    asyncio.run(_run(dry_run, cap, threshold, keyword))
+    asyncio.run(_run(dry_run, cap, threshold, keyword, target))
 
 
 def create_agent(settings, db_manager) -> NaukriAgent:
@@ -124,16 +126,24 @@ async def _run(
     cap: int | None,
     threshold: int | None,
     keyword: str | None,
+    target: str | None = None,
 ):
     import os
 
     from src.naukri_agent.models.db_schema import setup_database_manager
 
     settings = get_settings()
+    settings.application.run_target = int(target) if target is not None else 0
+    if target is not None:
+        settings.application.skip_external_apply = True
+        if dry_run or settings.application.dry_run:
+            raise click.UsageError("Target 100 requires Dry Run to be disabled")
 
     # Apply CLI overrides
     if cap is not None:
         settings.application.daily_cap = cap
+    if target is not None and settings.application.daily_cap < 100:
+        raise click.UsageError("Target 100 requires a daily cap of at least 100")
     if threshold is not None:
         settings.application.match_score_threshold = threshold
     if keyword is not None:

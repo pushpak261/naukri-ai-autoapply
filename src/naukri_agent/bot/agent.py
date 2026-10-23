@@ -204,6 +204,7 @@ class NaukriAgent:
         self._resume_profile = None
         self._run_log_id: int | None = None
         self._interrupted = False
+        self._run_error = False
         self._external_jobs: list[tuple[Job, str | None]] = []
         self._pipeline: FakeJobDetectionPipeline | None = None
 
@@ -213,6 +214,10 @@ class NaukriAgent:
         self._jobs_skipped = 0
         self._jobs_failed = 0
         self._daily_applied = 0
+        self._target_discovered: set[str] = set()
+        self._target_processed: set[str] = set()
+        self._target_deadline = float("inf")
+        self._target_stop_reason = ""
 
     async def run(self, dry_run: bool = False) -> None:
         """
@@ -277,117 +282,8 @@ class NaukriAgent:
                 log_error("Login failed. Cannot proceed.")
                 return
 
-            # Step 4: Search for jobs
-            searcher = self._job_searcher
-            if not searcher:
-                raise RuntimeError("JobSearcher not configured.")
-            jobs = await searcher.search_all(should_stop=lambda: self._interrupted)
-            self._jobs_found = max(self._jobs_found, len(jobs))
-            failed_searches = getattr(searcher, "failed_searches", [])
-            if isinstance(failed_searches, list) and failed_searches:
-                self._run_error = True
-                log_warning(f"Discovery was incomplete: {len(failed_searches)} searches/pages failed. Processing only verified results.")
-
-            if self._interrupted:
-                log_warning(
-                    f"Run interrupted during search — {self._jobs_found} jobs were found "
-                    f"before stopping. Skipping job evaluation."
-                )
-                return
-
-            if not jobs:
-                log_warning("No jobs found matching your search criteria.")
-                return
-
-            log_success(f"Found {len(jobs)} candidate jobs. Starting evaluation...")
-
-            # Initialize the fake job detection pipeline (Stages 1-5)
-            self._pipeline = FakeJobDetectionPipeline(self._settings.exclusions)
-
-            # Stage 1: Early scam pass — uses only title/company (no description needed)
-            clean_jobs, scam_jobs = self._pipeline.early_scam_filter(jobs)
-            self._jobs_skipped += len(scam_jobs)
-            if scam_jobs:
-                log_warning(
-                    f"Early scam filter removed {len(scam_jobs)}/{len(jobs)} jobs "
-                    f"({len(clean_jobs)} remain for processing)"
-                )
-                for j in scam_jobs:
-                    log_info(f"  Removed (scam/consultancy): {j.title} @ {j.company}")
-
-                if (
-                    self._settings.application.email_notifications_enabled
-                    and self._settings.application.notify_on_scam
-                ):
-                    from src.naukri_agent.utils.notification import send_notification
-
-                    flagged_list = "\n".join(
-                        f"  - {j.title} @ {j.company}" for j in scam_jobs
-                    )
-                    await send_notification(
-                        self._settings,
-                        "scam.detected",
-                        f"Scam Filter: {len(scam_jobs)} suspicious jobs removed",
-                        f"<p>The following jobs were removed by scam filter:</p><pre>{flagged_list}</pre>",
-                    )
-            else:
-                log_success("Early scam filter passed — no obvious consultancies detected.")
-
-            jobs = clean_jobs
-            log_success(f"{len(jobs)} candidate jobs ready for evaluation.")
-
-            # Stages 2 + 3 + 5: Build composed exclusion specification
-            self._pipeline.build_exclusion_spec()
-            if self._pipeline.is_scam_filter_enabled:
-                log_info("Scam / consultancy filter is ENABLED")
-            else:
-                log_info("Scam / consultancy filter is DISABLED (enable_scam_filter: false)")
-
-            # Step 5: Initialize AI components
-            matcher = self._job_matcher
-            if not matcher:
-                raise RuntimeError("JobMatcher not configured.")
-            if self._question_answerer_factory is None:
-                raise RuntimeError("QuestionAnswerer factory not configured.")
-            if self._job_applier_factory is None:
-                raise RuntimeError("JobApplier factory not configured.")
-
-            if self._resume_profile is None:
-                raise RuntimeError("Resume profile not loaded.")
-
-            qa = self._question_answerer_factory(self._resume_profile)
-            applier = self._job_applier_factory(qa)
-
-            resume_text = (
-                self._resume_profile.skills
-                + [self._resume_profile.current_title]
-                + [self._resume_profile.summary]
-            )
-            # Compute document frequency for TF-IDF from DB corpus
-            doc_frequencies = {}
-            total_documents = 0
-            if self._repo:
-                try:
-                    import re
-                    from collections import Counter
-
-                    all_descriptions = await self._repo.get_all_job_descriptions()
-                    total_documents = len(all_descriptions)
-                    df_counter: Counter[str] = Counter()
-                    for desc in all_descriptions:
-                        if desc:
-                            words = set(re.findall(r"\b[a-z0-9]+\b", desc.lower()))
-                            df_counter.update(words)
-                    doc_frequencies = dict(df_counter)
-                except Exception as e:
-                    logger.warning(f"Failed to build TF-IDF corpus from DB: {e}")
-
-            vector_filter = VectorSimilarityFilter(
-                resume_text, doc_frequencies=doc_frequencies, total_documents=total_documents
-            )
-
-            # Step 6: Process each job using Priority Queue Max-Heap
-            await self._process_jobs(jobs, matcher, applier, searcher, vector_filter)
+            from src.naukri_agent.bot.target_run import run_search_cycles
+            await run_search_cycles(self, self._search_pass)
 
         except KeyboardInterrupt:
             log_warning("Agent interrupted by user (Ctrl+C)")
@@ -412,6 +308,134 @@ class NaukriAgent:
                 logger.exception("Agent fatal error")
         finally:
             await self._cleanup()
+
+    async def _search_pass(self) -> None:
+        # Step 4: Search for jobs
+        searcher = self._job_searcher
+        if not searcher:
+            raise RuntimeError("JobSearcher not configured.")
+        jobs = await searcher.search_all(should_stop=lambda: self._interrupted)
+        from src.naukri_agent.bot.target_run import fresh_jobs
+        jobs = fresh_jobs(self, jobs)
+        failed_searches = getattr(searcher, "failed_searches", [])
+        if isinstance(failed_searches, list) and failed_searches:
+            if self._settings.application.run_target != 100:
+                self._run_error = True
+            log_warning(f"Discovery was incomplete: {len(failed_searches)} searches/pages failed. Processing only verified results.")
+
+        if self._interrupted:
+            log_warning(
+                f"Run interrupted during search — {self._jobs_found} jobs were found "
+                f"before stopping. Skipping job evaluation."
+            )
+            return
+
+        if not jobs:
+            log_warning("No jobs found matching your search criteria.")
+            return
+
+        log_success(f"Found {len(jobs)} candidate jobs. Starting evaluation...")
+
+        jobs = await self._filter_candidate_jobs(jobs)
+
+        # Step 5: Initialize AI components
+        matcher = self._job_matcher
+        if not matcher:
+            raise RuntimeError("JobMatcher not configured.")
+        if self._question_answerer_factory is None:
+            raise RuntimeError("QuestionAnswerer factory not configured.")
+        if self._job_applier_factory is None:
+            raise RuntimeError("JobApplier factory not configured.")
+
+        if self._resume_profile is None:
+            raise RuntimeError("Resume profile not loaded.")
+
+        qa = self._question_answerer_factory(self._resume_profile)
+        applier = self._job_applier_factory(qa)
+
+        vector_filter = await self._vector_filter_for_resume()
+
+        # Step 6: Process each job using Priority Queue Max-Heap
+        await self._process_jobs(jobs, matcher, applier, searcher, vector_filter)
+
+
+    async def _filter_candidate_jobs(self, jobs):
+        # Initialize the fake job detection pipeline (Stages 1-5)
+        self._pipeline = FakeJobDetectionPipeline(self._settings.exclusions)
+
+        # Stage 1: Early scam pass — uses only title/company (no description needed)
+        clean_jobs, scam_jobs = self._pipeline.early_scam_filter(jobs)
+        self._jobs_skipped += len(scam_jobs)
+        if self._settings.application.run_target == 100:
+            self._target_processed.update(job.naukri_job_id or job.url for job in scam_jobs)
+        if scam_jobs:
+            log_warning(
+                f"Early scam filter removed {len(scam_jobs)}/{len(jobs)} jobs "
+                f"({len(clean_jobs)} remain for processing)"
+            )
+            for j in scam_jobs:
+                log_info(f"  Removed (scam/consultancy): {j.title} @ {j.company}")
+
+            if (
+                self._settings.application.email_notifications_enabled
+                and self._settings.application.notify_on_scam
+            ):
+                from src.naukri_agent.utils.notification import send_notification
+
+                flagged_list = "\n".join(
+                    f"  - {j.title} @ {j.company}" for j in scam_jobs
+                )
+                await send_notification(
+                    self._settings,
+                    "scam.detected",
+                    f"Scam Filter: {len(scam_jobs)} suspicious jobs removed",
+                    f"<p>The following jobs were removed by scam filter:</p><pre>{flagged_list}</pre>",
+                )
+        else:
+            log_success("Early scam filter passed — no obvious consultancies detected.")
+
+        jobs = clean_jobs
+        log_success(f"{len(jobs)} candidate jobs ready for evaluation.")
+
+        # Stages 2 + 3 + 5: Build composed exclusion specification
+        self._pipeline.build_exclusion_spec()
+        if self._pipeline.is_scam_filter_enabled:
+            log_info("Scam / consultancy filter is ENABLED")
+        else:
+            log_info("Scam / consultancy filter is DISABLED (enable_scam_filter: false)")
+
+        return jobs
+
+    async def _vector_filter_for_resume(self):
+        resume_text = (
+            self._resume_profile.skills
+            + [self._resume_profile.current_title]
+            + [self._resume_profile.summary]
+        )
+        # Compute document frequency for TF-IDF from DB corpus
+        doc_frequencies = {}
+        total_documents = 0
+        if self._repo:
+            try:
+                import re
+                from collections import Counter
+
+                all_descriptions = await self._repo.get_all_job_descriptions()
+                total_documents = len(all_descriptions)
+                df_counter: Counter[str] = Counter()
+                for desc in all_descriptions:
+                    if desc:
+                        words = set(re.findall(r"\b[a-z0-9]+\b", desc.lower()))
+                        df_counter.update(words)
+                doc_frequencies = dict(df_counter)
+            except Exception as e:
+                logger.warning(f"Failed to build TF-IDF corpus from DB: {e}")
+
+        vector_filter = VectorSimilarityFilter(
+            resume_text, doc_frequencies=doc_frequencies, total_documents=total_documents
+        )
+
+        return vector_filter
 
     async def _parse_resume(self) -> None:
         """Parse the resume PDF and cache the structured profile."""
@@ -585,14 +609,18 @@ class NaukriAgent:
         )
 
         total_jobs = len(job_queue)
-        self._daily_applied = await self._repo.get_today_application_count() if self._repo else 0
+        self._daily_applied = await self._repo.get_today_application_count(source="naukri") if self._repo else 0
         processed_count = 0
 
         while job_queue:
             if self._interrupted:
                 break
+            if self._settings.application.run_target == 100:
+                from src.naukri_agent.bot.target_run import expired
+                if self._jobs_applied >= 100 or expired(self):
+                    break
 
-            self._daily_applied = await self._repo.get_today_application_count() if self._repo else self._daily_applied
+            self._daily_applied = await self._repo.get_today_application_count(source="naukri") if self._repo else self._daily_applied
 
             neg_score, idx, job = heapq.heappop(job_queue)
             initial_score = job._eligibility_score
@@ -609,6 +637,8 @@ class NaukriAgent:
                 )
                 break
 
+            if self._settings.application.run_target == 100:
+                self._target_processed.add(job.naukri_job_id or job.url)
             processed_count += 1
             log_step(
                 processed_count,
@@ -855,6 +885,7 @@ class NaukriAgent:
 
             block = classify_block(error_msg) or classify_block(status)
             if block:
+                self._run_error = True
                 from api.agent_runtime import mark_agent_blocked
 
                 await mark_agent_blocked(self._settings, block, job)
@@ -896,6 +927,10 @@ class NaukriAgent:
             if status == ApplicationStatus.APPLIED:
                 self._jobs_applied += 1
                 self._daily_applied += 1
+                from src.naukri_agent.bot.target_run import checkpoint
+                await checkpoint(self)
+                if self._settings.application.run_target == 100 and self._jobs_applied >= 100:
+                    break
                 await TimeUtility.random_delay(
                     self._settings.application.delay_between_applies_min,
                     self._settings.application.delay_between_applies_max,
@@ -991,6 +1026,10 @@ class NaukriAgent:
         # Update run log
         if self._repo and self._run_log_id:
             status = "interrupted" if self._interrupted else "error" if getattr(self, "_run_error", False) else "completed"
+            if self._settings.application.run_target == 100 and self._jobs_applied < 100:
+                status = "target_not_met"
+                from src.naukri_agent.bot.target_run import checkpoint
+                await checkpoint(self, status, self._target_stop_reason or "Run ended before 100 verified submissions")
             await self._repo.update_run_log(
                 run_log_id=self._run_log_id,
                 jobs_found=self._jobs_found,

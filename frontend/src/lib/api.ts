@@ -311,6 +311,7 @@ export interface AgentStatus {
   uptime_seconds: number | null;
   last_run: RunLog | null;
   platform?: 'naukri' | 'linkedin' | null;
+  target_progress?: { target: number; submitted: number; state: string; reason: string; run_id?: number; updated_at?: string } | null;
 }
 
 export interface MultiAgentPlatformStatus {
@@ -692,8 +693,8 @@ export const api = {
   },
 
   agent: {
-    start: (platform: 'naukri' | 'linkedin' = 'naukri') =>
-      fetchJSON<{ status: string; message: string; pid?: number; command?: string }>(`/agent/start?platform=${platform}`, { method: 'POST' }),
+    start: (platform: 'naukri' | 'linkedin' = 'naukri', target: 0 | 100 = 0) =>
+      fetchJSON<{ status: string; message: string; pid?: number; command?: string }>(`/agent/start?platform=${platform}${target ? '&target=100' : ''}`, { method: 'POST' }),
     stop: () => fetchJSON<{ status: string; message: string }>('/agent/stop', { method: 'POST' }),
     status: () => fetchJSON<AgentStatus>('/agent/status'),
     output: (lines = 50000) => fetchText(`/agent/output?lines=${lines}`),
