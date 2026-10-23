@@ -42,7 +42,16 @@ export default function AnswerMemory() {
     <summary className="cursor-pointer font-semibold">Answer memory {data && `(${data.total} saved)`}</summary>
     <div className="space-y-3 pt-3">
       <p className="text-sm text-[var(--color-text-secondary)]">Both agents reuse your confirmed answers and remember answers from your profile. Profile-derived answers refresh when your profile changes. AI suggestions need your confirmation before memory can reuse them. Job-specific answers stay with that job.</p>
-      <input aria-label="Search remembered answers" placeholder="Search questions" maxLength={200} value={search} onChange={e => setSearch(e.target.value)} className={inputClass}/>
+      <div className="space-y-2">
+        <label htmlFor="answer-memory-search" className="text-sm font-medium">Search remembered answers</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <input id="answer-memory-search" type="search" aria-describedby="answer-memory-results" placeholder="Search questions to filter saved answers" maxLength={200} value={search} onChange={e => setSearch(e.target.value)} className={`${inputClass} min-w-0 flex-1`}/>
+          {(search || filter) && <button className="secondary-button" onClick={() => {setSearch(''); setFilter('');}}>Clear search</button>}
+        </div>
+      </div>
+      <p id="answer-memory-results" role="status" className="text-sm text-[var(--color-text-secondary)]">
+        {data && !error && <>Showing {data.items.length} of {data.total} saved answers{filter && <> matching “{filter}”</>}.</>}
+      </p>
       {isPending && <p role="status">Loading answer memory…</p>}
       {error && <p role="alert">Could not load answer memory. <button className="underline" onClick={() => refetch()}>Retry</button></p>}
       {data && !data.items.length && <p className="text-sm text-[var(--color-text-secondary)]">{filter ? 'No matching remembered answers.' : 'Answers will appear here as your agents fill forms or you confirm screening questions.'}</p>}
