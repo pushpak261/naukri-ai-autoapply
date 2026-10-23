@@ -1030,6 +1030,7 @@ class NaukriAgent:
                 f"  Daily Cap: {self._settings.application.daily_cap}\n"
                 f"  Match Threshold: {self._settings.application.match_score_threshold}%\n"
                 f"  Matching: {'Gemini' if self._settings.ai.use_gemini and self._settings.ai.enable_matching else 'Local resume rules'}\n"
+                f"  External Apply: {'Disabled' if self._settings.application.skip_external_apply else 'Gemini employer forms'}\n"
                 f"  Dry Run: {'Yes' if self._settings.application.dry_run else 'No'}\n"
                 f"  AI Model: {self._settings.ai.model if self._settings.ai.use_gemini else 'Disabled (offline rules)'}",
                 border_style="cyan",

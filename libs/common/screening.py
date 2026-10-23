@@ -11,10 +11,12 @@ def _basic_answer(question, settings, candidate=None):
         value = getattr(profile, "email", "") or getattr(candidate, "email", "")
     elif any(word in text for word in ("phone", "mobile", "contact number")):
         value = getattr(profile, "phone", "") or getattr(candidate, "phone", "")
-    elif "first name" in text:
-        value = getattr(profile, "first_name", "")
-    elif "last name" in text or "surname" in text:
-        value = getattr(profile, "last_name", "")
+    elif any(label in text for label in ("first name", "given name", "forename")):
+        names = str(getattr(candidate, "name", "") or "").split()
+        value = getattr(profile, "first_name", "") or (names[0] if names else "")
+    elif any(label in text for label in ("last name", "surname", "family name")):
+        names = str(getattr(candidate, "name", "") or "").split()
+        value = getattr(profile, "last_name", "") or (names[-1] if len(names) > 1 else "")
     elif "name" in text and not any(
         word in text for word in ("company", "employer", "school", "college")
     ):

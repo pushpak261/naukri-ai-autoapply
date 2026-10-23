@@ -51,10 +51,12 @@ class JobApplier:
         detail_page: JobDetailPage,
         settings: Settings,
         question_answerer: IQuestionAnswerer,
+        external_applier=None,
     ) -> None:
         self._detail_page = detail_page
         self._settings = settings
         self._qa = question_answerer
+        self._external_applier = external_applier
 
     async def apply_to_job(self, job: Job) -> dict:
         """
@@ -96,8 +98,10 @@ class JobApplier:
             if is_external:
                 log_warning(f"External apply detected: {job.title}")
                 external_url = None
-                if getattr(self._settings.application, "collect_external_jobs", False):
+                if not self._settings.application.skip_external_apply or getattr(self._settings.application, "collect_external_jobs", False):
                     external_url = await self._detail_page.get_external_apply_url()
+                if not self._settings.application.skip_external_apply and self._external_applier:
+                    return await self._external_applier.apply(self._detail_page._engine.page, external_url, job)
                 return {
                     "status": ApplicationStatus.SKIPPED_EXTERNAL,
                     "error_message": "External employer form requires separate handling; no native application was submitted",

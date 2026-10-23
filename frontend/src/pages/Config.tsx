@@ -132,7 +132,7 @@ export default function Config() {
         match_score_threshold: form.match_score_threshold,
         delay_between_applies_min: form.delay_between_applies_min,
         delay_between_applies_max: form.delay_between_applies_max,
-        skip_external_apply: true,
+        skip_external_apply: form.skip_external_apply,
         dry_run: form.dry_run,
         answer_questions_with_pdf: form.answer_questions_with_pdf,
         use_gemini: form.use_gemini,
@@ -334,8 +334,10 @@ export default function Config() {
             </div>
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
-                <p className="text-sm text-[var(--color-text-secondary)]">External employer forms require manual review. Automatic submission supports Naukri native forms and LinkedIn Easy Apply.</p>
+                <input type="checkbox" id="external_apply" checked={!form.skip_external_apply} onChange={(e) => setForm({ ...form, skip_external_apply: !e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)]" />
+                <label htmlFor="external_apply" className="text-sm text-[var(--color-text-secondary)]">Apply on external employer websites with Gemini</label>
               </div>
+              <p className="text-xs muted">Requires a saved Gemini API key, even when Gemini is off for native applications. Sends your saved application profile and form labels to Gemini, and completed answers and resume to the employer. Required unknown answers appear in Screening answers. Login, CAPTCHA and legal agreements need your direct review. Only confirmed submissions count as applied.</p>
               <div className="flex items-center gap-3">
                 <input type="checkbox" id="dry_run" checked={form.dry_run} onChange={(e) => setForm({ ...form, dry_run: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
                 <label htmlFor="dry_run" className="text-sm text-[var(--color-text-secondary)]">Dry Run (score only, no apply)</label>

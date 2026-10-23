@@ -34,10 +34,12 @@ class LinkedInJobApplier:
         detail_page: LinkedInJobDetailPage,
         settings: Settings,
         question_answerer: IQuestionAnswerer,
+        external_applier=None,
     ) -> None:
         self._detail_page = detail_page
         self._settings = settings
         self._question_answerer = question_answerer
+        self._external_applier = external_applier
 
     async def apply_to_job(self, job: Job, retries: int | None = None, sidebar_already_applied: bool = False) -> dict[str, str]:
         """
@@ -127,9 +129,11 @@ class LinkedInJobApplier:
                 # Set up popup listener before clicking
                 new_page_url = None
                 listener_active = False
+                opened_external_pages = []
 
                 async def on_popup(popup):
                     nonlocal new_page_url
+                    opened_external_pages.append(popup)
                     try:
                         await popup.wait_for_load_state("domcontentloaded", timeout=10000)
                         new_page_url = popup.url
@@ -147,11 +151,11 @@ class LinkedInJobApplier:
                         # Check for EXTERNAL first (fast path — most "Apply" buttons are external)
                         if new_page_url and new_page_url != page.url:
                             logger.info(f"Apply button opened new tab: {new_page_url[:100]}")
-                            return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": new_page_url}
+                            return await self._apply_external(page, new_page_url, job)
 
                         current_url = page.url
                         if "linkedin.com" not in current_url:
-                            return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": current_url}
+                            return await self._apply_external(page, current_url, job)
 
                         # Only close pages that are external (not LinkedIn), not all other pages
                         for p in page.context.pages:
@@ -160,7 +164,7 @@ class LinkedInJobApplier:
                                     ext_url = p.url
                                     await p.close()
                                     if ext_url:
-                                        return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": ext_url}
+                                        return await self._apply_external(page, ext_url, job)
                                 except Exception:
                                     pass
 
@@ -173,7 +177,7 @@ class LinkedInJobApplier:
 
                         # Double-check for late-opening tabs
                         if new_page_url and new_page_url != page.url:
-                            return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": new_page_url}
+                            return await self._apply_external(page, new_page_url, job)
 
                         logger.info(f"Apply button clicked but no result: {job.title}")
                         return {"status": ApplicationStatus.SKIPPED_EASY_APPLY_UNAVAILABLE, "error_message": "No result after click"}
@@ -186,6 +190,11 @@ class LinkedInJobApplier:
                         with contextlib.suppress(Exception):
                             page.context.remove_listener("page", on_popup)
                         listener_active = False
+                    for external_page in opened_external_pages:
+                        from urllib.parse import urlsplit
+                        if urlsplit(external_page.url).hostname not in ("www.linkedin.com", "linkedin.com"):
+                            with contextlib.suppress(Exception):
+                                await external_page.close()
 
             except Exception as e:
                 if self._submission_attempted:
@@ -201,6 +210,12 @@ class LinkedInJobApplier:
             "status": ApplicationStatus.FAILED,
             "error_message": f"Failed after {retries} attempts: {last_error}",
         }
+
+    async def _apply_external(self, page, url, job):
+        if not self._settings.application.skip_external_apply and self._external_applier:
+            return await self._external_applier.apply(page, url, job)
+        return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": url,
+                "error_message": "External employer applications are disabled."}
 
     async def _answer_screening_questions_locally(self, questions: list[dict], job: Job) -> list[dict]:
         from libs.common.screening import evidence_answer
