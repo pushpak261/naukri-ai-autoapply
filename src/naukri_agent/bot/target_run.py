@@ -88,6 +88,9 @@ async def run_search_cycles(agent, search_pass):
     if settings.application.dry_run:
         raise ValueError("A submission target requires Dry Run to be disabled")
     settings.application.skip_external_apply = True
+    # Spend the bounded discovery budget on matching jobs. Date order can
+    # bury relevant roles below unrelated fresh listings on Naukri.
+    settings.search.sort_by = "relevance"
     settings.search.max_pages = min(15, settings.search.max_pages)
     agent._target_deadline = time.monotonic() + MAX_RUNTIME_SECONDS
     log_info("Run target: 100 NEW verified native Naukri submissions; skips/failures do not count.")

@@ -47,10 +47,10 @@ async def sync_applications():
     try:
         async with state.db_manager.session_factory() as session:
             jobs = (await session.execute(select(Job).join(Application).where(
-                Application.status == 'applied', Job.source == 'naukri'
-            ).distinct().limit(50))).scalars().all()
+                Application.status.in_(['applied', 'uncertain']), Job.source == 'naukri'
+            ).order_by(Job.id.desc()).distinct().limit(50))).scalars().all()
         if not jobs:
-            state.application_sync_result = {'running': False, 'synced_count': 0, 'message': 'No Naukri applications to verify'}
+            state.application_sync_result = {'running': False, 'synced_count': 0, 'message': 'No submitted or uncertain Naukri applications to verify'}
             return
         from api.agent_runtime import _shared_lock, ensure_browser_capacity
         from api.tenants import validate_agent_configuration
@@ -66,7 +66,13 @@ async def sync_applications():
                 if job:
                     job.naukri_status = status
                     job.status_last_synced = now
-        state.application_sync_result = {'running': False, 'synced_count': len(observed), 'message': f'Verified {len(observed)} applications on Naukri', 'synced_at': now.isoformat()}
+        unconfirmed = len(jobs) - len(observed)
+        state.application_sync_result = {
+            'running': False, 'synced_count': len(observed),
+            'checked_count': len(jobs), 'unconfirmed_count': unconfirmed,
+            'message': f'Verified {len(observed)} of {len(jobs)} applications on Naukri; {unconfirmed} remain unconfirmed. No applications were resubmitted.',
+            'synced_at': now.isoformat(),
+        }
     except asyncio.CancelledError:
         state.application_sync_result = {'running': False, 'synced_count': 0, 'error': 'Status sync cancelled'}
         raise

@@ -190,25 +190,35 @@ async def test_scheduler_dispatches_queue_and_runs_schedule_once(dashboard, monk
 
 
 @pytest.mark.asyncio
-async def test_sync_persists_only_observed_results(dashboard, monkeypatch):
+@pytest.mark.parametrize('status', ['applied', 'uncertain'])
+async def test_sync_persists_only_observed_results(dashboard, monkeypatch, status):
     from unittest.mock import AsyncMock
     from api import application_sync
     async with state.db_manager.session_factory() as session:
         job = Job(naukri_job_id='sync', title='Engineer', company='Example', url='https://www.naukri.com/job-listings-sync')
         session.add(job)
         await session.flush()
-        session.add(Application(job_id=job.id, status='applied'))
+        session.add(Application(job_id=job.id, status=status))
         await session.commit()
         job_id = job.id
     observer = AsyncMock(return_value={})
     monkeypatch.setattr(application_sync, 'observe_applications', observer)
     await application_sync.sync_applications()
-    assert (await dashboard.get('/api/applications/sync-status')).json()['items'] == []
+    assert [job.id for job in observer.await_args.args[2]] == [job_id]
+    unconfirmed = (await dashboard.get('/api/applications/sync-status')).json()
+    assert unconfirmed['items'] == []
+    assert unconfirmed['unconfirmed_count'] == unconfirmed['checked_count'] == 1
     observer.return_value = {job_id: 'applied'}
     await application_sync.sync_applications()
     result = (await dashboard.get('/api/applications/sync-status')).json()
     assert result['items'][0]['naukri_status'] == 'applied'
     assert result['synced_count'] == 1
+    assert result['unconfirmed_count'] == 0
+    # A Naukri marker is evidence for review, not an employer receipt for
+    # external applications. Never automatically retry or reclassify them.
+    async with state.db_manager.session_factory() as session:
+        app = (await session.execute(select(Application).where(Application.job_id == job_id))).scalar_one()
+        assert app.status == status
 
 
 @pytest.mark.asyncio

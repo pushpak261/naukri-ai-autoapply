@@ -71,6 +71,7 @@ async def test_one_log_and_login_cover_multiple_discovery_passes(tmp_path, monke
     assert agent._repo.update_run_log.await_args.kwargs["status"] == "completed"
     assert read_target_progress(tmp_path)["state"] == "target_met"
     assert agent._settings.application.skip_external_apply is True
+    assert agent._settings.search.sort_by == "relevance"
 
 
 async def test_daily_allowance_is_preserved_without_counting_prior_applications(

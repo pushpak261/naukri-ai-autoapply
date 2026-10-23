@@ -23,7 +23,9 @@ the run can wait for the repository's UTC daily allowance to reset. Previous
 daily submissions do not count toward the new run's target.
 
 Discovery is bounded to three passes, expanding by five pages per search up to
-15 pages. Target runs have a six-hour maximum instead of the normal one-hour
+15 pages. Target discovery uses Relevance order so fresh unrelated listings do
+not consume the search budget. The configured freshness and eligibility gates
+still apply. Target runs have a six-hour maximum instead of the normal one-hour
 supervisor limit. This is not a recurring task. Manual Stop remains available.
 
 An exhausted search, expired runtime, verification challenge, fatal browser
@@ -32,3 +34,8 @@ marked `target_not_met`, with its actual count and review reason, rather than
 completed successfully. Resolve the reported blocker before requesting another
 run. The bot does not fabricate screening facts, relax eligibility to reach a
 number, bypass CAPTCHA or count unverified submissions.
+
+Applications → Sync Status also checks uncertain Naukri listings without
+clicking Apply again. An observed Naukri Applied marker is shown for review;
+it does not automatically change an uncertain employer submission into a
+confirmed application or queue a retry.
