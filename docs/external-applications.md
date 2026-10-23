@@ -27,6 +27,25 @@ counts as `applied` only after an explicit employer receipt message. A Submit
 without confirmation is `uncertain` and stops the agent for review, preserving
 duplicate-submission protection.
 
+Recognized repeatable Education Details and Experience Details sections add
+one row per saved resume record (up to ten of each, within the form's 80-control
+limit). This includes Zoho's separate first-row and subsequent-row Add controls.
+Each institution, degree, explicit major, employer, job title, responsibility
+summary and date belongs to its own record. Current-employment and ongoing-study
+checkboxes are set before inspecting date controls. An ongoing record has no end
+date; optional end controls can remain empty only when its current checkbox is
+checked. Required end controls still need valid input. Existing conflicting
+history is left for review rather than overwritten.
+
+Date evidence retains its precision: a known month/year fills separate month
+and year controls or a month input, but cannot fill a date input requiring a day.
+Missing history fields enter Screening answers with the institution or employer
+and record identity in the question. A confirmed answer for one qualification
+cannot fill a different qualification. Gemini cannot supply missing history.
+AI resume parsing preserves stated education start/end dates and majors; older
+profiles remain supported. Review missing education dates and streams before
+starting applications.
+
 Naukri can mark a job Applied as soon as its employer link is opened. This is
 not an employer receipt. Known employer destinations are stored privately per
 tenant and platform so a pre-submission screening retry can resume that form.

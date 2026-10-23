@@ -57,6 +57,8 @@ With Gemini disabled, Naukri resolves screening questions from saved facts, conf
 
 Set employment status and whether notice is currently being served in Preferences. A notice duration does not establish a resignation date: someone employed and not serving notice receives a truthful "not fixed" answer in text fields. A mandatory date control still needs a confirmed date. Unsupported questions, declarations and attachments require the user's input instead of invented facts.
 
+External employer forms with supported repeatable Education Details and Experience Details sections now add one row per saved resume record. Institutions, degrees, stated majors, employers, titles, responsibilities and date components stay scoped to their own records. Ongoing employment uses the employer's current-employment control. Missing dates or streams appear in Screening answers before submission; month/year evidence never becomes an invented daily date. Dry Run fills and validates these sections without clicking Next or Submit. This shared flow serves external applications from both agents.
+
 ### Opportunity Copilot
 
 Open `/copilot` after saving your profile and collecting jobs. Copilot reviews up to 500 recent listings, explains structured skill overlap, flags location or stated-experience mismatches, and suggests practical next steps. A role preparation brief provides evidence-grounded talking points, recruiter questions, a checklist and an editable outreach starting point. It never sends messages or queues applications.

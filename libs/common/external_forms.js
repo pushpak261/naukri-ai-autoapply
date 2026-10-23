@@ -1,7 +1,60 @@
 // Visible employer controls only; never expose scripts or account credentials.
 export default function inspectExternalForm() {
+    // Conditional fields and cloned rows must not retain reused locator IDs.
+    for (const name of ['field', 'skills', 'button', 'history', 'history-row', 'history-owner', 'history-add']) {
+        const attribute = `data-applyos-${name}`;
+        for (const el of document.querySelectorAll(`[${attribute}]`)) el.removeAttribute(attribute);
+    }
     const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
     const text = el => (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
+    const historyRows = '.innerElem, [data-history-row], .education-entry, .experience-entry';
+    function historyKind(el) {
+        const name = el.getAttribute('data-l') || el.querySelector(':scope > legend')?.textContent || '';
+        if (/^(?:educational?|academic)(?: details| history)?$/i.test(name.trim())) return 'education';
+        if (/^(?:experience|employment|work experience|work history)(?: details| history)?$/i.test(name.trim())) return 'experience';
+        return '';
+    }
+    function historyAdd(el, section) {
+        if (!visible(el) || el.disabled) return false;
+        if (!section.contains(el) && (!section.id || el.getAttribute('data-sectionid') !== section.id)) return false;
+        const action = text(el).toLowerCase().replace(/^\+\s*/, '');
+        if (!/^add(?: another)?(?: |$)/.test(action)) return false;
+        const subject = action.replace(/^add(?: another)?\s*/, '');
+        return ['', 'education', 'educational details', 'education details', 'education history',
+            'experience', 'experience details', 'employment', 'employment history', 'work experience', 'work history'].includes(subject);
+    }
+    function collectHistory() {
+        return [...document.querySelectorAll('div[data-l], fieldset')].filter(el => historyKind(el) && visible(el) && el.querySelector(historyRows)).map((section, i) => {
+            const id = String(i);
+            section.dataset.applyosHistory = id;
+            const rows = [...document.querySelectorAll(historyRows)].filter(row => visible(row) && (section.contains(row) || (section.id && row.classList.contains(section.id))));
+            rows.forEach((row, index) => { row.dataset.applyosHistoryRow = String(index); row.dataset.applyosHistoryOwner = id; });
+            const add = [...document.querySelectorAll('a,button,[role="button"]')].find(el => historyAdd(el, section));
+            if (add) add.dataset.applyosHistoryAdd = id;
+            return {id, kind:historyKind(section), count:rows.length, addSelector:add ? `[data-applyos-history-add="${id}"]` : ''};
+        });
+    }
+    const historySections = collectHistory();
+    function historyFor(el) {
+        const row = el.closest('[data-applyos-history-row]');
+        const section = historySections.find(s => s.id === row?.dataset.applyosHistoryOwner);
+        if (!section) return null;
+        const raw = label(el, false);
+        return {section:section.id, kind:section.kind, index:Number(row.dataset.applyosHistoryRow),
+            label:raw, datePart:historyDatePart(el, raw),
+            current:el.type === 'checkbox' && /currently|\bcurrent\b|\bpursuing\b/.test(raw.toLowerCase())};
+    }
+    function historyDatePart(el, raw) {
+        const key = [raw, el.name, el.id, el.className].join(' ').toLowerCase();
+        let endpoint = '';
+        if (/(?:\bfrom\b|\bstart\b|_from_|_start_)/.test(key)) endpoint = 'start';
+        else if (/(?:\bto\b|\bend\b|_to_|_end_)/.test(key)) endpoint = 'end';
+        if (!endpoint) return '';
+        let component = 'date';
+        if (/month/.test(key)) component = 'month';
+        else if (/year/.test(key)) component = 'year';
+        return `${endpoint}_${component}`;
+    }
     function uploadControl(el) {
         if (el.type !== 'file') return null;
         return [...(el.labels || []), el.closest('a, [role="button"]')].find(x => x && visible(x));
@@ -60,7 +113,7 @@ export default function inspectExternalForm() {
             options:optionsFor(el, members), multiple:!!el.multiple, action:form?.action || location.href,
             signature:[el.tagName, el.type, el.name, label(el)].join(':'),
             invalid:el.getAttribute('aria-invalid') === 'true' || (!!el.willValidate && !el.validity.valid),
-            value:fieldValue(el, members)};
+            value:fieldValue(el, members), history:historyFor(el)};
     }
     function collectFields() {
         const fields = [], groups = new Set();
@@ -106,5 +159,5 @@ export default function inspectExternalForm() {
     const body = document.body?.innerText || '';
     const blocked = [...document.querySelectorAll('input[type="password"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], [data-sitekey]')].some(visible) || /verify (?:you are|you're) human|access denied|sign in to apply|create an account to apply/i.test(body);
     const agreement = /by (?:clicking|submitting|continuing)[^.!\n]{0,180}\b(?:agree|accept|consent)\b/i.test(body);
-    return {fields:collectFields(), buttons:collectButtons(), blocked, confirmation:confirmed(), agreement};
+    return {fields:collectFields(), historySections, buttons:collectButtons(), blocked, confirmation:confirmed(), agreement};
 }

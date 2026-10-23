@@ -17,6 +17,13 @@ from urllib.parse import urljoin, urlsplit
 from playwright.async_api import Error as BrowserError
 from pydantic import BaseModel, ConfigDict, Field
 
+from libs.common.application_history import (
+    history_answer,
+    identity_conflict,
+    optional_current_end,
+    records,
+    scope_fields,
+)
 from libs.common.offline_screening import general_technical_question, offline_answer
 from libs.common.screening import format_evidence
 from libs.common.screening_review import ScreeningReviewStore
@@ -311,9 +318,60 @@ class ExternalJobApplier:
         for frame in page.frames:
             if not await public_https(frame.url):
                 continue
-            state = await frame.evaluate(FORM_SCRIPT)
+            state = await self.inspect(frame)
             snapshots.append((frame, state))
         return snapshots
+
+    async def inspect(self, frame):
+        return scope_fields(await frame.evaluate(FORM_SCRIPT), self.profile)
+
+    async def prepare_history(self, frame, state):
+        """Expand only recognized history rows, then apply ongoing-record controls."""
+        for section in state.get("historySections", []):
+            wanted = len(records(self.profile, section["kind"]))
+            if wanted > 10 or section["count"] > wanted:
+                raise ExternalReview("Employer history rows need review against the saved resume.")
+            state = await self.expand_history_section(frame, section, wanted)
+        if any(identity_conflict(field, self.profile) for field in state["fields"]):
+            raise ExternalReview(
+                "Existing employer history differs from the resume; review its row order."
+            )
+        # Current employment commonly hides end-date controls. Set it before
+        # collecting answers so hidden controls cannot retain stale field IDs.
+        for field in state["fields"]:
+            if (field.get("history") or {}).get("current"):
+                answer = history_answer(field, self.profile)
+                if answer:
+                    await self.fill(frame, field, answer)
+        return await self.inspect(frame)
+
+    async def expand_history_section(self, frame, section, wanted):
+        state = await self.inspect(frame)
+        while section["count"] < wanted:
+            if not section["addSelector"]:
+                raise ExternalReview(
+                    "Employer history section cannot add all saved resume records."
+                )
+            previous = section["count"]
+            await frame.locator(section["addSelector"]).click(timeout=5000)
+            state, section = await self.wait_history_row(frame, section, previous)
+            if section["count"] != previous + 1:
+                raise ExternalReview(
+                    "Employer did not add a unique history row; review it directly."
+                )
+        return state
+
+    async def wait_history_row(self, frame, section, previous):
+        for _ in range(10):
+            state = await self.inspect(frame)
+            current = next((s for s in state["historySections"] if s["id"] == section["id"]), None)
+            if current is None:
+                raise ExternalReview("Employer history section disappeared; review it directly.")
+            section = current
+            if section["count"] > previous:
+                break
+            await asyncio.sleep(0.2)
+        return state, section
 
     async def ready_states(self, page):
         """Allow client-rendered ATS forms to load before declaring them unsupported."""
@@ -339,7 +397,10 @@ class ExternalJobApplier:
             if field["type"] == "file" or LEGAL.search(field["question"]):
                 continue
             saved = self.review.answer_for(field, job)
-            answer, _ = offline_answer(field, self.settings, self.profile, job)
+            if field.get("history"):
+                answer = history_answer(field, self.profile)
+            else:
+                answer, _ = offline_answer(field, self.settings, self.profile, job)
             if saved or answer:
                 known[field["id"]] = saved or answer
                 facts[f"field:{field['id']}"] = saved or answer
@@ -349,6 +410,7 @@ class ExternalJobApplier:
             if field["id"] not in known
             and field["type"] != "file"
             and not LEGAL.search(field["question"])
+            and not field.get("history")
         ]
         if not unresolved:
             return known
@@ -427,6 +489,7 @@ class ExternalJobApplier:
                 or binding.id in known
                 or LEGAL.search(field["question"])
                 or PERSONAL_UNKNOWN.search(field["question"])
+                or field.get("history")
             ):
                 continue
             if field["type"] not in ("file", "checkbox"):
@@ -629,7 +692,9 @@ class ExternalJobApplier:
         for field in fields:
             if field["id"] in answers and not field["invalid"]:
                 self.review.mark_resolved_from_facts(field, job)
-            needs_answer = field["required"] or field["type"] != "file"
+            needs_answer = (
+                field["required"] or field["type"] != "file"
+            ) and not optional_current_end(field, fields)
             if needs_answer and (field["id"] not in answers or LEGAL.search(field["question"])):
                 self.review.remember(field, job)
                 missing.append(field["question"])
@@ -733,6 +798,7 @@ class ExternalJobApplier:
                     continue
                 self.check_states(states)
                 frame, state = self.select_form(states)
+                state = await self.prepare_history(frame, state)
                 self.check_progress(frame, state, seen)
                 fields = state["fields"]
                 if not fields and not had_form:
@@ -741,7 +807,7 @@ class ExternalJobApplier:
                 had_form = had_form or bool(fields)
                 answers = await self.prepare_answers(fields, job)
                 await self.fill_answers(frame, fields, answers, job)
-                fresh = await frame.evaluate(FORM_SCRIPT)
+                fresh = await self.inspect(frame)
                 before = [(f["signature"], f["required"]) for f in fields]
                 after = [(f["signature"], f["required"]) for f in fresh["fields"]]
                 if before != after:

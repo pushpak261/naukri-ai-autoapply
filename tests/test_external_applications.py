@@ -66,6 +66,185 @@ async def run(worker, page, job):
         return await worker.run_form(page, job)
 
 
+def history_form():
+    """Zoho-style tabular history, including an ongoing-work date toggle."""
+    month = '<option value="">Month</option>' + "".join(
+        f'<option value="{i}">{name}</option>'
+        for i, name in enumerate(
+            ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"], 1
+        )
+    )
+    year = '<option value="">Year</option>' + "".join(
+        f"<option>{y}</option>" for y in range(2010, 2030)
+    )
+    sections = []
+    for _kind, title, labels, current in (
+        (
+            "education",
+            "Educational Details",
+            ["Institute / School", "Major / Department", "Degree"],
+            "Currently pursuing",
+        ),
+        (
+            "experience",
+            "Experience Details",
+            ["Occupation / Title", "Company", "Summary"],
+            "I currently work here",
+        ),
+    ):
+        inputs = "".join(f"<label>{label}<input></label>" for label in labels)
+        selects = "".join(
+            f'<label>{part}<select class="TF_{part}" aria-label="{part}">{options}</select></label>'
+            for part, options in [
+                ("from_month", month),
+                ("from_year", year),
+                ("to_month", month),
+                ("to_year", year),
+            ]
+        )
+        sections.append(
+            f"""<div id="{_kind}" data-l="{title}"><a href="#" data-sectionid="{_kind}" onclick="event.preventDefault();const root=document.getElementById(this.dataset.sectionid);const row=root.querySelector('.innerElem').cloneNode(true);row.style.display='block';row.classList.add(root.id);root.after(row);row.after(this);window.added=(window.added||0)+1">+ Add {title}</a>
+        <div class="innerElem" style="display:none">{inputs}{selects}
+        <label>{current}<input type="checkbox" onchange="for(const el of this.closest('.innerElem').querySelectorAll('[class*=to_]')) el.parentElement.style.display=this.checked?'none':''"></label></div></div>"""
+        )
+    return (
+        "<form onsubmit=\"event.preventDefault();window.sent=(window.sent||0)+1;document.body.innerHTML='<h1>Application received.</h1>'\">"
+        + "".join(sections)
+        + "<button>Submit</button></form>"
+    )
+
+
+def history_profile(worker):
+    worker.profile.education = [
+        {
+            "institution": "College A",
+            "degree": "Bachelor of Mechanical Engineering",
+            "start_date": "Aug 2019",
+            "year": "May 2023",
+        },
+        {
+            "institution": "College B",
+            "degree": "Diploma in Advanced Computing",
+            "start_date": "Feb 2024",
+            "year": "Aug 2024",
+        },
+        {
+            "institution": "School C",
+            "degree": "HSC",
+            "major": "Science",
+            "start_date": "June 2017",
+            "year": "July 2019",
+        },
+    ]
+    worker.profile.work_experience = [
+        {
+            "title": "Java Developer",
+            "company": "Employer A",
+            "duration": "June 2026 - Present",
+            "highlights": ["Built Java APIs."],
+        },
+        {
+            "title": "Software Developer",
+            "company": "Employer B",
+            "duration": "April 2025 - Oct 2025",
+            "highlights": ["Optimized SQL."],
+        },
+    ]
+
+
+@pytest.mark.asyncio
+async def test_all_history_rows_expand_and_fill_without_duplication_or_ai(employer):
+    worker, page, job = employer
+    history_profile(worker)
+    worker.settings.application.dry_run = True
+    await page.set_content(history_form())
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_dry_run", result
+    assert await page.evaluate("window.added") == 5
+    state = await worker.inspect(page.main_frame)
+    groups = {}
+    for f in state["fields"]:
+        h = f.get("history")
+        if h:
+            groups.setdefault((h["kind"], h["index"]), {})[h.get("datePart") or h["label"]] = f[
+                "value"
+            ]
+    assert groups[("education", 0)]["Institute / School"] == "College A"
+    assert groups[("education", 1)]["Institute / School"] == "College B"
+    assert groups[("education", 2)]["Major / Department"] == "Science"
+    assert groups[("education", 0)]["end_year"] == "2023"
+    assert groups[("education", 1)]["end_year"] == "2024"
+    assert groups[("experience", 0)]["Company"] == "Employer A"
+    assert groups[("experience", 0)]["I currently work here"] == "Yes"
+    assert "end_year" not in groups[("experience", 0)]
+    assert groups[("experience", 1)]["Summary"] == "Optimized SQL."
+    assert groups[("experience", 1)]["end_month"] == "10"
+    assert groups[("experience", 1)]["end_year"] == "2025"
+    assert (await run(worker, page, job))["status"] == "skipped_dry_run"
+    assert await page.evaluate("window.added") == 5
+    assert await page.evaluate("window.sent||0") == 0
+    worker.provider.generate_content.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_missing_history_dates_stay_record_scoped_and_resume_from_confirmation(employer):
+    worker, page, job = employer
+    history_profile(worker)
+    for entry in worker.profile.education:
+        entry.pop("start_date")
+    worker.provider.generate_content.return_value = '{"bindings":[{"id":"0","fact":"first_name"}]}'
+    await page.set_content(history_form())
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_screening"
+    pending = worker.review.pending()
+    assert len(pending) == 6
+    assert len({p["question"] for p in pending}) == 6
+    assert all("Education —" in p["question"] for p in pending)
+    assert await page.evaluate("window.sent||0") == 0
+    worker.provider.generate_content.assert_not_called()
+    worker.review.save_answers(
+        {p["id"]: "Aug" if "Start Month" in p["question"] else "2018" for p in pending}
+    )
+    restarted = ExternalJobApplier(worker.settings, worker.profile, worker.provider)
+    assert (await run(restarted, page, job))["status"] == "applied"
+    assert await page.evaluate("window.sent") == 1
+    assert await page.evaluate("window.added") == 5
+
+
+@pytest.mark.asyncio
+async def test_existing_history_from_a_different_record_is_not_overwritten(employer):
+    worker, page, job = employer
+    history_profile(worker)
+    worker.settings.application.dry_run = True
+    await page.set_content(history_form())
+    assert (await run(worker, page, job))["status"] == "skipped_dry_run"
+    state = await worker.inspect(page.main_frame)
+    company_field = next(
+        f for f in state["fields"] if f.get("history") and f["history"]["label"] == "Company"
+    )
+    company = page.locator(company_field["selector"])
+    await company.fill("Unrelated existing employer")
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_external"
+    assert "row order" in result["error_message"]
+    assert await company.input_value() == "Unrelated existing employer"
+    assert await page.evaluate("window.added") == 5
+
+
+@pytest.mark.asyncio
+async def test_history_expansion_stops_if_the_employer_add_button_does_nothing(employer):
+    worker, page, job = employer
+    history_profile(worker)
+    await page.set_content(history_form())
+    await page.locator("a").evaluate_all(
+        "els => els.forEach(el => el.onclick = event => event.preventDefault())"
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_external"
+    assert "unique history row" in result["error_message"]
+    assert await page.evaluate("window.sent||0") == 0
+
+
 @pytest.mark.asyncio
 async def test_known_contact_fields_submit_without_a_gemini_request(employer):
     worker, page, job = employer
