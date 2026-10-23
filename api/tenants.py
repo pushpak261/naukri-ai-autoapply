@@ -20,6 +20,8 @@ def load_user_settings(root):
     config = yaml.safe_load((root / 'config.yaml').read_text()) or {}
     config.update(project_root=root, data_dir=root/'data', db_path=root/'data/naukri_agent.db',
                   sessions_dir=root/'data/sessions', resumes_dir=root/'data/resumes')
+    # Use the same host key that agent_environment supplies to tenant subprocesses.
+    config['session_encryption_key'] = os.environ.get('SESSION_ENCRYPTION_KEY') or f'local-{CODE_ROOT}'
     settings = Settings(**config)
     settings.ensure_dirs()
     return settings
