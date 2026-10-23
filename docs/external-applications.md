@@ -63,6 +63,9 @@ of residence; these do not establish citizenship or work authorization.
 **Applications → Answer memory** lists remembered answers, their source and reuse
 counts. Search, review or correct an answer, or forget its matching variants.
 Corrections take precedence over older answers for that exact question and units.
+Corrections and forgetting also invalidate older native AI caches. Confirmation
+ordering uses a persisted revision, so rapid edits remain deterministic even
+when the system clock gives them the same timestamp.
 Both native agents and the external handler consult the same tenant-local bank,
 with Gemini enabled or disabled. Unknown native LinkedIn questions also enter
 Screening answers. Job-specific motivations and role-fit answers stay scoped to

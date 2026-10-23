@@ -39,9 +39,11 @@ class ScreeningReviewStore:
                 question_id TEXT PRIMARY KEY REFERENCES questions(id),
                 answer TEXT NOT NULL, source TEXT NOT NULL, context_hash TEXT NOT NULL,
                 updated_at TEXT NOT NULL, last_used_at TEXT NOT NULL DEFAULT '',
-                use_count INTEGER NOT NULL DEFAULT 0
+                use_count INTEGER NOT NULL DEFAULT 0, confirmed_revision INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS questions_by_key ON questions(question_key,updated_at DESC);
+            CREATE TABLE IF NOT EXISTS memory_version (id INTEGER PRIMARY KEY, revision INTEGER NOT NULL);
+            INSERT OR IGNORE INTO memory_version VALUES(1,0);
         """
         )
         connection.execute("BEGIN IMMEDIATE")
@@ -49,6 +51,13 @@ class ScreeningReviewStore:
         if "resolved_from_facts" not in columns:
             connection.execute(
                 "ALTER TABLE questions ADD COLUMN resolved_from_facts INTEGER NOT NULL DEFAULT 0"
+            )
+        memory_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(answer_memory)")
+        }
+        if "confirmed_revision" not in memory_columns:
+            connection.execute(
+                "ALTER TABLE answer_memory ADD COLUMN confirmed_revision INTEGER NOT NULL DEFAULT 0"
             )
         try:
             with connection:
@@ -142,12 +151,14 @@ class ScreeningReviewStore:
         # fuzzy cached answer about another employer, skill or declaration.
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT id, answer, updated_at, 'confirmed' AS source, '' AS context_hash FROM questions WHERE question_key=? AND answer<>'' ORDER BY updated_at DESC",
+                "SELECT q.id,q.answer,q.updated_at,'confirmed' AS source,'' AS context_hash,COALESCE(m.confirmed_revision,0) AS version "
+                "FROM questions q LEFT JOIN answer_memory m ON m.question_id=q.id WHERE q.question_key=? AND q.answer<>'' "
+                "ORDER BY version DESC,q.updated_at DESC",
                 (self._key(question, job),),
             ).fetchall()
             if not rows and context_hash:
                 rows = connection.execute(
-                    "SELECT q.id, m.answer, m.updated_at, m.source, m.context_hash FROM questions q JOIN answer_memory m ON m.question_id=q.id "
+                    "SELECT q.id, m.answer, m.updated_at, m.source, m.context_hash, 0 AS version FROM questions q JOIN answer_memory m ON m.question_id=q.id "
                     "WHERE q.question_key=? AND m.context_hash=? AND m.source IN ('profile','technical') ORDER BY m.updated_at DESC",
                     (self._key(question, job), context_hash),
                 ).fetchall()
@@ -155,7 +166,12 @@ class ScreeningReviewStore:
                 return ""
             # A correction replaces the earlier answer. Never fall back to an
             # older value when the latest answer cannot fit this field's options.
-            latest = [row for row in rows if row["updated_at"] == rows[0]["updated_at"]]
+            latest = [
+                row
+                for row in rows
+                if row["version"] == rows[0]["version"]
+                and (row["version"] > 0 or row["updated_at"] == rows[0]["updated_at"])
+            ]
             answers = {
                 format_evidence(row["answer"], question, experience_in_years=False)
                 for row in latest
@@ -242,6 +258,13 @@ class ScreeningReviewStore:
                 (row["question_key"],),
             )
             connection.execute("DELETE FROM questions WHERE question_key=?", (row["question_key"],))
+            connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
+
+    def revision(self):
+        with self._connect() as connection:
+            return connection.execute("SELECT revision FROM memory_version WHERE id=1").fetchone()[
+                0
+            ]
 
     def pending(self):
         with self._connect() as connection:
@@ -307,10 +330,11 @@ class ScreeningReviewStore:
                 "UPDATE questions SET answer=?, updated_at=? WHERE id=?", resolved
             )
             connection.executemany(
-                "INSERT INTO answer_memory(question_id,answer,source,context_hash,updated_at) VALUES(?,?,'confirmed','',?) "
-                "ON CONFLICT(question_id) DO UPDATE SET answer=excluded.answer,source='confirmed',context_hash='',updated_at=excluded.updated_at",
+                "INSERT INTO answer_memory(question_id,answer,source,context_hash,updated_at,confirmed_revision) VALUES(?,?,'confirmed','',?,(SELECT revision+1 FROM memory_version WHERE id=1)) "
+                "ON CONFLICT(question_id) DO UPDATE SET answer=excluded.answer,source='confirmed',context_hash='',updated_at=excluded.updated_at,confirmed_revision=excluded.confirmed_revision",
                 [(identifier, value, now) for value, now, identifier in resolved],
             )
+            connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
             # Queue only jobs whose entire known question set is resolved.
             return sorted(
                 job_id

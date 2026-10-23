@@ -1,4 +1,5 @@
 import sqlite3
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -45,7 +46,11 @@ def test_ai_suggestions_need_confirmation_and_corrections_survive_restart(tmp_pa
     assert ScreeningReviewStore(tmp_path).answer_for(question, job()) == "Yes"
 
 
-def test_latest_correction_never_falls_back_to_an_older_incompatible_variant(tmp_path):
+def test_latest_correction_never_falls_back_to_an_older_incompatible_variant(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "libs.common.screening_review.datetime",
+        SimpleNamespace(now=lambda *_: datetime(2026, 10, 23, tzinfo=UTC)),
+    )
     store = ScreeningReviewStore(tmp_path)
     numeric = {"question": "Custom experience in years", "type": "number"}
     choice = {
@@ -138,3 +143,24 @@ def test_employer_memory_records_accepted_values_not_uncommitted_suggestions():
         == "Java, SQL"
     )
     assert not filled_answer({"type": "text", "value": "Rejected"}, "Saved answer")
+
+
+def test_corrections_and_forgetting_invalidate_older_native_ai_caches(tmp_path):
+    from src.naukri_agent.ai.question_answerer import QuestionAnswerer
+
+    settings = Settings(project_root=tmp_path)
+    answerer = QuestionAnswerer(AsyncMock(), settings, ResumeProfile())
+    store = ScreeningReviewStore(tmp_path)
+    answerer._activate_job_context(job())
+    original = answerer._cache_context
+    answerer._cache.set("custom fact", "Obsolete answer")
+    answerer._cache.save()
+    identifier = store.remember({"question": "Custom fact"}, job())
+    store.save_answers({identifier: "Corrected answer"})
+    answerer._activate_job_context(job())
+    corrected = answerer._cache_context
+    assert corrected != original
+    assert not answerer._cache.get("custom fact", exact_only=True)
+    store.forget(identifier)
+    answerer._activate_job_context(job())
+    assert answerer._cache_context not in (original, corrected)
