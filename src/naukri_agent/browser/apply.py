@@ -87,6 +87,14 @@ class JobApplier:
             # Step 2: Check if already applied
             already_applied = await self._detail_page.is_already_applied()
             if already_applied:
+                # Naukri marks an employer-link click as Applied before the
+                # employer receives anything. Resume only known external
+                # destinations; the repository still guards submitted/uncertain jobs.
+                if not self._settings.application.skip_external_apply and self._external_applier:
+                    resolve = getattr(self._external_applier, "saved_destination", None)
+                    cached = resolve(job) if resolve else None
+                    if isinstance(cached, str) and cached:
+                        return await self._external_applier.apply(self._detail_page._engine.page, cached, job)
                 log_warning(f"Already applied: {job.title}")
                 return {
                     "status": ApplicationStatus.SKIPPED_ALREADY_APPLIED,

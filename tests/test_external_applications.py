@@ -274,6 +274,30 @@ async def test_unconfirmed_submit_is_not_retried(employer):
 
 
 @pytest.mark.asyncio
+async def test_zoho_personalized_receipt_confirms_the_single_submission(employer):
+    worker, page, job = employer
+    await page.set_content("<label>Email<input required type=email></label><button>Submit</button>")
+    await page.evaluate(
+        """() => {document.querySelector('button').onclick=()=>{
+        window.count=(window.count||0)+1;
+        document.body.innerHTML='<div id="thanksmessage">Hello Test Candidate, We have received your application for the position of Java Developer. We will review your submission and get back to you. Regards, Recruiting.</div>';
+    }}"""
+    )
+    assert (await run(worker, page, job))["status"] == "applied"
+    assert await page.evaluate("window.count") == 1
+
+
+@pytest.mark.asyncio
+async def test_receipt_quote_inside_job_description_is_not_confirmation(employer):
+    worker, page, job = employer
+    await page.set_content(
+        '<article class="job-description"><p>We have received your application for this job.</p></article><label>Email<input required type=email></label><button onclick="window.count=(window.count||0)+1">Submit</button>'
+    )
+    assert (await run(worker, page, job))["status"] == "uncertain"
+    assert await page.evaluate("window.count") == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "body",
     [
@@ -613,6 +637,41 @@ async def test_naukri_external_toggle_routes_to_employer_handler(tmp_path):
             "status"
         ] == "skipped_external"
         external.apply.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_naukri_redirect_marker_can_resume_a_known_external_form(tmp_path):
+    from src.naukri_agent.browser.apply import JobApplier
+
+    detail = MagicMock()
+    detail._engine.page.url = "https://www.naukri.com/job-java-123456789012"
+    detail.close_popups = AsyncMock()
+    detail.is_already_applied = AsyncMock(return_value=True)
+    external = SimpleNamespace(
+        saved_destination=MagicMock(return_value="https://careers.example.test/job"),
+        apply=AsyncMock(return_value={"status": "applied"}),
+    )
+    settings = Settings(project_root=tmp_path, application={"skip_external_apply": False})
+    job = Job("123456789012", "Java", "Example", detail._engine.page.url)
+    with patch("src.naukri_agent.browser.apply.asyncio.sleep", new=AsyncMock()):
+        result = await JobApplier(detail, settings, MagicMock(), external).apply_to_job(job)
+    assert result["status"] == "applied"
+    external.apply.assert_awaited_once_with(
+        detail._engine.page, "https://careers.example.test/job", job
+    )
+    detail.get_external_apply_url.assert_not_called()
+
+
+def test_employer_retry_links_are_isolated_by_platform_and_tenant(tmp_path):
+    from libs.common.screening_review import ScreeningReviewStore
+
+    store = ScreeningReviewStore(tmp_path / "one")
+    naukri = SimpleNamespace(naukri_job_id="123")
+    linkedin = SimpleNamespace(linkedin_job_id="123")
+    store.remember_employer_url(naukri, "https://careers.example.test/java")
+    assert store.employer_url_for(naukri) == "https://careers.example.test/java"
+    assert not store.employer_url_for(linkedin)
+    assert not ScreeningReviewStore(tmp_path / "two").employer_url_for(naukri)
 
 
 @pytest.mark.asyncio

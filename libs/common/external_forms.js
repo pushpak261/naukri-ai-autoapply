@@ -96,10 +96,11 @@ export default function inspectExternalForm() {
         return false;
     }
     function confirmed() {
-        return [...document.querySelectorAll('h1,h2,h3,[role="status"],[role="alert"],p')].filter(visible).some(el => {
+        return [...document.querySelectorAll('h1,h2,h3,[role="status"],[role="alert"],p,#thanksmessage')].filter(visible).some(el => {
             if (el.closest('article, [class*="description"], [class*="recommend"]')) return false;
             const value = text(el);
-            return value.length < 400 && /^(?:thank you for (?:applying|your application)|your application (?:has been |was )?(?:successfully )?(?:submitted|received)|application (?:successfully )?(?:submitted|received))[.!\s]/i.test(value + ' ');
+            if (el.id === 'thanksmessage' && value.length < 2500 && /\bwe have (?:successfully )?received your application\b/i.test(value)) return true;
+            return value.length < 1200 && /^(?:thank you for (?:applying|your application|submitting (?:your )?application)|we have (?:successfully )?received your application|your application (?:has been |was )?(?:successfully )?(?:submitted|received)|application (?:successfully )?(?:submitted|received))[.!\s]/i.test(value + ' ');
         });
     }
     const body = document.body?.innerText || '';

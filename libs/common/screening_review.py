@@ -32,6 +32,9 @@ class ScreeningReviewStore:
                 question_id TEXT NOT NULL REFERENCES questions(id), job_id INTEGER NOT NULL,
                 title TEXT NOT NULL, PRIMARY KEY(question_id, job_id)
             );
+            CREATE TABLE IF NOT EXISTS employer_links (
+                job_key TEXT PRIMARY KEY, url TEXT NOT NULL
+            );
         """
         )
         connection.execute("BEGIN IMMEDIATE")
@@ -99,6 +102,30 @@ class ScreeningReviewStore:
                 "UPDATE questions SET resolved_from_facts=1 WHERE id=? AND answer=''",
                 (identifier,),
             )
+
+    @staticmethod
+    def _employer_key(job):
+        for platform in ("naukri", "linkedin"):
+            identifier = getattr(job, platform + "_job_id", "")
+            if identifier:
+                return platform + ":" + str(identifier)
+        return ""
+
+    def remember_employer_url(self, job, url):
+        key = self._employer_key(job)
+        if key:
+            with self._connect() as connection:
+                connection.execute(
+                    "INSERT INTO employer_links VALUES(?,?) ON CONFLICT(job_key) DO UPDATE SET url=excluded.url",
+                    (key, url),
+                )
+
+    def employer_url_for(self, job):
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT url FROM employer_links WHERE job_key=?", (self._employer_key(job),)
+            ).fetchone()
+        return row["url"] if row else ""
 
     def answer_for(self, question, job):
         # Exact wording/units only; a different question must never inherit a

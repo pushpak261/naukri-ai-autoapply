@@ -227,6 +227,7 @@ class ExternalJobApplier:
                 "External destination must be a public HTTPS employer website.",
                 url,
             )
+        self.review.remember_employer_url(job, url)
         context = None
         self.submitted = False
         owned_provider = self.provider is None
@@ -292,6 +293,9 @@ class ExternalJobApplier:
         if not url:
             return "The platform could not resolve the employer URL; open the listing directly."
         return ""
+
+    def saved_destination(self, job):
+        return self.review.employer_url_for(job)
 
     async def cleanup(self, context, owned_provider):
         if context:

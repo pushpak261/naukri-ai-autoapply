@@ -27,6 +27,11 @@ counts as `applied` only after an explicit employer receipt message. A Submit
 without confirmation is `uncertain` and stops the agent for review, preserving
 duplicate-submission protection.
 
+Naukri can mark a job Applied as soon as its employer link is opened. This is
+not an employer receipt. Known employer destinations are stored privately per
+tenant and platform so a pre-submission screening retry can resume that form.
+The normal application ledger continues to block submitted or uncertain jobs.
+
 Every detected non-attachment question must be answered, including optional
 questions. Unknown answers appear in **Applications → Screening answers**. Confirm
 them once and retry; the tenant-local answer bank reuses exact questions and
