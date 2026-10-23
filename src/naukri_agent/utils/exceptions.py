@@ -30,3 +30,11 @@ class LLMQuotaExceededError(LLMAPIError):
 
 class BrowserAutomationError(AgentException):
     """Raised when browser interactions (e.g., Playwright) fail."""
+
+
+class SearchLoadError(BrowserAutomationError):
+    """A search failed to render; this must never be counted as zero matches."""
+
+
+class SearchAccessError(SearchLoadError):
+    """Search requires user sign-in/verification or the site denied access."""

@@ -317,7 +317,7 @@ class NaukriURLUtility:
         if freshness:
             params.append(f"jobAge={freshness}")
         if sort_by == "date":
-            params.append("sort=d")
+            params.append("sort=f")
         params.append("nignbevent_src=jobsearchDeskGNB")
         query_string = "&".join(params)
         return f"{base_url}?{query_string}"

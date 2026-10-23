@@ -20,6 +20,7 @@ from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job
 from src.naukri_agent.bot.interfaces import IBrowserEngine
 from src.naukri_agent.utils.helpers import build_search_url, random_delay
+from src.naukri_agent.utils.exceptions import SearchAccessError, SearchLoadError
 from src.naukri_agent.utils.logger import (
     get_logger,
     log_info,
@@ -75,6 +76,7 @@ class JobSearcher:
         # orchestrator can report an accurate total even when the search is
         # interrupted mid-way (e.g. by a shutdown signal).
         self.total_found: int = 0
+        self.failed_searches: list[str] = []
 
     async def search_all(
         self, should_stop: Callable[[], bool] | None = None
@@ -99,6 +101,8 @@ class JobSearcher:
         all_jobs: dict[str, Job] = {}
         self._discovered_ids.clear()
         self.total_found = 0
+        self.failed_searches.clear()
+        consecutive_failures = 0
 
         search_config = self._settings.search
 
@@ -133,14 +137,22 @@ class JobSearcher:
                     seen_ids=all_jobs,
                     should_stop=should_stop,
                 )
+            except SearchAccessError:
+                raise
             except Exception as e:
+                self.failed_searches.append(f"{keyword} in {location}")
+                consecutive_failures += 1
                 logger.error(f"Search for '{keyword}' in '{location}' failed: {e}")
+                if isinstance(e, SearchLoadError) and consecutive_failures >= 2:
+                    raise SearchLoadError("Naukri failed to load consecutive searches after retries; stopping discovery instead of reporting zero matches.") from e
                 if (should_stop and should_stop()) or not self._engine.is_alive():
                     log_warning("Search interrupted — returning partial results.")
                     break
                 log_warning("Search failed for this combination; continuing with the remaining searches.")
                 queue.task_done()
                 continue
+
+            consecutive_failures = 0
 
             # Deduplicate
             for job in jobs:
@@ -168,6 +180,8 @@ class JobSearcher:
             )
         )
         jobs_list = list(all_jobs.values())
+        if self.failed_searches and not jobs_list:
+            raise SearchLoadError(f"{len(self.failed_searches)} searches failed; no verified search results were obtained.")
         logger.info(
             "Final scraped jobs list:\n"
             + "\n".join(f"  - {j.title} @ {j.company} (ID: {j.naukri_job_id})" for j in jobs_list)
@@ -296,6 +310,9 @@ class JobSearcher:
                 await random_delay(2, 5)
             except (PlaywrightTimeoutError, PlaywrightError) as e:
                 logger.error(f"Error navigating or parsing page {page_num}: {e}")
+                if not all_jobs:
+                    raise SearchLoadError(f"Failed to read search page {page_num}.") from e
+                self.failed_searches.append(f"{keyword} in {location}, page {page_num}")
                 break
 
         return all_jobs

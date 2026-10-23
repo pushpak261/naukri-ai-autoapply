@@ -101,8 +101,8 @@ class TestBuildSearchUrl:
 
     def test_sort_by_date(self):
         url = build_search_url("Developer", sort_by="date")
-        # Naukri's actual query param for "sort by date" is sort=d.
-        assert "sort=d" in url
+        # Naukri's date-sort control uses f; d renders its generic error page.
+        assert "sort=f" in url
 
     def test_sort_by_relevance_omits_sort_param(self):
         url = build_search_url("Developer", sort_by="relevance")
