@@ -67,7 +67,7 @@ async def run(worker, page, job):
 
 
 @pytest.mark.asyncio
-async def test_gemini_binds_first_and_last_name_with_native_ai_disabled(employer):
+async def test_known_contact_fields_submit_without_a_gemini_request(employer):
     worker, page, job = employer
     await page.set_content(
         """<form onsubmit="event.preventDefault();window.count=(window.count||0)+1;document.body.innerHTML='<h1>Your application has been received.</h1>'">
@@ -79,10 +79,111 @@ async def test_gemini_binds_first_and_last_name_with_native_ai_disabled(employer
     )
     assert (await run(worker, page, job))["status"] == "applied"
     assert await page.evaluate("window.count") == 1
-    prompt = worker.provider.generate_content.call_args.kwargs["prompt"]
-    assert "fixture-key" not in prompt
-    assert "test@example.test" in prompt
+    worker.provider.generate_content.assert_not_called()
     assert not worker.settings.ai.use_gemini
+
+
+@pytest.mark.asyncio
+async def test_gemini_failure_retains_known_answers_and_collects_all_unknowns(employer):
+    worker, page, job = employer
+    worker.provider.generate_content.side_effect = RuntimeError("Quota unavailable")
+    await page.set_content(
+        '<label>Email<input required type=email></label><label>Custom eligibility<input></label><button onclick="window.sent=1">Submit</button>'
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_screening"
+    assert await page.locator("input[type=email]").input_value() == "test@example.test"
+    assert worker.review.pending()[0]["question"] == "Custom eligibility"
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_confirmed_answers_are_reused_after_restart_then_application_submits(employer):
+    worker, page, job = employer
+    await page.set_content(
+        '<label>Email<input required type=email></label><label>Do you need sponsorship?<select><option value="">Choose</option><option>Yes</option><option>No</option></select></label><button onclick="window.sent=(window.sent||0)+1;document.body.innerHTML=\'<h1>Application received.</h1>\'">Submit</button>'
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_screening"
+    identifier = worker.review.pending()[0]["id"]
+    worker.review.save_answers({identifier: "No"})
+    restarted = ExternalJobApplier(worker.settings, worker.profile, worker.provider)
+    worker.provider.generate_content.reset_mock()
+    assert (await run(restarted, page, job))["status"] == "applied"
+    assert await page.evaluate("window.sent") == 1
+    worker.provider.generate_content.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_gemini_can_explain_general_technical_questions_but_not_invent_history(employer):
+    worker, page, job = employer
+    await page.set_content(
+        '<label>Explain Java garbage collection<textarea required></textarea></label><label>Explain your experience with Java<textarea required></textarea></label><button onclick="window.sent=1">Submit</button>'
+    )
+    explanation = "Java garbage collection reclaims heap memory that is no longer reachable."
+    worker.provider.generate_content.return_value = json.dumps(
+        {
+            "bindings": [],
+            "explanations": [
+                {"id": "0", "answer": explanation},
+                {"id": "1", "answer": "I led Java teams for ten years."},
+            ],
+        }
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_screening"
+    assert await page.locator("textarea").nth(0).input_value() == explanation
+    assert await page.locator("textarea").nth(1).input_value() == ""
+    assert await page.evaluate("window.sent||0") == 0
+    prompt = worker.provider.generate_content.call_args.kwargs["prompt"]
+    assert '"technical_question_ids": ["0"]' in prompt
+    assert "fixture-key" not in prompt
+
+
+@pytest.mark.asyncio
+async def test_saved_address_answers_all_location_fields_and_submits(employer):
+    worker, page, job = employer
+    worker.settings.profile.current_city = "Pune"
+    worker.settings.profile.current_state = "Maharashtra"
+    worker.settings.profile.current_country = "India"
+    await page.set_content(
+        "<form onsubmit=\"event.preventDefault();window.values=Array.from(document.querySelectorAll('input')).map(el=>el.value);document.body.innerHTML='<p>Thank you for applying.</p>'\">"
+        "<label>City<input required></label><label>State/Province<input required></label><label>Country name<input required></label><button>Submit</button></form>"
+    )
+    assert (await run(worker, page, job))["status"] == "applied"
+    assert await page.evaluate("window.values") == ["Pune", "Maharashtra", "India"]
+    worker.provider.generate_content.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_new_profile_fact_resolves_pending_prompt_without_becoming_stale_memory(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    await page.set_content("<label>City<input></label><button>Submit</button>")
+    assert (await run(worker, page, job))["status"] == "skipped_screening"
+    assert worker.review.pending()[0]["question"] == "City"
+    worker.settings.profile.current_city = "Pune"
+    assert (await run(worker, page, job))["status"] == "skipped_dry_run"
+    assert not worker.review.pending()
+    assert not worker.review.answer_for({"question": "City"}, job)
+    worker.settings.profile.current_city = "Mumbai"
+    assert (await run(worker, page, job))["status"] == "skipped_dry_run"
+    assert await page.locator("input").input_value() == "Mumbai"
+
+
+@pytest.mark.asyncio
+async def test_skill_picker_commits_tags_without_pressing_enter_or_submitting(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    await page.set_content(
+        """<form onsubmit="event.preventDefault();window.sent=1">
+        <skills-tag><ul class="skl-selected-skill"><li><input class="skillset-input" placeholder="Add Skills" onkeyup="suggest()"></li></ul><ul class="skl-suggested-skill"></ul></skills-tag><button>Submit</button></form>
+        <script>function suggest(){let input=document.querySelector('.skillset-input'), list=document.querySelector('.skl-suggested-skill');
+        list.innerHTML=''; let li=document.createElement('li');li.textContent=input.value;
+        li.onclick=()=>{let span=document.createElement('span');span.id='skill-index-'+document.querySelectorAll('[id^=skill-index-]').length;
+        span.textContent=input.value;document.querySelector('.skl-selected-skill').prepend(span);input.value='';list.innerHTML=''};list.append(li);}</script>"""
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_dry_run"
+    assert await page.locator('[id^="skill-index-"]').all_text_contents() == ["SQL", "Java"]
+    assert await page.evaluate("window.sent||0") == 0
 
 
 @pytest.mark.asyncio

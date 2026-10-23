@@ -35,6 +35,9 @@ class ConfigUpdate(BaseModel):
     expected_ctc: str | None = None
     notice_period: str | None = None
     current_location: str | None = None
+    current_city: str | None = None
+    current_state: str | None = None
+    current_country: str | None = None
     preferred_locations: list[str] | None = None
     total_experience: str | None = None
     employment_status: Literal["", "employed", "unemployed", "student"] | None = None
@@ -121,6 +124,9 @@ async def get_config():
             "expected_ctc": s.profile.expected_ctc,
             "notice_period": s.profile.notice_period,
             "current_location": s.profile.current_location,
+            "current_city": s.profile.current_city,
+            "current_state": s.profile.current_state,
+            "current_country": s.profile.current_country,
             "preferred_locations": s.profile.preferred_locations,
             "total_experience": s.profile.total_experience,
             "confirmed_answers": s.profile.confirmed_answers,
@@ -222,6 +228,9 @@ async def update_config(update: ConfigUpdate):
         (["profile", "expected_ctc"], update.expected_ctc, False),
         (["profile", "notice_period"], update.notice_period, False),
         (["profile", "current_location"], update.current_location, False),
+        (["profile", "current_city"], update.current_city, False),
+        (["profile", "current_state"], update.current_state, False),
+        (["profile", "current_country"], update.current_country, False),
         (["profile", "preferred_locations"], update.preferred_locations, False),
         (["profile", "total_experience"], update.total_experience, False),
         (["profile", "employment_status"], update.employment_status, False),

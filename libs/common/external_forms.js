@@ -33,11 +33,13 @@ export default function inspectExternalForm() {
         return [];
     }
     function fieldKind(el) {
+        if (el.matches('skills-tag input.skillset-input')) return 'skill_tags';
         if (el.tagName === 'SELECT') return 'dropdown';
         if (el.getAttribute('role') === 'combobox') return 'combobox';
         return (el.type || 'text').toLowerCase();
     }
     function fieldValue(el, members) {
+        if (fieldKind(el) === 'skill_tags') return [...el.closest('skills-tag').querySelectorAll('.skl-selected-skill span[id^="skill-index-"]')].map(text).join(', ');
         if (el.type === 'checkbox') return el.checked ? 'Yes' : '';
         if (el.type === 'radio') return members.find(x => x.checked)?.value || '';
         if (el.type === 'file') return String(el.files?.length || '');
@@ -47,8 +49,13 @@ export default function inspectExternalForm() {
         members.forEach(x => {x.dataset.applyosField = id;});
         const form = el.form || el.closest('form');
         let question = label(el);
+        let selector = `[data-applyos-field="${id}"]`;
+        if (fieldKind(el) === 'skill_tags') {
+            el.closest('skills-tag').dataset.applyosSkills = id;
+            selector = `[data-applyos-skills="${id}"] input.skillset-input`;
+        }
         if (el.type === 'radio') question = text(el.closest('fieldset')?.querySelector('legend')) || question;
-        return {id, selector:`[data-applyos-field="${id}"]`, question, type:fieldKind(el),
+        return {id, selector, question, type:fieldKind(el),
             required:members.some(x => x.required || x.getAttribute('aria-required') === 'true') || label(el).includes('*') || uploadControl(el)?.getAttribute('aria-required') === 'true',
             options:optionsFor(el, members), multiple:!!el.multiple, action:form?.action || location.href,
             signature:[el.tagName, el.type, el.name, label(el)].join(':'),

@@ -51,3 +51,26 @@ async def test_external_apply_removes_conflicting_linkedin_search_override(dashb
         saved = yaml.safe_load(path.read_text())["application"]
         assert saved["skip_external_apply"] is False
         assert saved["easy_apply_only"] is False
+
+
+@pytest.mark.asyncio
+async def test_confirmed_address_is_saved_and_shared_by_both_platforms(dashboard):
+    from api import identity
+    from api.deps import root_state
+    from libs.common.workspace_config import load_linkedin_workspace_config
+    from src.linked_agent.config.settings import Settings as LinkedInSettings
+
+    async with register_client("address-fixture@example.invalid") as user:
+        address = {
+            "current_city": "Pune",
+            "current_state": "Maharashtra",
+            "current_country": "India",
+        }
+        result = await user.put("/api/config", json=address)
+        assert result.status_code == 200
+        profile = (await user.get("/api/config")).json()["profile"]
+        assert {key: profile[key] for key in address} == address
+        record = identity.find_user("address-fixture@example.invalid")
+        root = root_state.settings.project_root / "data" / "users" / record["id"]
+        linked = LinkedInSettings(**load_linkedin_workspace_config(root))
+        assert {key: getattr(linked.profile, key) for key in address} == address

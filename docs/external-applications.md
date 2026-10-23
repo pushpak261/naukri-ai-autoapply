@@ -10,13 +10,14 @@ Changes apply to the next agent run.
 After a listing passes the existing targeting and match checks, the external
 handler opens the employer link in a separate browser context. Platform cookies
 and passwords are not copied. Gemini maps visible field labels to an allowlisted
-catalog of saved candidate facts; model-generated values and arbitrary browser
-actions are not accepted. Resume uploads use only the selected file within the
+catalog of saved candidate facts. Personal facts must come from this catalog;
+Gemini can also explain general technical questions without claiming personal
+experience. Arbitrary browser actions are not accepted. Resume uploads use only the selected file within the
 account's resume directory. Profile facts and form labels are sent to Gemini;
 completed fields and the resume are sent to the employer.
 
 Supported controls include text, email, telephone, numeric and date inputs,
-selects, radio groups, supported comboboxes, confirmed checkboxes, and resume
+selects, radio groups, supported comboboxes, Zoho skill tags, confirmed checkboxes, and resume
 uploads, including hidden file inputs with visible Browse controls. Employer
 landing pages can open the form through Apply Now, I'm interested, or Fill
 Manually. Optional cookie notices are declined when a clear decline control is
@@ -26,8 +27,18 @@ counts as `applied` only after an explicit employer receipt message. A Submit
 without confirmation is `uncertain` and stops the agent for review, preserving
 duplicate-submission protection.
 
-Unknown required facts appear in **Applications → Screening answers**. Confirm
-them and retry the job. Optional unknown facts remain unfilled. Employer login,
+Every detected non-attachment question must be answered, including optional
+questions. Unknown answers appear in **Applications → Screening answers**. Confirm
+them once and retry; the tenant-local answer bank reuses exact questions and
+preserves their units and employer-specific scope across runs. This is saved
+answer memory, not continuous training of Gemini's underlying model. Validated
+answers from a changed profile clear obsolete review prompts without becoming
+stale confirmed answers. Profile settings include separate city, state and country
+of residence; these do not establish citizenship or work authorization.
+
+Known answers are filled even when Gemini is unavailable, and the bot keeps
+those values while collecting missing facts. Optional unsupported attachments
+remain unfilled. Employer login,
 CAPTCHA, agreements/signatures, unsupported widgets, ambiguous forms or different
 submission origins require direct completion. The handler does not create ATS
 accounts or bypass verification. Employer-specific sites can change or require

@@ -34,6 +34,12 @@ class ScreeningReviewStore:
             );
         """
         )
+        connection.execute("BEGIN IMMEDIATE")
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(questions)")}
+        if "resolved_from_facts" not in columns:
+            connection.execute(
+                "ALTER TABLE questions ADD COLUMN resolved_from_facts INTEGER NOT NULL DEFAULT 0"
+            )
         try:
             with connection:
                 yield connection
@@ -73,7 +79,7 @@ class ScreeningReviewStore:
         with self._connect() as connection:
             connection.execute(
                 "INSERT INTO questions(id, question_key, question, field_type, options, updated_at) "
-                "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at",
+                "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, resolved_from_facts=0",
                 (identifier, key, text, field, json.dumps(options), datetime.now(UTC).isoformat()),
             )
             job_id = getattr(job, "id", None)
@@ -83,6 +89,16 @@ class ScreeningReviewStore:
                     (identifier, job_id, str(getattr(job, "title", ""))[:300]),
                 )
         return identifier
+
+    def mark_resolved_from_facts(self, question, job):
+        """Close a validated field's pending prompt without caching it as a user answer."""
+        identifier, _, _, _ = self.metadata(question)
+        identifier = hashlib.sha256((identifier + self._key(question, job)).encode()).hexdigest()
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE questions SET resolved_from_facts=1 WHERE id=? AND answer=''",
+                (identifier,),
+            )
 
     def answer_for(self, question, job):
         # Exact wording/units only; a different question must never inherit a
@@ -101,7 +117,7 @@ class ScreeningReviewStore:
     def pending(self):
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM questions WHERE answer='' ORDER BY updated_at DESC LIMIT 100"
+                "SELECT * FROM questions WHERE answer='' AND resolved_from_facts=0 ORDER BY updated_at DESC LIMIT 100"
             ).fetchall()
             return [
                 {
@@ -166,7 +182,7 @@ class ScreeningReviewStore:
                 job_id
                 for job_id in jobs
                 if not connection.execute(
-                    "SELECT 1 FROM affected_jobs j JOIN questions q ON q.id=j.question_id WHERE j.job_id=? AND q.answer='' LIMIT 1",
+                    "SELECT 1 FROM affected_jobs j JOIN questions q ON q.id=j.question_id WHERE j.job_id=? AND q.answer='' AND q.resolved_from_facts=0 LIMIT 1",
                     (job_id,),
                 ).fetchone()
             )

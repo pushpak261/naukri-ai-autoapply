@@ -27,6 +27,9 @@ interface ConfigForm {
   expected_ctc: string;
   notice_period: string;
   current_location: string;
+  current_city: string;
+  current_state: string;
+  current_country: string;
   preferred_locations: string;
   total_experience: string;
   employment_status: string;
@@ -69,6 +72,9 @@ function configToForm(config: ConfigResponse): ConfigForm {
     expected_ctc: config.profile.expected_ctc,
     notice_period: config.profile.notice_period,
     current_location: config.profile.current_location,
+    current_city: config.profile.current_city ?? config.profile.current_location,
+    current_state: config.profile.current_state ?? '',
+    current_country: config.profile.current_country ?? '',
     preferred_locations: config.profile.preferred_locations.join(', '),
     total_experience: config.profile.total_experience,
     employment_status: config.profile.employment_status ?? '',
@@ -143,6 +149,9 @@ export default function Config() {
         expected_ctc: form.expected_ctc,
         notice_period: form.notice_period,
         current_location: form.current_location,
+        current_city: form.current_city,
+        current_state: form.current_state,
+        current_country: form.current_country,
         preferred_locations: form.preferred_locations.split(',').map((s: string) => s.trim()).filter(Boolean),
         total_experience: form.total_experience,
         employment_status: form.employment_status,
@@ -400,8 +409,16 @@ export default function Config() {
               <input type="text" value={form.notice_period} onChange={(e) => setForm({ ...form, notice_period: e.target.value })} className={inputClass} placeholder="Immediate" />
             </div>
             <div>
-              <label className={labelClass}>Current Location</label>
-              <input type="text" value={form.current_location} onChange={(e) => setForm({ ...form, current_location: e.target.value })} className={inputClass} placeholder="Pune" />
+              <label htmlFor="current-city" className={labelClass}>Current city</label>
+              <input id="current-city" type="text" value={form.current_city} onChange={(e) => setForm({ ...form, current_location: e.target.value, current_city: e.target.value })} className={inputClass} placeholder="Pune" />
+            </div>
+            <div>
+              <label htmlFor="current-state" className={labelClass}>State / province</label>
+              <input id="current-state" type="text" value={form.current_state} onChange={(e) => setForm({ ...form, current_state: e.target.value })} className={inputClass} placeholder="Maharashtra" />
+            </div>
+            <div>
+              <label htmlFor="current-country" className={labelClass}>Country of residence</label>
+              <input id="current-country" type="text" value={form.current_country} onChange={(e) => setForm({ ...form, current_country: e.target.value })} className={inputClass} placeholder="India" />
             </div>
             <div>
               <label className={labelClass}>Total Experience</label>

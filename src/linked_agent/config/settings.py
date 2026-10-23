@@ -162,6 +162,9 @@ class ProfileSettings(BaseModel):
     expected_ctc: str = ""
     notice_period: str = ""
     current_location: str = ""
+    current_city: str = ""
+    current_state: str = ""
+    current_country: str = ""
     preferred_locations: list[str] = Field(default_factory=list)
     total_experience: str = ""
 
