@@ -89,8 +89,21 @@ class ScreeningReviewStore:
             for o in question.get("options", [])[:100]
         ]
         options = list(dict.fromkeys(o for o in options if o))
-        identity = json.dumps([question_key(text), field, options], ensure_ascii=False)
+        identity = json.dumps([question_key(text), field, sorted(options)], ensure_ascii=False)
         return hashlib.sha256(identity.encode()).hexdigest(), text, field, options
+
+    @staticmethod
+    def _existing_identifier(connection, identifier, key, field, options):
+        # Older records hashed option order. Reuse their IDs without deleting
+        # confirmations or breaking an already open review editor.
+        rows = connection.execute(
+            "SELECT id,options FROM questions WHERE question_key=? AND field_type=? ORDER BY updated_at DESC,id",
+            (key, field),
+        )
+        return next(
+            (row["id"] for row in rows if sorted(json.loads(row["options"])) == sorted(options)),
+            identifier,
+        )
 
     def remember(self, question, job):
         identifier, text, field, options = self.metadata(question)
@@ -99,6 +112,7 @@ class ScreeningReviewStore:
         if not text:
             return
         with self._connect() as connection:
+            identifier = self._existing_identifier(connection, identifier, key, field, options)
             connection.execute(
                 "INSERT INTO questions(id, question_key, question, field_type, options, updated_at) "
                 "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, resolved_from_facts=0",
@@ -114,9 +128,11 @@ class ScreeningReviewStore:
 
     def mark_resolved_from_facts(self, question, job):
         """Close a validated field's pending prompt without caching it as a user answer."""
-        identifier, _, _, _ = self.metadata(question)
-        identifier = hashlib.sha256((identifier + self._key(question, job)).encode()).hexdigest()
+        identifier, _, field, options = self.metadata(question)
+        key = self._key(question, job)
+        identifier = hashlib.sha256((identifier + key).encode()).hexdigest()
         with self._connect() as connection:
+            identifier = self._existing_identifier(connection, identifier, key, field, options)
             connection.execute(
                 "UPDATE questions SET resolved_from_facts=1 WHERE id=? AND answer=''",
                 (identifier,),
@@ -207,6 +223,7 @@ class ScreeningReviewStore:
         identifier = hashlib.sha256((identifier + key).encode()).hexdigest()
         now = datetime.now(UTC).isoformat()
         with self._connect() as connection:
+            identifier = self._existing_identifier(connection, identifier, key, field, options)
             connection.execute(
                 "INSERT OR IGNORE INTO questions(id,question_key,question,field_type,options,updated_at,resolved_from_facts) VALUES(?,?,?,?,?,?,1)",
                 (identifier, key, text, field, json.dumps(options), now),
@@ -221,17 +238,23 @@ class ScreeningReviewStore:
     def memory(self, search="", limit=100):
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT q.id,q.question,q.question_key,q.field_type,q.options,"
+                "WITH entries AS (SELECT q.id,q.question,q.question_key,q.field_type,q.options,"
                 "CASE WHEN q.answer<>'' THEN q.answer ELSE m.answer END AS answer,"
                 "CASE WHEN q.answer<>'' THEN 'confirmed' ELSE m.source END AS source,"
                 "CASE WHEN q.answer<>'' THEN q.updated_at ELSE m.updated_at END AS updated_at,"
-                "COALESCE(m.use_count,0) AS use_count,COALESCE(m.last_used_at,'') AS last_used_at "
+                "COALESCE(m.confirmed_revision,0) AS version,"
+                "COALESCE(m.use_count,0) AS uses,COALESCE(m.last_used_at,'') AS last_used "
                 "FROM questions q LEFT JOIN answer_memory m ON m.question_id=q.id "
-                "WHERE (q.answer<>'' OR m.answer<>'') AND q.question LIKE ? ORDER BY updated_at DESC LIMIT ?",
+                "WHERE q.answer<>'' OR m.answer<>''), ranked AS (SELECT *,"
+                "ROW_NUMBER() OVER (PARTITION BY question_key ORDER BY (source='confirmed') DESC,version DESC,updated_at DESC,id) AS position,"
+                "SUM(uses) OVER (PARTITION BY question_key) AS use_count,"
+                "MAX(last_used) OVER (PARTITION BY question_key) AS last_used_at FROM entries) "
+                "SELECT id,question,question_key,field_type,options,answer,source,updated_at,use_count,last_used_at "
+                "FROM ranked WHERE position=1 AND question LIKE ? ORDER BY updated_at DESC,id LIMIT ?",
                 ("%" + search + "%", limit),
             ).fetchall()
             total = connection.execute(
-                "SELECT COUNT(*) FROM questions q LEFT JOIN answer_memory m ON m.question_id=q.id WHERE q.answer<>'' OR m.answer<>''"
+                "SELECT COUNT(DISTINCT q.question_key) FROM questions q LEFT JOIN answer_memory m ON m.question_id=q.id WHERE q.answer<>'' OR m.answer<>''"
             ).fetchone()[0]
         items = []
         for row in rows:
@@ -269,7 +292,9 @@ class ScreeningReviewStore:
     def pending(self):
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT * FROM questions WHERE answer='' AND resolved_from_facts=0 ORDER BY updated_at DESC LIMIT 100"
+                "SELECT * FROM (SELECT *,ROW_NUMBER() OVER (PARTITION BY question_key ORDER BY updated_at DESC,id) AS position "
+                "FROM questions WHERE answer='' AND resolved_from_facts=0) "
+                "WHERE position=1 ORDER BY updated_at DESC,id LIMIT 100"
             ).fetchall()
             return [
                 {
@@ -280,50 +305,81 @@ class ScreeningReviewStore:
                     "jobs": [
                         dict(job)
                         for job in connection.execute(
-                            "SELECT job_id, title FROM affected_jobs WHERE question_id=?",
-                            (row["id"],),
+                            "SELECT j.job_id,MAX(j.title) AS title FROM affected_jobs j JOIN questions q ON q.id=j.question_id "
+                            "WHERE q.question_key=? AND q.answer='' AND q.resolved_from_facts=0 GROUP BY j.job_id ORDER BY j.job_id",
+                            (row["question_key"],),
                         )
                     ],
                 }
                 for row in rows
             ]
 
+    @staticmethod
+    def _format_for_row(value, row):
+        if row["field_type"] == "file":
+            return ""
+        metadata = {
+            "question": row["question"],
+            "type": row["field_type"],
+            "options": json.loads(row["options"]),
+        }
+        formatted = format_evidence(value, metadata, experience_in_years=False)
+        if formatted and row["field_type"] == "date":
+            from datetime import date
+
+            try:
+                date.fromisoformat(formatted)
+            except ValueError:
+                return ""
+        return formatted
+
+    def _confirmation_value(self, value, row):
+        value = str(value).strip()
+        if not value or len(value) > 2000 or row["field_type"] == "file":
+            raise ValueError("Supply a non-empty answer; attachments require the native form")
+        formatted = self._format_for_row(value, row)
+        if not formatted:
+            if row["field_type"] == "date":
+                raise ValueError("Date answers must use YYYY-MM-DD")
+            raise ValueError("Answer must match the available options and field format")
+        return formatted
+
+    def _resolve_compatible_variants(self, connection, confirmed_keys):
+        for key, value in confirmed_keys.items():
+            variants = connection.execute(
+                "SELECT * FROM questions WHERE question_key=? AND answer=''", (key,)
+            ).fetchall()
+            for variant in variants:
+                # Keep format-specific records for validation, but a known
+                # compatible answer needs no second confirmation.
+                compatible = self._format_for_row(value, variant)
+                connection.execute(
+                    "UPDATE questions SET resolved_from_facts=? WHERE id=?",
+                    (int(bool(compatible)), variant["id"]),
+                )
+
     def save_answers(self, answers):
         """Validate the complete batch before changing any answer."""
         with self._connect() as connection:
             resolved = []
             jobs = set()
+            confirmed_keys = {}
             for identifier, value in answers.items():
                 row = connection.execute(
                     "SELECT * FROM questions WHERE id=?", (identifier,)
                 ).fetchone()
                 if row is None:
                     raise ValueError("Screening question no longer exists")
-                value = str(value).strip()
-                if not value or len(value) > 2000 or row["field_type"] == "file":
-                    raise ValueError(
-                        "Supply a non-empty answer; attachments require the native form"
-                    )
-                metadata = {
-                    "question": row["question"],
-                    "type": row["field_type"],
-                    "options": json.loads(row["options"]),
-                }
-                formatted = format_evidence(value, metadata, experience_in_years=False)
-                if not formatted:
-                    raise ValueError("Answer must match the available options and field format")
-                if row["field_type"] == "date":
-                    from datetime import date
-
-                    try:
-                        date.fromisoformat(formatted)
-                    except ValueError as error:
-                        raise ValueError("Date answers must use YYYY-MM-DD") from error
+                formatted = self._confirmation_value(value, row)
+                if row["question_key"] in confirmed_keys:
+                    raise ValueError("Supply one confirmation per screening question")
+                confirmed_keys[row["question_key"]] = formatted
                 resolved.append((formatted, datetime.now(UTC).isoformat(), identifier))
                 jobs.update(
                     job[0]
                     for job in connection.execute(
-                        "SELECT job_id FROM affected_jobs WHERE question_id=?", (identifier,)
+                        "SELECT j.job_id FROM affected_jobs j JOIN questions q ON q.id=j.question_id WHERE q.question_key=?",
+                        (row["question_key"],),
                     )
                 )
             connection.executemany(
@@ -335,6 +391,7 @@ class ScreeningReviewStore:
                 [(identifier, value, now) for value, now, identifier in resolved],
             )
             connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
+            self._resolve_compatible_variants(connection, confirmed_keys)
             # Queue only jobs whose entire known question set is resolved.
             return sorted(
                 job_id

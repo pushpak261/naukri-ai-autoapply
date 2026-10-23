@@ -62,6 +62,13 @@ of residence; these do not establish citizenship or work authorization.
 
 **Applications → Answer memory** lists remembered answers, their source and reuse
 counts. Search, review or correct an answer, or forget its matching variants.
+Each question appears once within its job or profile context, even when forms
+reorder choices or use different controls. The saved count counts unique
+questions; repeated answers to different skills, units or history records remain
+separate facts. The latest confirmed correction takes precedence, and reuse
+counts include all compatible form variants. Screening review also combines
+repeated questions and their affected jobs. One confirmation resolves compatible
+formats; a range cannot supply an unknown exact number for a different control.
 Corrections take precedence over older answers for that exact question and units.
 Corrections and forgetting also invalidate older native AI caches. Confirmation
 ordering uses a persisted revision, so rapid edits remain deterministic even
