@@ -10,7 +10,7 @@ export default function inspectExternalForm() {
     const historyRows = '.innerElem, [data-history-row], .education-entry, .experience-entry';
     function historyKind(el) {
         const name = el.getAttribute('data-l') || el.querySelector(':scope > legend')?.textContent || '';
-        if (/^(?:educational?|academic)(?: details| history)?$/i.test(name.trim())) return 'education';
+        if (/^(?:education(?:al)?|academic)(?: details| history)?$/i.test(name.trim())) return 'education';
         if (/^(?:experience|employment|work experience|work history)(?: details| history)?$/i.test(name.trim())) return 'experience';
         return '';
     }
@@ -50,6 +50,7 @@ export default function inspectExternalForm() {
         if (/(?:\bfrom\b|\bstart\b|_from_|_start_)/.test(key)) endpoint = 'start';
         else if (/(?:\bto\b|\bend\b|_to_|_end_)/.test(key)) endpoint = 'end';
         if (!endpoint) return '';
+        if (['month', 'date'].includes(el.type)) return `${endpoint}_date`;
         let component = 'date';
         if (/month/.test(key)) component = 'month';
         else if (/year/.test(key)) component = 'year';

@@ -42,16 +42,7 @@ def date_parts(value):
     value = str(value).strip()
     iso = re.fullmatch(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?", value)
     if iso:
-        year, month, day = iso.groups()
-        if not 1900 <= int(year) <= 2100:
-            return {}
-        if month and not 1 <= int(month) <= 12:
-            return {}
-        if day and not 1 <= int(day) <= calendar.monthrange(int(year), int(month))[1]:
-            return {}
-        return {
-            k: v for k, v in zip(("year", "month", "day"), (year, month, day), strict=True) if v
-        }
+        return iso_date_parts(iso)
     named = re.fullmatch(r"([A-Za-z]+)\s+(\d{4})", value)
     if not named:
         return {}
@@ -63,6 +54,17 @@ def date_parts(value):
     }
     number = months.get(month.casefold())
     return {"year": year, "month": f"{number:02d}"} if number and 1900 <= int(year) <= 2100 else {}
+
+
+def iso_date_parts(match):
+    year, month, day = match.groups()
+    if not 1900 <= int(year) <= 2100:
+        return {}
+    if month and not 1 <= int(month) <= 12:
+        return {}
+    if day and not 1 <= int(day) <= calendar.monthrange(int(year), int(month))[1]:
+        return {}
+    return {k: v for k, v in zip(("year", "month", "day"), (year, month, day), strict=True) if v}
 
 
 def record_identity(record, kind):

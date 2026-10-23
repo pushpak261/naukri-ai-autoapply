@@ -246,6 +246,29 @@ async def test_history_expansion_stops_if_the_employer_add_button_does_nothing(e
 
 
 @pytest.mark.asyncio
+async def test_semantic_education_section_fills_native_month_inputs(employer):
+    worker, page, job = employer
+    history_profile(worker)
+    worker.profile.education = worker.profile.education[:2]
+    worker.profile.work_experience = []
+    worker.settings.application.dry_run = True
+    await page.set_content(
+        """<form><fieldset><legend>Education</legend>
+    <div class="education-entry" style="display:none">
+    <label>Institution<input></label><label>Degree<input></label>
+    <label>Start month<input type="month" required></label><label>End month<input type="month" required></label></div>
+    <button type="button" onclick="const row=this.parentElement.querySelector('.education-entry').cloneNode(true);row.style.display='block';this.before(row)">Add another</button>
+    </fieldset><button>Submit</button></form>"""
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_dry_run", result
+    assert await page.locator("input[type=month]:visible").evaluate_all(
+        "els => els.map(el=>el.value)"
+    ) == ["2019-08", "2023-05", "2024-02", "2024-08"]
+    worker.provider.generate_content.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_known_contact_fields_submit_without_a_gemini_request(employer):
     worker, page, job = employer
     await page.set_content(
