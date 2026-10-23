@@ -219,9 +219,16 @@ class LinkedInJobApplier:
                 "error_message": "External employer applications are disabled."}
 
     async def _answer_screening_questions_locally(self, questions: list[dict], job: Job) -> list[dict]:
-        from libs.common.screening import evidence_answer
+        from libs.common.screening_memory import local_answer, memory_store
         candidate = getattr(self._question_answerer, '_resume', None)
-        return [{'question': q.get('question', ''), 'answer': evidence_answer(q, self._settings, candidate)} for q in questions]
+        store = memory_store(self._settings)
+        answers = []
+        for q in questions:
+            answer, source = await asyncio.to_thread(local_answer, q, self._settings, candidate, job)
+            if not answer and store:
+                await asyncio.to_thread(store.remember, q, job)
+            answers.append({'question': q.get('question', ''), 'answer': answer, 'source': source})
+        return answers
 
     async def _submit_once_and_confirm(self) -> dict:
         if getattr(self, '_submission_attempted', False):

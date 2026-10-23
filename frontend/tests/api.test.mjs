@@ -299,3 +299,20 @@ test('rejected sign-in exposes the backend message after real thunk serializatio
   assert.equal(store.getState().auth.loading, false);
   assert.equal(getAuthToken(), null);
 });
+
+test('answer memory uses authenticated search, correction and forget without queuing applications', async () => {
+  setAuthToken('memory-session');
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({url, options});
+    assert.equal(options.headers.Authorization, 'Bearer memory-session');
+    return json({items: [], total: 0, forgotten: true, saved: 1, queued: 0});
+  };
+  await api.screening.memory('C++ & years');
+  assert.ok(requests[0].url.endsWith('/screening/memory?search=C%2B%2B%20%26%20years'));
+  await api.screening.save({saved: 'Corrected answer'});
+  assert.deepEqual(JSON.parse(requests[1].options.body), {answers: {saved: 'Corrected answer'}, queue_jobs: false});
+  await api.screening.forget('saved');
+  assert.equal(requests[2].options.method, 'DELETE');
+  assert.ok(requests[2].url.endsWith('/screening/memory/saved'));
+});

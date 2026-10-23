@@ -35,6 +35,13 @@ class ScreeningReviewStore:
             CREATE TABLE IF NOT EXISTS employer_links (
                 job_key TEXT PRIMARY KEY, url TEXT NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS answer_memory (
+                question_id TEXT PRIMARY KEY REFERENCES questions(id),
+                answer TEXT NOT NULL, source TEXT NOT NULL, context_hash TEXT NOT NULL,
+                updated_at TEXT NOT NULL, last_used_at TEXT NOT NULL DEFAULT '',
+                use_count INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE INDEX IF NOT EXISTS questions_by_key ON questions(question_key,updated_at DESC);
         """
         )
         connection.execute("BEGIN IMMEDIATE")
@@ -53,10 +60,13 @@ class ScreeningReviewStore:
     def _key(question, job):
         key = question_key(question.get("question", ""))
         if re.search(
-            r"\b(?:our company|this company|this role|our organization|why.*join|why.*interested)\b",
+            r"\b(?:our company|this company|this role|this position|our organization|why.*join|why.*interested|why should we hire|how.*(?:skills|experience).*match|cover letter|motivation|consent|agreement|signature|declaration)\b",
             key,
         ):
-            key += " | job " + str(getattr(job, "naukri_job_id", "") or getattr(job, "id", ""))
+            identifier = getattr(job, "naukri_job_id", "")
+            if not identifier and getattr(job, "linkedin_job_id", ""):
+                identifier = "linkedin:" + str(job.linkedin_job_id)
+            key += " | job " + str(identifier or getattr(job, "id", ""))
         return key
 
     @staticmethod
@@ -127,19 +137,111 @@ class ScreeningReviewStore:
             ).fetchone()
         return row["url"] if row else ""
 
-    def answer_for(self, question, job):
+    def answer_for(self, question, job, context_hash=""):
         # Exact wording/units only; a different question must never inherit a
         # fuzzy cached answer about another employer, skill or declaration.
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT answer FROM questions WHERE question_key=? AND answer<>''",
+                "SELECT id, answer, updated_at, 'confirmed' AS source, '' AS context_hash FROM questions WHERE question_key=? AND answer<>'' ORDER BY updated_at DESC",
                 (self._key(question, job),),
             ).fetchall()
-        answers = {
-            format_evidence(row["answer"], question, experience_in_years=False) for row in rows
-        }
-        answers.discard("")
-        return next(iter(answers)) if len(answers) == 1 else ""
+            if not rows and context_hash:
+                rows = connection.execute(
+                    "SELECT q.id, m.answer, m.updated_at, m.source, m.context_hash FROM questions q JOIN answer_memory m ON m.question_id=q.id "
+                    "WHERE q.question_key=? AND m.context_hash=? AND m.source IN ('profile','technical') ORDER BY m.updated_at DESC",
+                    (self._key(question, job), context_hash),
+                ).fetchall()
+            if not rows:
+                return ""
+            # A correction replaces the earlier answer. Never fall back to an
+            # older value when the latest answer cannot fit this field's options.
+            latest = [row for row in rows if row["updated_at"] == rows[0]["updated_at"]]
+            answers = {
+                format_evidence(row["answer"], question, experience_in_years=False)
+                for row in latest
+            }
+            if len(answers) != 1 or not next(iter(answers)):
+                return ""
+            row = latest[0]
+            connection.execute(
+                "INSERT INTO answer_memory(question_id,answer,source,context_hash,updated_at,last_used_at,use_count) VALUES(?,?,?,?,?,?,1) "
+                "ON CONFLICT(question_id) DO UPDATE SET use_count=use_count+1,last_used_at=excluded.last_used_at",
+                (
+                    row["id"],
+                    row["answer"],
+                    row["source"],
+                    row["context_hash"],
+                    row["updated_at"],
+                    datetime.now(UTC).isoformat(),
+                ),
+            )
+            return next(iter(answers))
+
+    def observe(self, question, answer, job, source, context_hash):
+        """Remember provenance without promoting a generated answer to user confirmation."""
+        if source not in ("profile", "technical", "ai_suggestion"):
+            return
+        identifier, text, field, options = self.metadata(question)
+        if not text or field == "file" or question.get("type") == "password":
+            return
+        formatted = format_evidence(answer, question, experience_in_years=False)
+        if not formatted or len(formatted) > 2000:
+            return
+        key = self._key(question, job)
+        identifier = hashlib.sha256((identifier + key).encode()).hexdigest()
+        now = datetime.now(UTC).isoformat()
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO questions(id,question_key,question,field_type,options,updated_at,resolved_from_facts) VALUES(?,?,?,?,?,?,1)",
+                (identifier, key, text, field, json.dumps(options), now),
+            )
+            connection.execute(
+                "INSERT INTO answer_memory(question_id,answer,source,context_hash,updated_at) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(question_id) DO UPDATE SET answer=excluded.answer,source=excluded.source,context_hash=excluded.context_hash,updated_at=excluded.updated_at",
+                (identifier, formatted, source, context_hash, now),
+            )
+        return identifier
+
+    def memory(self, search="", limit=100):
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT q.id,q.question,q.question_key,q.field_type,q.options,"
+                "CASE WHEN q.answer<>'' THEN q.answer ELSE m.answer END AS answer,"
+                "CASE WHEN q.answer<>'' THEN 'confirmed' ELSE m.source END AS source,"
+                "CASE WHEN q.answer<>'' THEN q.updated_at ELSE m.updated_at END AS updated_at,"
+                "COALESCE(m.use_count,0) AS use_count,COALESCE(m.last_used_at,'') AS last_used_at "
+                "FROM questions q LEFT JOIN answer_memory m ON m.question_id=q.id "
+                "WHERE (q.answer<>'' OR m.answer<>'') AND q.question LIKE ? ORDER BY updated_at DESC LIMIT ?",
+                ("%" + search + "%", limit),
+            ).fetchall()
+            total = connection.execute(
+                "SELECT COUNT(*) FROM questions q LEFT JOIN answer_memory m ON m.question_id=q.id WHERE q.answer<>'' OR m.answer<>''"
+            ).fetchone()[0]
+        items = []
+        for row in rows:
+            item = dict(row)
+            item["scope"] = "job" if " | job " in item.pop("question_key") else "profile"
+            item["options"] = json.loads(item["options"])
+            items.append(item)
+        return {"items": items, "total": total}
+
+    def forget(self, identifier):
+        """Forget matching variants too, so an older answer cannot reappear."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT question_key FROM questions WHERE id=?", (identifier,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("Remembered answer no longer exists")
+            connection.execute(
+                "DELETE FROM answer_memory WHERE question_id IN (SELECT id FROM questions WHERE question_key=?)",
+                (row["question_key"],),
+            )
+            connection.execute(
+                "DELETE FROM affected_jobs WHERE question_id IN (SELECT id FROM questions WHERE question_key=?)",
+                (row["question_key"],),
+            )
+            connection.execute("DELETE FROM questions WHERE question_key=?", (row["question_key"],))
 
     def pending(self):
         with self._connect() as connection:
@@ -203,6 +305,11 @@ class ScreeningReviewStore:
                 )
             connection.executemany(
                 "UPDATE questions SET answer=?, updated_at=? WHERE id=?", resolved
+            )
+            connection.executemany(
+                "INSERT INTO answer_memory(question_id,answer,source,context_hash,updated_at) VALUES(?,?,'confirmed','',?) "
+                "ON CONFLICT(question_id) DO UPDATE SET answer=excluded.answer,source='confirmed',context_hash='',updated_at=excluded.updated_at",
+                [(identifier, value, now) for value, now, identifier in resolved],
             )
             # Queue only jobs whose entire known question set is resolved.
             return sorted(

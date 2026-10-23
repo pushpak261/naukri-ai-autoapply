@@ -60,6 +60,24 @@ answers from a changed profile clear obsolete review prompts without becoming
 stale confirmed answers. Profile settings include separate city, state and country
 of residence; these do not establish citizenship or work authorization.
 
+**Applications → Answer memory** lists remembered answers, their source and reuse
+counts. Search, review or correct an answer, or forget its matching variants.
+Corrections take precedence over older answers for that exact question and units.
+Both native agents and the external handler consult the same tenant-local bank,
+with Gemini enabled or disabled. Unknown native LinkedIn questions also enter
+Screening answers. Job-specific motivations and role-fit answers stay scoped to
+their job, including separate LinkedIn and Naukri identifiers.
+
+Profile-derived answers and general technical explanations are remembered with
+an evidence fingerprint; changing the saved profile invalidates older automatic
+answers. Explicit user confirmations remain authoritative until corrected or
+forgotten. Other AI suggestions are visible in memory but require confirmation
+before the memory bank reuses them. Employer observations record accepted field
+values, including committed skill tags, rather than unselected suggestions.
+Forgetting a profile-derived answer does not erase its source resume or settings,
+so the agent can derive it again. Memory persists in `data/screening_review.db`
+inside the user's workspace; back up that workspace to preserve it across deployments.
+
 Known answers are filled even when Gemini is unavailable, and the bot keeps
 those values while collecting missing facts. Optional unsupported attachments
 remain unfilled. Employer login,

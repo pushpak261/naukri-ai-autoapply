@@ -814,6 +814,8 @@ export const api = {
   },
 
   screening: {
+    memory: (search = '') => fetchJSON<{items: {id: string; question: string; answer: string; field_type: string; options: string[]; source: string; scope: string; updated_at: string; last_used_at: string; use_count: number}[]; total: number}>(`/screening/memory?search=${encodeURIComponent(search)}`),
+    forget: (id: string) => fetchJSON<{forgotten: boolean}>(`/screening/memory/${encodeURIComponent(id)}`, {method: 'DELETE'}),
     questions: () => fetchJSON<{items: {id: string; question: string; field_type: string; options: string[]; jobs: {job_id: number; title: string}[]}[]}>('/screening/questions'),
     save: (answers: Record<string, string>, queueJobs = false) =>
       fetchJSON<{saved: number; queued: number; job_ids: number[]; message: string}>('/screening/answers', {

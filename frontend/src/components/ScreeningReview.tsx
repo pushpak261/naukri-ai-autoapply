@@ -23,6 +23,7 @@ export default function ScreeningReview() {
       setAnswers({});
       await Promise.all([
         queryClient.invalidateQueries({queryKey: ['screening-questions']}),
+        queryClient.invalidateQueries({queryKey: ['screening-memory']}),
         queryClient.invalidateQueries({queryKey: ['applications']}),
       ]);
     } catch (err) { setFailure(err instanceof Error ? err.message : 'Could not save answers.'); }

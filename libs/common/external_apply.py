@@ -27,6 +27,7 @@ from libs.common.application_history import (
 from libs.common.offline_screening import general_technical_question, offline_answer
 from libs.common.screening import format_evidence
 from libs.common.screening_review import ScreeningReviewStore
+from libs.common.screening_memory import filled_answer, profile_context
 
 logger = logging.getLogger(__name__)
 FORM_SCRIPT = (
@@ -393,10 +394,12 @@ class ExternalJobApplier:
     async def answers(self, fields, job):
         facts = candidate_facts(self.settings, self.profile, job)
         known = {}
+        self._memory_sources = {}
+        context = profile_context(self.settings, self.profile)
         for field in fields:
             if field["type"] == "file" or LEGAL.search(field["question"]):
                 continue
-            saved = self.review.answer_for(field, job)
+            saved = self.review.answer_for(field, job, context)
             if field.get("history"):
                 answer = history_answer(field, self.profile)
             else:
@@ -404,6 +407,10 @@ class ExternalJobApplier:
             if saved or answer:
                 known[field["id"]] = saved or answer
                 facts[f"field:{field['id']}"] = saved or answer
+                if not saved:
+                    self._memory_sources[field["id"]] = (
+                        "technical" if general_technical_question(field) else "profile"
+                    )
         unresolved = [
             field
             for field in fields
@@ -453,8 +460,13 @@ class ExternalJobApplier:
                 "External AI mapping unavailable; retaining saved and confirmed answers."
             )
             return known
+        previous = set(known)
         known = self.bound_answers(plan, fields, facts, known)
-        return self.technical_answers(plan, fields, known)
+        self._memory_sources.update({key: "ai_suggestion" for key in known if key not in previous})
+        previous = set(known)
+        known = self.technical_answers(plan, fields, known)
+        self._memory_sources.update({key: "technical" for key in known if key not in previous})
+        return known
 
     @staticmethod
     def technical_answers(plan, fields, known):
@@ -687,6 +699,23 @@ class ExternalJobApplier:
             self.attach_resume_answer(field, answers)
         return answers
 
+    def remember_completed_answers(self, fields, answers, job):
+        context = profile_context(self.settings, self.profile)
+        for field in fields:
+            answer = answers.get(field["id"])
+            source = self._memory_sources.get(field["id"])
+            if (
+                not answer
+                or not source
+                or field["invalid"]
+                or field["type"] == "file"
+                or LEGAL.search(field["question"])
+            ):
+                continue
+            accepted = filled_answer(field, answer)
+            if accepted:
+                self.review.observe(field, accepted, job, source, context)
+
     def require_answers(self, fields, answers, job):
         missing = []
         for field in fields:
@@ -812,6 +841,7 @@ class ExternalJobApplier:
                 after = [(f["signature"], f["required"]) for f in fresh["fields"]]
                 if before != after:
                     continue
+                self.remember_completed_answers(fresh["fields"], answers, job)
                 self.require_answers(fresh["fields"], answers, job)
                 self.validate_fields(fresh["fields"], job)
                 action, final = await self.select_action(frame, fresh, had_form)
