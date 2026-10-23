@@ -74,6 +74,46 @@ class JobDetailPage(BasePage):
         await button.click(timeout=5000)
         return True
 
+    async def follow_external_apply_url(self) -> str | None:
+        """Resolve signed-in-only employer redirects without submitting an ATS form."""
+        page = self._engine.page
+        original_url = page.url
+        popups = []
+        def capture_popup(popup):
+            popups.append(popup)
+        page.context.on("page", capture_popup)
+        try:
+            if not await self.click_external_apply_button():
+                return None
+            for _ in range(20):
+                resolved = await self._resolved_employer_url([*popups, page])
+                if resolved:
+                    return resolved
+                await asyncio.sleep(0.5)
+            return None
+        except PlaywrightError:
+            return None
+        finally:
+            page.context.remove_listener("page", capture_popup)
+            for popup in popups:
+                with contextlib.suppress(PlaywrightError):
+                    await popup.close()
+            if page.url != original_url:
+                with contextlib.suppress(PlaywrightError):
+                    await page.goto(original_url, wait_until="domcontentloaded", timeout=30000)
+
+    @staticmethod
+    async def _resolved_employer_url(pages):
+        from urllib.parse import urlsplit
+        from libs.common.external_apply import public_https
+
+        for target in pages:
+            url = target.url
+            host = urlsplit(url).hostname
+            if host and host not in ("naukri.com", "www.naukri.com") and await public_https(url):
+                return url
+        return None
+
     async def is_external_apply_successful(self) -> bool:
         """Check if the external apply page shows a success/confirmation."""
         page = self._engine.page

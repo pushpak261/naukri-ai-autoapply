@@ -67,8 +67,10 @@ export default function inspectExternalForm() {
             .filter(el => visible(el) && !el.disabled && !el.closest('nav, header, footer'))
             .map((el, i) => {
                 el.dataset.applyosButton = String(i);
+                let formAction = el.form?.action || location.href;
+                if (el.hasAttribute('formaction')) formAction = el.formAction;
                 return {id:String(i), text:text(el) || el.value || el.getAttribute('aria-label') || '',
-                    href:el.getAttribute('href') || '', formAction:el.formAction || el.form?.action || location.href};
+                    href:el.getAttribute('href') || '', formAction};
             });
     }
     function confirmed() {

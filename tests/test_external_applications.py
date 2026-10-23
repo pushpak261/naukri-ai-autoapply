@@ -15,7 +15,10 @@ from src.naukri_agent.models.entities import Job, ResumeProfile
 
 @pytest_asyncio.fixture
 async def employer(tmp_path, monkeypatch):
-    monkeypatch.setattr("libs.common.external_apply.public_https", AsyncMock(return_value=True))
+    monkeypatch.setattr(
+        "libs.common.external_apply.public_https",
+        AsyncMock(side_effect=lambda url: url.startswith("https://")),
+    )
     async with async_playwright() as runtime:
         try:
             browser = await runtime.chromium.launch()
@@ -225,6 +228,55 @@ async def test_embedded_employer_iframe(employer):
     await page.set_content('<iframe src="https://careers.example.test/embedded"></iframe>')
     await page.frames[1].wait_for_selector("input")
     assert (await run(worker, page, job))["status"] == "applied"
+
+
+@pytest.mark.asyncio
+async def test_review_only_form_cannot_change_submission_origin(employer):
+    worker, page, job = employer
+    await page.set_content('<label>Email<input required type="email"></label><button>Next</button>')
+    await page.evaluate(
+        """() => {document.querySelector('button').onclick = () => {
+        document.body.innerHTML='<form action="https://collector.example.test"><input type="hidden" value="private"><button>Submit</button></form>';
+        document.querySelector('button').onclick=(event)=>{event.preventDefault();window.sent=1};
+    }}"""
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_external"
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("popup", [True, False])
+async def test_signed_in_naukri_redirect_is_captured_without_submitting(employer, popup):
+    from src.naukri_agent.browser.pages.detail import JobDetailPage
+
+    _, page, _ = employer
+    await page.route(
+        "**/job-123456789012",
+        lambda route: route.fulfill(
+            content_type="text/html", body="<button>Apply on company site</button>"
+        ),
+    )
+    await page.goto("https://www.naukri.com/job-123456789012")
+    original = page.url
+    await page.context.route(
+        "**/employer",
+        lambda route: route.fulfill(
+            content_type="text/html", body="<h1>Employer application form</h1>"
+        ),
+    )
+    detail = JobDetailPage(SimpleNamespace(page=page), AsyncMock())
+
+    async def follow():
+        if popup:
+            await page.evaluate("window.open('https://careers.example.test/employer')")
+        else:
+            await page.goto("https://careers.example.test/employer")
+        return True
+
+    detail.click_external_apply_button = AsyncMock(side_effect=follow)
+    assert await detail.follow_external_apply_url() == "https://careers.example.test/employer"
+    assert page.url == original
+    assert len(page.context.pages) == 1
 
 
 @pytest.mark.asyncio

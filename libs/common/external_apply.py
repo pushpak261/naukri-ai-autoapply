@@ -265,8 +265,10 @@ class ExternalJobApplier:
             return "External applications are disabled."
         if not self.settings.ai.gemini_api_key:
             return "Save a Gemini API key to use external applications."
-        if self.profile is None or not url:
-            return "External URL or saved resume profile is missing."
+        if self.profile is None:
+            return "Saved resume profile is missing; reload the agent profile."
+        if not url:
+            return "The platform could not resolve the employer URL; open the listing directly."
         return ""
 
     async def cleanup(self, context, owned_provider):

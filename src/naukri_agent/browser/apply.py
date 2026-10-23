@@ -101,6 +101,8 @@ class JobApplier:
                 if not self._settings.application.skip_external_apply or getattr(self._settings.application, "collect_external_jobs", False):
                     external_url = await self._detail_page.get_external_apply_url()
                 if not self._settings.application.skip_external_apply and self._external_applier:
+                    if not external_url:
+                        external_url = await self._detail_page.follow_external_apply_url()
                     return await self._external_applier.apply(self._detail_page._engine.page, external_url, job)
                 return {
                     "status": ApplicationStatus.SKIPPED_EXTERNAL,
