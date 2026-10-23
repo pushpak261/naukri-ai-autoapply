@@ -206,6 +206,100 @@ async def test_dry_run_and_cross_origin_action_do_not_submit(employer):
 
 
 @pytest.mark.asyncio
+async def test_dry_run_opens_zoho_landing_form_after_declining_optional_cookies(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    await page.set_content(
+        """<h1>Java Developer</h1><button id="entry">I'm interested</button>
+        <div id="cookies"><p>We use cookies to improve your experience.</p>
+        <button onclick="window.rejected=1;document.querySelector('#cookies').remove()">Decline non-essential</button>
+        <button onclick="window.accepted=1">Accept all</button></div>"""
+    )
+    await page.evaluate(
+        """() => {document.querySelector('#entry').onclick=()=>{
+        window.opened=1;
+        document.body.innerHTML='<form onsubmit="event.preventDefault();window.sent=1"><label>Email<input required type="email"></label><button>Next</button></form>';
+        }}"""
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_dry_run", result
+    assert await page.locator('input[type="email"]').input_value() == "test@example.test"
+    assert await page.evaluate("window.rejected") == 1
+    assert await page.evaluate("window.opened") == 1
+    assert await page.evaluate("window.accepted||window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_entry_label_inside_form_is_never_clicked_in_dry_run(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    await page.set_content(
+        """<form onsubmit="event.preventDefault();window.sent=1"><button>I'm interested</button></form>"""
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_external"
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_repeated_zoho_input_buttons_open_form_once(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    await page.set_content(
+        """<input type="button" value="Apply Now" onclick="openForm()">
+        <input type="button" value="Apply Now" onclick="openForm()">
+        <script>function openForm(){window.opened=(window.opened||0)+1;
+        document.body.innerHTML='<label>Email<input required type="email"></label><button onclick="window.sent=1">Submit</button>';}</script>"""
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_dry_run"
+    assert await page.evaluate("window.opened") == 1
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_manual_entry_dialog_takes_precedence_over_underlying_job_button(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    await page.set_content(
+        """<button onclick="window.bad=1">Apply Now</button>
+        <div role="dialog"><button onclick="document.body.innerHTML='<label>Email<input required type=email></label><button onclick=window.sent=1>Submit</button>'">Fill Manually</button>
+        <button onclick="window.bad=1">Easy Apply</button></div>"""
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_dry_run"
+    assert await page.evaluate("window.bad||window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_zoho_hidden_resume_input_uses_visible_browse_controls(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    worker.settings.resumes_dir.mkdir(parents=True)
+    resume = worker.settings.resumes_dir / "resume.pdf"
+    resume.write_bytes(b"%PDF-1.4 fixture")
+    worker.settings.resume.path = str(resume)
+    await page.set_content(
+        """<form><label>Email<input required type=email></label>
+        <a aria-label="Browse Resume" aria-required="true">Browse<input type="file" name="upload1" data-l="Resume" style="display:none"></a>
+        <a aria-label="Browse Cover Letter">Browse<input type="file" name="upload2" data-l="Cover Letter" style="display:none"></a>
+        <button onclick="window.sent=1">Submit</button></form>"""
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_dry_run", result
+    assert await page.locator('[name="upload1"]').evaluate("el=>el.files.length") == 1
+    assert await page.locator('[name="upload2"]').evaluate("el=>el.files.length") == 0
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_cookie_label_outside_cookie_notice_is_not_clicked(employer):
+    worker, page, job = employer
+    await page.set_content(
+        '<button onclick="window.bad=1">Reject all</button><h1>Job description</h1>'
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_external"
+    assert await page.evaluate("window.bad||0") == 0
+
+
+@pytest.mark.asyncio
 async def test_changed_required_fields_are_completed_before_submit(employer):
     worker, page, job = employer
     await page.set_content(

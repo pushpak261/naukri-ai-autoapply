@@ -38,6 +38,10 @@ SUBMIT = re.compile(
 NEXT = re.compile(
     r"^(?:next(?: step)?|continue|review(?: application)?|save (?:and|&) continue)$", re.I
 )
+OPEN_FORM = re.compile(
+    r"^(?:I['’]m interested|apply(?: now| for (?:this|the) (?:job|position))?|start application|fill manually)$",
+    re.I,
+)
 PERSONAL_UNKNOWN = re.compile(
     r"passport|social security|nationality|citizenship|authori[sz]|sponsorship|visa|\b(?:pan|aadhaar|ssn)\b|"
     r"gender|disability|ethnic|race\b|date of birth|\bdob\b|\b(?:years?|months?)\b|experience|"
@@ -298,10 +302,8 @@ class ExternalJobApplier:
                 s["fields"]
                 or s["blocked"]
                 or s["confirmation"]
-                or any(
-                    NEXT.fullmatch(b["text"].strip()) or SUBMIT.fullmatch(b["text"].strip())
-                    for b in s["buttons"]
-                )
+                or self.has_action(s)
+                or any(b.get("cookieDismiss") for b in s["buttons"])
                 for _, s in states
             ):
                 return states
@@ -440,9 +442,47 @@ class ExternalJobApplier:
     @staticmethod
     def has_action(state):
         return any(
-            NEXT.fullmatch(b["text"].strip()) or SUBMIT.fullmatch(b["text"].strip())
+            NEXT.fullmatch(b["text"].strip())
+            or SUBMIT.fullmatch(b["text"].strip())
+            or (b.get("opensForm") and OPEN_FORM.fullmatch(b["text"].strip()))
             for b in state["buttons"]
         )
+
+    @staticmethod
+    async def check_action_destination(frame, action):
+        target = urljoin(frame.url, action["href"] or action["formAction"])
+        if not await public_https(target) or urlsplit(target).netloc != urlsplit(frame.url).netloc:
+            raise ExternalReview("Employer action changes the destination; review it directly.")
+
+    async def dismiss_optional_cookies(self, states):
+        choices = [
+            (frame, button)
+            for frame, state in states
+            for button in state["buttons"]
+            if button.get("cookieDismiss")
+        ]
+        if len(choices) != 1:
+            return False
+        frame, action = choices[0]
+        await self.check_action_destination(frame, action)
+        await frame.locator(f'[data-applyos-button="{action["id"]}"]').click(timeout=5000)
+        return True
+
+    async def open_application_form(self, frame, state):
+        """Open a landing-page form; never treat Next or Submit as an entry action."""
+        manual = [b for b in state["buttons"] if b["text"].strip().casefold() == "fill manually"]
+        choices = {
+            (button["text"].strip().casefold(), button["href"], button["formAction"]): button
+            for button in (manual or state["buttons"])
+            if button.get("opensForm") and OPEN_FORM.fullmatch(button["text"].strip())
+        }
+        if len(choices) != 1:
+            raise ExternalReview(
+                "Employer application entry is missing or ambiguous; open it directly."
+            )
+        action = next(iter(choices.values()))
+        await self.check_action_destination(frame, action)
+        await frame.locator(f'[data-applyos-button="{action["id"]}"]').click(timeout=5000)
 
     @classmethod
     def select_form(cls, states):
@@ -538,9 +578,7 @@ class ExternalJobApplier:
                 "Employer action is missing or ambiguous; review the application directly."
             )
         action = choices[0]
-        target = urljoin(frame.url, action["href"] or action["formAction"])
-        if not await public_https(target) or urlsplit(target).netloc != urlsplit(frame.url).netloc:
-            raise ExternalReview("Employer action changes the destination; review it directly.")
+        await ExternalJobApplier.check_action_destination(frame, action)
         return action, had_form and not next_buttons
 
     async def advance(self, page, frame, action, final, job):
@@ -583,10 +621,15 @@ class ExternalJobApplier:
                 if not await public_https(page.url):
                     raise ExternalReview("Employer redirected to an unsupported destination.")
                 states = await self.ready_states(page)
+                if await self.dismiss_optional_cookies(states):
+                    continue
                 self.check_states(states)
                 frame, state = self.select_form(states)
                 self.check_progress(frame, state, seen)
                 fields = state["fields"]
+                if not fields and not had_form:
+                    await self.open_application_form(frame, state)
+                    continue
                 had_form = had_form or bool(fields)
                 answers = await self.prepare_answers(fields, job)
                 await self.fill_answers(frame, fields, answers, job)

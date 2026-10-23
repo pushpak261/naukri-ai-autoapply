@@ -17,7 +17,10 @@ completed fields and the resume are sent to the employer.
 
 Supported controls include text, email, telephone, numeric and date inputs,
 selects, radio groups, supported comboboxes, confirmed checkboxes, and resume
-uploads. The handler re-reads dynamic fields and embedded forms, validates
+uploads, including hidden file inputs with visible Browse controls. Employer
+landing pages can open the form through Apply Now, I'm interested, or Fill
+Manually. Optional cookie notices are declined when a clear decline control is
+available. The handler re-reads dynamic fields and embedded forms, validates
 required values, and advances through bounded Next/Review steps. The application
 counts as `applied` only after an explicit employer receipt message. A Submit
 without confirmation is `uncertain` and stops the agent for review, preserving
@@ -30,7 +33,8 @@ submission origins require direct completion. The handler does not create ATS
 accounts or bypass verification. Employer-specific sites can change or require
 additional integrations; universal error-free application is not guaranteed.
 
-`dry_run: true` prevents advancing or submitting external forms. The normal agent
+`dry_run: true` allows opening and filling the form but prevents clicking Next,
+Review or Submit. The normal agent
 dry run scores jobs without entering the application flow. Daily caps, matching,
 application claims and existing retry guards also apply to external jobs.
 

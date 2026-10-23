@@ -2,11 +2,16 @@
 export default function inspectExternalForm() {
     const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
     const text = el => (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
+    function uploadControl(el) {
+        if (el.type !== 'file') return null;
+        return [...(el.labels || []), el.closest('a, [role="button"]')].find(x => x && visible(x));
+    }
     const label = (el, legend = true) => {
         const explicit = [
             ...(el.labels ? [...el.labels].map(text) : []), el.getAttribute('aria-label'),
             ...(el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => text(document.getElementById(id))),
-            legend ? el.closest('fieldset')?.querySelector('legend')?.textContent : ''
+            legend ? el.closest('fieldset')?.querySelector('legend')?.textContent : '',
+            el.type === 'file' ? el.getAttribute('data-l') || uploadControl(el)?.getAttribute('aria-label') : ''
         ].filter(Boolean).join(' | ');
         return (explicit || el.getAttribute('placeholder') || el.name || '').slice(0, 500);
     };
@@ -14,8 +19,7 @@ export default function inspectExternalForm() {
         const type = (el.type || '').toLowerCase();
         if (el.disabled || el.readOnly || el.closest('nav, header, footer, [role="search"]')) return true;
         if (['hidden', 'submit', 'button', 'reset', 'search'].includes(type)) return true;
-        const uploadLabel = type === 'file' && el.labels && [...el.labels].some(visible);
-        if (!visible(el) && !uploadLabel) return true;
+        if (!visible(el) && !uploadControl(el)) return true;
         return el.getAttribute('role') === 'combobox' && !!el.querySelector('input');
     }
     function membersFor(el) {
@@ -45,7 +49,7 @@ export default function inspectExternalForm() {
         let question = label(el);
         if (el.type === 'radio') question = text(el.closest('fieldset')?.querySelector('legend')) || question;
         return {id, selector:`[data-applyos-field="${id}"]`, question, type:fieldKind(el),
-            required:members.some(x => x.required || x.getAttribute('aria-required') === 'true') || label(el).includes('*'),
+            required:members.some(x => x.required || x.getAttribute('aria-required') === 'true') || label(el).includes('*') || uploadControl(el)?.getAttribute('aria-required') === 'true',
             options:optionsFor(el, members), multiple:!!el.multiple, action:form?.action || location.href,
             signature:[el.tagName, el.type, el.name, label(el)].join(':'),
             invalid:el.getAttribute('aria-invalid') === 'true' || (!!el.willValidate && !el.validity.valid),
@@ -63,15 +67,26 @@ export default function inspectExternalForm() {
         return fields;
     }
     function collectButtons() {
-        return [...document.querySelectorAll('button, input[type="submit"], a, [role="button"]')]
+        return [...document.querySelectorAll('button, input[type="submit"], input[type="button"], a, [role="button"]')]
             .filter(el => visible(el) && !el.disabled && !el.closest('nav, header, footer'))
             .map((el, i) => {
                 el.dataset.applyosButton = String(i);
                 let formAction = el.form?.action || location.href;
                 if (el.hasAttribute('formaction')) formAction = el.formAction;
                 return {id:String(i), text:text(el) || el.value || el.getAttribute('aria-label') || '',
-                    href:el.getAttribute('href') || '', formAction};
+                    href:el.getAttribute('href') || '', formAction,
+                    opensForm:!el.form && !el.closest('form') && !(el.tagName === 'INPUT' && el.type === 'submit'),
+                    cookieDismiss:cookieDismiss(el)};
             });
+    }
+    function cookieDismiss(el) {
+        if (el.form || el.closest('form') || !/^(?:decline non-essential|reject (?:all|optional)(?: cookies)?|only necessary cookies)$/i.test(text(el))) return false;
+        let parent = el.parentElement;
+        for (let depth = 0; parent && depth < 4; depth++, parent = parent.parentElement) {
+            const notice = text(parent);
+            if (notice.length < 3000 && /\bcookies?\b/i.test(notice)) return true;
+        }
+        return false;
     }
     function confirmed() {
         return [...document.querySelectorAll('h1,h2,h3,[role="status"],[role="alert"],p')].filter(visible).some(el => {
