@@ -22,7 +22,12 @@ from libs.common.screening import format_evidence
 from libs.common.screening_review import ScreeningReviewStore
 
 logger = logging.getLogger(__name__)
-FORM_SCRIPT = Path(__file__).with_name("external_forms.js").read_text(encoding="utf-8")
+FORM_SCRIPT = (
+    Path(__file__)
+    .with_name("external_forms.js")
+    .read_text(encoding="utf-8")
+    .split("export default ", 1)[1]
+)
 LEGAL = re.compile(
     r"\bterms\b|agreement|privacy policy|\b(?:I|you) (?:certify|declare)\b|declaration|signature",
     re.I,
@@ -89,20 +94,34 @@ async def public_https(url):
         return False
 
 
-def candidate_facts(settings, profile, job):
-    """Allowlisted application evidence; authentication settings never reach Gemini."""
+def _scalar_entries(key, entries):
     facts = {}
-    for key in ("name", "email", "phone", "current_title", "summary"):
-        value = getattr(profile, key, "")
-        if value:
-            facts[key] = str(value)
-    name = facts.get("name", "").split()
-    if len(name) >= 2:
-        facts.update(first_name=name[0], last_name=name[-1])
-    if getattr(profile, "total_experience_years", 0):
-        facts["total_experience"] = f"{profile.total_experience_years:g} years"
-    configured = settings.profile.model_dump(exclude_unset=True)
-    for key in (
+    for index, entry in enumerate(entries):
+        if not isinstance(entry, dict):
+            continue
+        for label, detail in entry.items():
+            if isinstance(detail, (str, int, float)) and str(detail).strip():
+                facts[f"{key}.{index}.{label}"] = str(detail)
+    return facts
+
+
+def _resume_collections(profile):
+    facts = {}
+    for key in ("skills", "technical_skills", "education", "work_experience", "projects"):
+        value = getattr(profile, key, [])
+        if not value:
+            continue
+        if key in ("skills", "technical_skills"):
+            facts[key] = ", ".join(value)
+        else:
+            facts[key] = json.dumps(value, ensure_ascii=False)
+            facts.update(_scalar_entries(key, value))
+    return facts
+
+
+def _configured_facts(profile):
+    configured = profile.model_dump(exclude_unset=True)
+    keys = (
         "first_name",
         "last_name",
         "email",
@@ -116,29 +135,36 @@ def candidate_facts(settings, profile, job):
         "last_working_date",
         "github_url",
         "linkedin_url",
-    ):
-        if configured.get(key):
-            facts[key] = str(configured[key])
+    )
+    facts = {key: str(configured[key]) for key in keys if configured.get(key)}
     if configured.get("serving_notice") is not None:
         facts["serving_notice"] = "Yes" if configured["serving_notice"] else "No"
-    for key, value in configured.get("confirmed_answers", {}).items():
-        facts[f"confirmed: {key}"] = str(value)
-    for skill, years in configured.get("skill_experience_years", {}).items():
-        facts[f"years using {skill}"] = f"{years:g} years"
-    for key in ("skills", "technical_skills", "education", "work_experience", "projects"):
-        value = getattr(profile, key, [])
-        if value:
-            facts[key] = (
-                json.dumps(value, ensure_ascii=False)
-                if key in ("education", "work_experience", "projects")
-                else ", ".join(value)
-            )
-            if key in ("education", "work_experience", "projects"):
-                for i, entry in enumerate(value):
-                    if isinstance(entry, dict):
-                        for label, detail in entry.items():
-                            if isinstance(detail, (str, int, float)) and str(detail).strip():
-                                facts[f"{key}.{i}.{label}"] = str(detail)
+    facts.update(
+        {
+            f"confirmed: {key}": str(value)
+            for key, value in configured.get("confirmed_answers", {}).items()
+        }
+    )
+    facts.update(
+        {
+            f"years using {skill}": f"{years:g} years"
+            for skill, years in configured.get("skill_experience_years", {}).items()
+        }
+    )
+    return facts
+
+
+def candidate_facts(settings, profile, job):
+    """Allowlisted evidence; authentication settings never reach Gemini."""
+    keys = ("name", "email", "phone", "current_title", "summary")
+    facts = {key: str(getattr(profile, key)) for key in keys if getattr(profile, key, "")}
+    name = facts.get("name", "").split()
+    if len(name) >= 2:
+        facts.update(first_name=name[0], last_name=name[-1])
+    if getattr(profile, "total_experience_years", 0):
+        facts["total_experience"] = f"{profile.total_experience_years:g} years"
+    facts.update(_configured_facts(settings.profile))
+    facts.update(_resume_collections(profile))
     for key, question in (
         ("professional_summary", "Brief professional summary"),
         ("role_fit_summary", "Why should we hire you?"),
@@ -147,6 +173,14 @@ def candidate_facts(settings, profile, job):
         if answer:
             facts[key] = answer
     return facts
+
+
+class ExternalReview(Exception):
+    """A supported stop with an actionable application status."""
+
+    def __init__(self, message, status="skipped_external"):
+        super().__init__(message)
+        self.status = status
 
 
 class ExternalJobApplier:
@@ -162,16 +196,9 @@ class ExternalJobApplier:
 
     async def apply(self, source_page, url, job):
         """Keep source-platform cookies isolated and always close employer pages."""
-        if self.settings.application.skip_external_apply:
-            return self.result("skipped_external", "External applications are disabled.", url)
-        if not self.settings.ai.gemini_api_key:
-            return self.result(
-                "skipped_external", "Save a Gemini API key to use external applications.", url
-            )
-        if self.profile is None or not url:
-            return self.result(
-                "skipped_external", "External URL or saved resume profile is missing.", url or ""
-            )
+        reason = self.unavailable_reason(url)
+        if reason:
+            return self.result("skipped_external", reason, url or "")
         if not await public_https(url):
             return self.result(
                 "skipped_external",
@@ -191,27 +218,7 @@ class ExternalJobApplier:
             context = await source_page.context.browser.new_context(
                 service_workers="block", accept_downloads=False
             )
-            checked = {}
-
-            async def guard(route):
-                host = urlsplit(route.request.url).netloc
-                if host not in checked:
-                    checked[host] = await public_https(route.request.url)
-                if checked[host] and urlsplit(route.request.url).scheme == "https":
-                    await route.continue_()
-                else:
-                    await route.abort()
-
-            await context.route("**/*", guard)
-            page = await context.new_page()
-            response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            if response and response.status >= 400:
-                return self.result(
-                    "skipped_external",
-                    f"Employer website returned HTTP {response.status}; no submission attempted.",
-                    page.url,
-                )
-            return await self.run_form(page, job)
+            return await self.visit_employer(context, url, job)
         except Exception:
             # Never log form values, API credentials or token-bearing ATS URLs.
             logger.warning(
@@ -228,13 +235,48 @@ class ExternalJobApplier:
                 url,
             )
         finally:
-            if context:
-                with contextlib.suppress(Exception):
-                    await context.close()
-            if owned_provider and self.provider:
-                with contextlib.suppress(Exception):
-                    await self.provider.aclose()
-                self.provider = None
+            await self.cleanup(context, owned_provider)
+
+    async def visit_employer(self, context, url, job):
+        checked = {}
+
+        async def guard(route):
+            host = urlsplit(route.request.url).netloc
+            if host not in checked:
+                checked[host] = await public_https(route.request.url)
+            if checked[host] and urlsplit(route.request.url).scheme == "https":
+                await route.continue_()
+            else:
+                await route.abort()
+
+        await context.route("**/*", guard)
+        page = await context.new_page()
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        if response and response.status >= 400:
+            return self.result(
+                "skipped_external",
+                f"Employer website returned HTTP {response.status}; no submission attempted.",
+                page.url,
+            )
+        return await self.run_form(page, job)
+
+    def unavailable_reason(self, url):
+        if self.settings.application.skip_external_apply:
+            return "External applications are disabled."
+        if not self.settings.ai.gemini_api_key:
+            return "Save a Gemini API key to use external applications."
+        if self.profile is None or not url:
+            return "External URL or saved resume profile is missing."
+        return ""
+
+    async def cleanup(self, context, owned_provider):
+        if context:
+            with contextlib.suppress(Exception):
+                await context.close()
+        if owned_provider and self.provider:
+            with contextlib.suppress(Exception):
+                await self.provider.aclose()
+            self.provider = None
 
     async def snapshot(self, page):
         snapshots = []
@@ -304,6 +346,10 @@ class ExternalJobApplier:
             timeout=60,
         )
         plan = FormPlan.model_validate_json(raw)
+        return self.bound_answers(plan, fields, facts, known)
+
+    @staticmethod
+    def bound_answers(plan, fields, facts, known):
         counts = {}
         for binding in plan.bindings:
             counts[binding.id] = counts.get(binding.id, 0) + 1
@@ -374,185 +420,186 @@ class ExternalJobApplier:
             await locator.fill(answer)
         await locator.first.evaluate("el => el.blur()")
 
+    @staticmethod
+    def check_states(states):
+        if any(state.get("agreement") for _, state in states):
+            raise ExternalReview(
+                "Employer action includes an agreement or consent; complete it directly on the employer website."
+            )
+        if any(state["blocked"] for _, state in states):
+            raise ExternalReview(
+                "Employer requires login, verification or CAPTCHA. Complete this directly on the employer website."
+            )
+        if any(state["confirmation"] for _, state in states):
+            raise ExternalReview(
+                "Employer already displays an application confirmation.", "skipped_already_applied"
+            )
+
+    @staticmethod
+    def has_action(state):
+        return any(
+            NEXT.fullmatch(b["text"].strip()) or SUBMIT.fullmatch(b["text"].strip())
+            for b in state["buttons"]
+        )
+
+    @classmethod
+    def select_form(cls, states):
+        forms = [(frame, state) for frame, state in states if state["fields"]]
+        if len(forms) > 1:
+            raise ExternalReview(
+                "Multiple employer forms are visible; select the application directly."
+            )
+        candidates = forms or [(f, s) for f, s in states if cls.has_action(s)]
+        if len(candidates) != 1:
+            raise ExternalReview(
+                "No unique supported application form was found on the employer website."
+            )
+        return candidates[0]
+
+    @staticmethod
+    def check_progress(frame, state, seen):
+        fields = state["fields"]
+        if len(fields) > 80:
+            raise ExternalReview(
+                "Employer form exceeds the supported field limit; review it directly."
+            )
+        signature = json.dumps(
+            [frame.url, [(f["signature"], f["required"]) for f in fields], state["buttons"]],
+            sort_keys=True,
+        )
+        if signature in seen:
+            raise ExternalReview("Employer form did not advance; review its validation messages.")
+        seen.add(signature)
+
+    def attach_resume_answer(self, field, answers):
+        if field["type"] != "file" or not re.search(
+            r"resume|curriculum|\bcv\b", field["question"], re.I
+        ):
+            return
+        with contextlib.suppress(ValueError, OSError):
+            resume = self.resume_file()
+            if resume and not field["multiple"]:
+                answers[field["id"]] = resume
+
+    async def prepare_answers(self, fields, job):
+        answers = await self.answers(fields, job) if fields else {}
+        missing = []
+        for field in fields:
+            self.attach_resume_answer(field, answers)
+            if field["required"] and (
+                field["id"] not in answers or LEGAL.search(field["question"])
+            ):
+                self.review.remember(field, job)
+                missing.append(field["question"])
+        if missing:
+            raise ExternalReview(
+                "External application needs confirmed answers or direct consent: "
+                + "; ".join(missing)[:800],
+                "skipped_screening",
+            )
+        return answers
+
+    async def fill_answers(self, frame, fields, answers, job):
+        for field in fields:
+            if field["id"] not in answers:
+                continue
+            if urlsplit(field["action"]).netloc != urlsplit(frame.url).netloc:
+                raise ExternalReview(
+                    "Employer form posts to another origin; review the destination directly."
+                )
+            try:
+                await self.fill(frame, field, answers[field["id"]])
+            except BrowserError as error:
+                self.review.remember(field, job)
+                raise ExternalReview(
+                    "Employer field could not accept its saved answer: " + field["question"],
+                    "skipped_screening",
+                ) from error
+
+    @staticmethod
+    def validate_fields(fields):
+        invalid = [f for f in fields if f["invalid"] or (f["required"] and not f["value"])]
+        if invalid:
+            raise ExternalReview(
+                "Employer rejected field values; review: "
+                + "; ".join(f["question"] for f in invalid)[:800],
+                "skipped_screening",
+            )
+
+    @staticmethod
+    async def select_action(frame, state, had_form):
+        next_buttons = [b for b in state["buttons"] if NEXT.fullmatch(b["text"].strip())]
+        submit_buttons = [b for b in state["buttons"] if SUBMIT.fullmatch(b["text"].strip())]
+        choices = next_buttons or submit_buttons
+        if len(choices) != 1:
+            raise ExternalReview(
+                "Employer action is missing or ambiguous; review the application directly."
+            )
+        action = choices[0]
+        target = urljoin(frame.url, action["href"] or action["formAction"])
+        if not await public_https(target) or urlsplit(target).netloc != urlsplit(frame.url).netloc:
+            raise ExternalReview("Employer action changes the destination; review it directly.")
+        return action, had_form and not next_buttons
+
+    async def advance(self, page, frame, action, final, job):
+        if self.settings.application.dry_run:
+            return self.result(
+                "skipped_dry_run",
+                "External fields validated; dry run did not click Next or Submit.",
+                page.url,
+            )
+        if final:
+            self.submitted = True
+        await frame.locator(f'[data-applyos-button="{action["id"]}"]').click(timeout=5000)
+        if not final:
+            return None
+        for _ in range(10):
+            await asyncio.sleep(0.5)
+            if any(s["confirmation"] for _, s in await self.snapshot(page)):
+                logger.info(
+                    "External employer confirmed application: %s @ %s", job.title, job.company
+                )
+                return self.result(
+                    "applied",
+                    "Employer explicitly confirmed the application was received.",
+                    page.url,
+                )
+        return self.result(
+            "uncertain",
+            "Employer has not confirmed receipt after Submit. Review before retrying.",
+            page.url,
+        )
+
     async def run_form(self, page, job):
         """Bounded multi-step forms; a final submit is never retried automatically."""
         self.submitted = False
         seen = set()
         had_form = False
-        for _step in range(10):
-            await asyncio.sleep(1)
-            if not await public_https(page.url):
-                return self.result(
-                    "skipped_external",
-                    "Employer redirected to an unsupported destination.",
-                    page.url,
-                )
-            states = await self.ready_states(page)
-            if any(state.get("agreement") for _, state in states):
-                return self.result(
-                    "skipped_external",
-                    "Employer action includes an agreement or consent; complete it directly on the employer website.",
-                    page.url,
-                )
-            if any(state["blocked"] for _, state in states):
-                return self.result(
-                    "skipped_external",
-                    "Employer requires login, verification or CAPTCHA. Complete this directly on the employer website.",
-                    page.url,
-                )
-            if any(state["confirmation"] for _, state in states):
-                return self.result(
-                    "skipped_already_applied",
-                    "Employer already displays an application confirmation.",
-                    page.url,
-                )
-            forms = [(frame, state) for frame, state in states if state["fields"]]
-            if len(forms) > 1:
-                return self.result(
-                    "skipped_external",
-                    "Multiple employer forms are visible; select the application directly.",
-                    page.url,
-                )
-            candidates = forms or [
-                (f, s)
-                for f, s in states
-                if any(
-                    NEXT.fullmatch(b["text"].strip()) or SUBMIT.fullmatch(b["text"].strip())
-                    for b in s["buttons"]
-                )
-            ]
-            if len(candidates) != 1:
-                return self.result(
-                    "skipped_external",
-                    "No unique supported application form was found on the employer website.",
-                    page.url,
-                )
-            frame, state = candidates[0]
-            fields = state["fields"]
-            if len(fields) > 80:
-                return self.result(
-                    "skipped_external",
-                    "Employer form exceeds the supported field limit; review it directly.",
-                    page.url,
-                )
-            had_form = had_form or bool(fields)
-            signature = json.dumps(
-                [frame.url, [(f["signature"], f["required"]) for f in fields], state["buttons"]],
-                sort_keys=True,
-            )
-            if signature in seen:
-                return self.result(
-                    "skipped_external",
-                    "Employer form did not advance; review its validation messages.",
-                    page.url,
-                )
-            seen.add(signature)
-            answers = await self.answers(fields, job) if fields else {}
-            missing = []
-            for field in fields:
-                if field["type"] == "file" and re.search(
-                    r"resume|curriculum|\bcv\b", field["question"], re.I
-                ):
-                    with contextlib.suppress(ValueError, OSError):
-                        resume = self.resume_file()
-                        if resume and not field["multiple"]:
-                            answers[field["id"]] = resume
-                if field["required"] and (
-                    field["id"] not in answers or LEGAL.search(field["question"])
-                ):
-                    self.review.remember(field, job)
-                    missing.append(field["question"])
-            if missing:
-                return self.result(
-                    "skipped_screening",
-                    "External application needs confirmed answers or direct consent: "
-                    + "; ".join(missing)[:800],
-                    page.url,
-                )
-            # No transmission until every currently required answer is available.
-            for field in fields:
-                if field["id"] in answers:
-                    if urlsplit(field["action"]).netloc != urlsplit(frame.url).netloc:
-                        return self.result(
-                            "skipped_external",
-                            "Employer form posts to another origin; review the destination directly.",
-                            page.url,
-                        )
-                    try:
-                        await self.fill(frame, field, answers[field["id"]])
-                    except BrowserError:
-                        self.review.remember(field, job)
-                        return self.result(
-                            "skipped_screening",
-                            "Employer field could not accept its saved answer: "
-                            + field["question"],
-                            page.url,
-                        )
-            fresh = await frame.evaluate(FORM_SCRIPT)
-            # Dynamic questions and failed custom widgets must be re-evaluated.
-            before = [(f["signature"], f["required"]) for f in fields]
-            after = [(f["signature"], f["required"]) for f in fresh["fields"]]
-            if before != after:
-                continue
-            invalid = [
-                f for f in fresh["fields"] if f["invalid"] or (f["required"] and not f["value"])
-            ]
-            if invalid:
-                return self.result(
-                    "skipped_screening",
-                    "Employer rejected field values; review: "
-                    + "; ".join(f["question"] for f in invalid)[:800],
-                    page.url,
-                )
-            next_buttons = [b for b in fresh["buttons"] if NEXT.fullmatch(b["text"].strip())]
-            submit_buttons = [b for b in fresh["buttons"] if SUBMIT.fullmatch(b["text"].strip())]
-            choices = next_buttons or submit_buttons
-            if len(choices) != 1:
-                return self.result(
-                    "skipped_external",
-                    "Employer action is missing or ambiguous; review the application directly.",
-                    page.url,
-                )
-            action = choices[0]
-            target = urljoin(frame.url, action["href"] or action["formAction"])
-            if (
-                not await public_https(target)
-                or urlsplit(target).netloc != urlsplit(frame.url).netloc
-            ):
-                return self.result(
-                    "skipped_external",
-                    "Employer action changes the destination; review it directly.",
-                    page.url,
-                )
-            final = had_form and not next_buttons
-            if self.settings.application.dry_run:
-                return self.result(
-                    "skipped_dry_run",
-                    "External fields validated; dry run did not click Next or Submit.",
-                    page.url,
-                )
-            if final:
-                self.submitted = True
-            await frame.locator(f'[data-applyos-button="{action["id"]}"]').click(timeout=5000)
-            if final:
-                for _ in range(10):
-                    await asyncio.sleep(0.5)
-                    if any(s["confirmation"] for _, s in await self.snapshot(page)):
-                        logger.info(
-                            "External employer confirmed application: %s @ %s",
-                            job.title,
-                            job.company,
-                        )
-                        return self.result(
-                            "applied",
-                            "Employer explicitly confirmed the application was received.",
-                            page.url,
-                        )
-                return self.result(
-                    "uncertain",
-                    "Employer has not confirmed receipt after Submit. Review before retrying.",
-                    page.url,
-                )
+        try:
+            for _step in range(10):
+                await asyncio.sleep(1)
+                if not await public_https(page.url):
+                    raise ExternalReview("Employer redirected to an unsupported destination.")
+                states = await self.ready_states(page)
+                self.check_states(states)
+                frame, state = self.select_form(states)
+                self.check_progress(frame, state, seen)
+                fields = state["fields"]
+                had_form = had_form or bool(fields)
+                answers = await self.prepare_answers(fields, job)
+                await self.fill_answers(frame, fields, answers, job)
+                fresh = await frame.evaluate(FORM_SCRIPT)
+                before = [(f["signature"], f["required"]) for f in fields]
+                after = [(f["signature"], f["required"]) for f in fresh["fields"]]
+                if before != after:
+                    continue
+                self.validate_fields(fresh["fields"])
+                action, final = await self.select_action(frame, fresh, had_form)
+                result = await self.advance(page, frame, action, final, job)
+                if result:
+                    return result
+        except ExternalReview as review:
+            return self.result(review.status, str(review), page.url)
         return self.result(
             "skipped_external",
             "External form exceeded the step limit; complete the remaining steps directly.",

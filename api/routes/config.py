@@ -179,7 +179,7 @@ async def get_config():
         },
     }
 
-@router.put("/api/config")
+@router.put("/api/config", responses={422: {"description": "Invalid settings or missing Gemini key for external applications"}})
 async def update_config(update: ConfigUpdate):
     from src.naukri_agent.config.settings import get_settings
 

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from urllib.parse import urlsplit
 
 
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
@@ -17,6 +18,7 @@ from src.linked_agent.models.entities import Job
 from src.linked_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
+LINKEDIN_HOSTS = ("www.linkedin.com", "linkedin.com")
 
 
 class LinkedInJobApplier:
@@ -131,9 +133,9 @@ class LinkedInJobApplier:
                 listener_active = False
                 opened_external_pages = []
 
-                async def on_popup(popup):
+                async def on_popup(popup, opened_pages=opened_external_pages):
                     nonlocal new_page_url
-                    opened_external_pages.append(popup)
+                    opened_pages.append(popup)
                     try:
                         await popup.wait_for_load_state("domcontentloaded", timeout=10000)
                         new_page_url = popup.url
@@ -154,12 +156,12 @@ class LinkedInJobApplier:
                             return await self._apply_external(page, new_page_url, job)
 
                         current_url = page.url
-                        if "linkedin.com" not in current_url:
+                        if urlsplit(current_url).hostname not in LINKEDIN_HOSTS:
                             return await self._apply_external(page, current_url, job)
 
                         # Only close pages that are external (not LinkedIn), not all other pages
                         for p in page.context.pages:
-                            if p != page and "linkedin.com" not in (p.url or ""):
+                            if p != page and urlsplit(p.url or "").hostname not in LINKEDIN_HOSTS:
                                 try:
                                     ext_url = p.url
                                     await p.close()
@@ -191,8 +193,7 @@ class LinkedInJobApplier:
                             page.context.remove_listener("page", on_popup)
                         listener_active = False
                     for external_page in opened_external_pages:
-                        from urllib.parse import urlsplit
-                        if urlsplit(external_page.url).hostname not in ("www.linkedin.com", "linkedin.com"):
+                        if urlsplit(external_page.url).hostname not in LINKEDIN_HOSTS:
                             with contextlib.suppress(Exception):
                                 await external_page.close()
 

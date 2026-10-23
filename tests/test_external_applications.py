@@ -77,7 +77,8 @@ async def test_gemini_binds_first_and_last_name_with_native_ai_disabled(employer
     assert (await run(worker, page, job))["status"] == "applied"
     assert await page.evaluate("window.count") == 1
     prompt = worker.provider.generate_content.call_args.kwargs["prompt"]
-    assert "fixture-key" not in prompt and "test@example.test" in prompt
+    assert "fixture-key" not in prompt
+    assert "test@example.test" in prompt
     assert not worker.settings.ai.use_gemini
 
 
@@ -380,3 +381,27 @@ async def test_linkedin_external_toggle_routes_to_same_handler(tmp_path):
     )
     assert result["status"] == "applied"
     external.apply.assert_awaited_once()
+
+
+@pytest.mark.parametrize("platform", ["naukri_agent", "linked_agent"])
+def test_dependency_factory_passes_same_saved_profile_to_external_handler(tmp_path, platform):
+    import importlib
+
+    factory_module = importlib.import_module(f"src.{platform}.bot.factory")
+    settings_module = importlib.import_module(f"src.{platform}.config.settings")
+    factory_type = (
+        getattr(factory_module, "DependencyFactory", None)
+        or factory_module.LinkedInDependencyFactory
+    )
+    settings = settings_module.Settings(
+        project_root=tmp_path, ai={"use_gemini": False}, application={"skip_external_apply": False}
+    )
+    factory = factory_type(settings)
+    factory._browser_engine = SimpleNamespace(page=MagicMock())
+    factory._browser_interactions = MagicMock()
+    profile = ResumeProfile(name="Example Candidate")
+    answerer = factory.create_question_answerer(profile)
+    applier = factory.create_job_applier(answerer)
+    assert applier._external_applier.profile is profile
+    assert applier._external_applier.settings is settings
+    assert not settings.ai.use_gemini
