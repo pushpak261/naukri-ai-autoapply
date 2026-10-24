@@ -202,6 +202,7 @@ class JobSearcher:
 
         # Bound max_pages defensively to valid pagination limits (1 to 100)
         query_seen_ids = set()
+        previous_end = None
         safe_max_pages = max(1, min(100, max_pages))
         for page_num in range(1, safe_max_pages + 1):
             if should_stop and should_stop():
@@ -248,6 +249,23 @@ class JobSearcher:
                 no_results = await self._search_page.has_no_results()
                 if no_results:
                     log_warning(f"No results found for page {page_num}")
+                    break
+
+                read_window = getattr(self._search_page, "result_window", None)
+                window = await read_window() if read_window else None
+                window = window if isinstance(window, dict) else None
+                if window and (
+                    (page_num == 1 and window["start"] != 1)
+                    or (previous_end is not None and window["start"] != previous_end + 1)
+                ):
+                    logger.warning(
+                        "Result pagination reset for %s in %s on page %s; "
+                        "unrelated fallback results were not collected.",
+                        keyword, location, page_num,
+                    )
+                    self.failed_searches.append(
+                        f"{keyword} in {location}, page {page_num}: result range reset"
+                    )
                     break
 
                 # Parse job cards
@@ -305,6 +323,17 @@ class JobSearcher:
                 logger.info(
                     f"Page {page_num}: found {len(filtered_jobs)} valid jobs (filtered out {len(jobs_on_page) - len(filtered_jobs)})"
                 )
+
+                if window:
+                    previous_end = window["end"]
+                    if previous_end >= window["total"]:
+                        logger.info(
+                            "Reached the last result (%s/%s) for this query; stopping pagination.",
+                            previous_end, window["total"],
+                        )
+                        break
+                else:
+                    previous_end = None
 
                 # Delay between pages
                 await random_delay(2, 5)

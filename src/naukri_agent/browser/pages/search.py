@@ -98,6 +98,22 @@ class SearchPage(BasePage):
         """Check if there are no search results on the page."""
         return await self._engine.page.evaluate(SEARCH_STATE_JS) == "empty"
 
+    async def result_window(self) -> dict[str, int] | None:
+        """Read Naukri's visible result range, without guessing from card count."""
+        return await self._engine.page.evaluate(r"""() => {
+            const pattern = /^(\d[\d,]*)\s*[-–]\s*(\d[\d,]*)\s+of\s+(\d[\d,]*)\+?$/i;
+            for (const node of document.querySelectorAll('span, div, p')) {
+                if (node.closest('article, [class*="jobTuple"], [class*="srp-jobtuple"], [class*="job-desc"], [class*="jobDescription"]')) continue;
+                const text = (node.innerText || '').trim().replace(/\s+/g, ' ');
+                if (text.length > 60) continue;
+                const match = text.match(pattern);
+                if (!match || !node.getClientRects().length || getComputedStyle(node).visibility === 'hidden') continue;
+                const [start, end, total] = match.slice(1).map(value => Number(value.replaceAll(',', '')));
+                if (start > 0 && start <= end && end <= total) return {start, end, total};
+            }
+            return null;
+        }""")
+
     async def scroll_to_load(self) -> None:
         """Perform a gradual scroll to load all dynamic content/cards."""
         await self._interactions.scroll_to_bottom_gradually(max_scrolls=15, scroll_step=600)

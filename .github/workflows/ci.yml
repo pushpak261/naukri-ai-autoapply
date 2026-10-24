@@ -62,7 +62,7 @@ jobs:
           pip install -r requirements.txt -r requirements-dev.txt
           python -m playwright install --with-deps chromium
       - name: Verify offline browser forms and submission safety
-        run: pytest tests/test_offline_workflows.py tests/test_linkedin_modern_search.py tests/test_apply_flow_audit.py tests/test_naukri_production_flow.py tests/test_offline_screening_completion.py tests/test_naukri_search_loading.py tests/test_naukri_chatbot_reliability.py tests/test_external_applications.py -q
+        run: pytest tests/test_offline_workflows.py tests/test_linkedin_modern_search.py tests/test_apply_flow_audit.py tests/test_naukri_production_flow.py tests/test_offline_screening_completion.py tests/test_naukri_search_loading.py tests/test_naukri_chatbot_reliability.py tests/test_naukri_pagination_boundaries.py tests/test_external_applications.py -q
 
   frontend:
     runs-on: ubuntu-latest
