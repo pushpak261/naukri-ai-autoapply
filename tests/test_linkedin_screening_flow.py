@@ -339,7 +339,8 @@ async def test_modern_radio_group_uses_outer_question_heading(search_page):
     employment, notice = await page.extract_screening_questions()
     assert employment["question"] == "Are you currently employed?*"
     assert notice["question"] == "Are you serving notice?*"
-    assert employment["is_required"] and notice["is_required"]
+    assert employment["is_required"]
+    assert notice["is_required"]
     assert await page.fill_answer(employment, "Yes")
     assert await page.fill_answer(notice, "No")
     assert await tab.locator("#employed-yes").is_checked()
