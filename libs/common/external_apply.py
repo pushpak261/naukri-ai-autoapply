@@ -250,18 +250,19 @@ class ExternalJobApplier:
                 service_workers="block", accept_downloads=False
             )
             return await self.visit_employer(context, url, job)
-        except Exception:
+        except Exception as error:
             # Never log form values, API credentials or token-bearing ATS URLs.
             logger.warning(
-                "External application interrupted (%s).",
+                "External application interrupted (%s; %s).",
                 "after submit" if self.submitted else "before submit",
+                type(error).__name__,
             )
             return self.result(
                 "uncertain" if self.submitted else "skipped_external",
                 (
                     "Employer submission needs verification; do not retry blindly."
                     if self.submitted
-                    else "External form could not be completed; review the employer link or Gemini connection."
+                    else f"External form failed before submit ({type(error).__name__}); no submission was attempted. Review the employer link or Gemini connection."
                 ),
                 url,
             )

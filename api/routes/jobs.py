@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import joinedload
 
 from api.deps import state
@@ -365,7 +365,15 @@ async def get_job(job_id: int):
             raise HTTPException(status_code=404, detail="Job not found")
 
         app_result = await session.execute(
-            select(DBApplication).where(DBApplication.job_id == job.id)
+            select(DBApplication).where(DBApplication.job_id == job.id).order_by(
+                case(
+                    (DBApplication.status == "applied", 0),
+                    (DBApplication.status.in_(["applying", "uncertain", "skipped_already_applied"]), 1),
+                    else_=2,
+                ),
+                DBApplication.applied_at.desc(),
+                DBApplication.id.desc(),
+            ).limit(1)
         )
         app = app_result.scalar_one_or_none()
 

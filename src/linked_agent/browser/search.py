@@ -19,6 +19,7 @@ from playwright.async_api import Error as PlaywrightError
 
 from src.linked_agent.browser.pages.search import LinkedInSearchPage
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
+from src.linked_agent.browser.navigation import NetworkUnavailableError
 from src.linked_agent.config.constants import LINKEDIN_RATE_LIMIT_DELAY
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.bot.interfaces import IBrowserEngine
@@ -259,7 +260,7 @@ class LinkedInJobSearcher:
 
                     page_jobs = await self._search_page.parse_job_cards(search_url=search_url)
 
-                except (LoginError, RateLimitError):
+                except (LoginError, RateLimitError, NetworkUnavailableError):
                     raise
                 except Exception as e:
                     logger.warning(f"Search page {page_num + 1} failed: {e}")
@@ -280,7 +281,7 @@ class LinkedInJobSearcher:
                         break
                     search_url = self._engine.page.url
                     page_jobs = await self._search_page.parse_job_cards(search_url=search_url)
-                except (LoginError, RateLimitError):
+                except (LoginError, RateLimitError, NetworkUnavailableError):
                     raise
                 except Exception as e:
                     logger.warning(f"Click pagination page {page_num + 1} failed: {e}")

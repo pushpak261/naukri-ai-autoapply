@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -118,13 +118,33 @@ class ScreeningReviewStore:
                 "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, resolved_from_facts=0",
                 (identifier, key, text, field, json.dumps(options), datetime.now(UTC).isoformat()),
             )
-            job_id = getattr(job, "id", None)
+            job_id = self._dashboard_job_id(job)
             if isinstance(job_id, int) and job_id > 0:
                 connection.execute(
                     "INSERT OR IGNORE INTO affected_jobs VALUES(?,?,?)",
                     (identifier, job_id, str(getattr(job, "title", ""))[:300]),
                 )
         return identifier
+
+    def _dashboard_job_id(self, job):
+        """LinkedIn's private database IDs must never queue unrelated dashboard jobs."""
+        linkedin_id = getattr(job, "linkedin_job_id", "")
+        if not linkedin_id:
+            return getattr(job, "id", None)
+        database = self.path.with_name("naukri_agent.db")
+        if not database.is_file():
+            return None
+        try:
+            with closing(
+                sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+            ) as connection:
+                row = connection.execute(
+                    "SELECT id FROM jobs WHERE naukri_job_id=? AND source='linkedin'",
+                    ("li_" + str(linkedin_id),),
+                ).fetchone()
+                return row[0] if row else None
+        except sqlite3.DatabaseError:
+            return None
 
     def mark_resolved_from_facts(self, question, job):
         """Close a validated field's pending prompt without caching it as a user answer."""

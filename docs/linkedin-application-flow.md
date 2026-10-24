@@ -48,3 +48,26 @@ Parallel mode also provides a Stop button for each platform, using the existing
 platform-specific stop endpoint.
 Saved listings can also start the normal agent pipeline directly from Job details,
 with the same eligibility, duplicate, validation and submission checks.
+
+Application steps wait for usable form content instead of treating a dialog
+heading or loading spinner as a completed step. Inert, hidden and transparent
+search popovers cannot replace the active application dialog. Native HTML dialogs
+also support resume uploads. A form that stalls before Submit is a retryable
+failure; only a submission attempt without a receipt is uncertain.
+
+LinkedIn uses Chromium's normal process model so an isolated employer context can
+open and close without disconnecting the source browser. Employer failures expose
+the exception category without logging personal form values or token-bearing URLs.
+Transient network failures retry the same URL four times with bounded delays.
+Persistent outages stop the run with a connectivity error instead of rejecting
+remaining listings as unsuitable. Matching rejections include their saved reason
+in the live output. Disabled email notifications retain the local report without
+attempting an email.
+LinkedIn's custom "Invalid input" feedback is checked in addition to HTML
+validity. When a text control rejects units, known salary and notice facts can
+use their numeric representation, preserving annual currency conversion. A
+confirmed day/month/year birth date can use the same date as eight digits when
+the platform rejects separators. Unknown facts are never replaced by numbers.
+LinkedIn question reviews resolve the mirrored dashboard job ID before queueing
+a retry. Job details support multiple attempts while retaining any prior applied,
+applying or uncertain status as a submission guard.

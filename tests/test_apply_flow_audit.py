@@ -11,8 +11,10 @@ from src.linked_agent.models.entities import Job
 def detail():
     page = MagicMock()
     page.wait_for_apply_modal = AsyncMock(return_value=True)
+    page.wait_for_apply_step = AsyncMock(return_value=True)
     page.has_submit_success = AsyncMock(side_effect=[False, True])
     page.submit_application = AsyncMock(return_value=True)
+    page.click_review = AsyncMock(return_value=True)
     page.unfollow_company = AsyncMock()
     page.fill_answer = AsyncMock(return_value=True)
     page.page.evaluate = AsyncMock(return_value=True)

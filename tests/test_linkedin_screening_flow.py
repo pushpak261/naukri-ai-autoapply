@@ -96,7 +96,7 @@ async def test_hidden_modals_and_invalid_required_fields_cannot_submit(search_pa
 @pytest.mark.asyncio
 @pytest.mark.parametrize("native_dialog", [False, True])
 async def test_offline_multistep_application_answers_dynamic_questions_then_submits_once(
-    search_page, tmp_path, monkeypatch, native_dialog
+    search_page, tmp_path, monkeypatch, native_dialog, caplog
 ):
     from src.linked_agent.browser.apply import LinkedInJobApplier
     from src.linked_agent.config.settings import Settings
@@ -151,6 +151,7 @@ async def test_offline_multistep_application_answers_dynamic_questions_then_subm
     assert result["status"] == "applied", result
     assert await tab.evaluate("window.submissions") == 1
     assert await tab.locator("body").get_attribute("data-experience") == "1"
+    assert "candidate@example.invalid" not in caplog.text
 
 
 @pytest.mark.asyncio

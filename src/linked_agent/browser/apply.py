@@ -290,6 +290,10 @@ class LinkedInJobApplier:
                 logger.info(f"Successfully applied to (0-step): {job.title} @ {job.company}")
                 return {"status": ApplicationStatus.APPLIED}
 
+            if not await self._detail_page.wait_for_apply_step():
+                await self._detail_page.close_apply_modal()
+                return self._unfinished_form_result("Application form did not finish loading.")
+
             # Extract questions from current step FIRST
             questions = await self._detail_page.extract_screening_questions()
 
@@ -309,7 +313,7 @@ class LinkedInJobApplier:
                 # (pre-filled form or info-only step)
                 has_submit = await page.evaluate("""
                 () => {
-                    const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                    const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                     if (!modal) return false;
                     const btns = modal.querySelectorAll('button');
                     for (const b of btns) {
@@ -342,7 +346,7 @@ class LinkedInJobApplier:
             else:
                 stuck_count = 0
 
-            logger.info(f"Step {step} questions: {len(questions)} — {[(q.get('question','')[:40], q.get('field_type',''), q.get('current_value','')[:20]) for q in questions]}")
+            logger.info(f"Step {step} questions: {len(questions)} — {[(q.get('question','')[:40], q.get('field_type',''), 'prefilled' if q.get('current_value') else 'empty') for q in questions]}")
 
             # Only a resume/CV field may receive the selected resume.
             for fq in (q for q in questions if q.get('field_type') == 'file'):
@@ -367,7 +371,7 @@ class LinkedInJobApplier:
             non_file_questions = [
                 q for q in questions
                 if q.get("field_type") != "file"
-                and str(q.get('current_value') or '').strip().casefold() in ('', 'select', 'select an option', '--select--', 'choose')
+                and (q.get('validation_error') or str(q.get('current_value') or '').strip().casefold() in ('', 'select', 'select an option', '--select--', 'choose'))
                 and not any(q.get("question", "").lower().startswith(p) for p in SKIP_PATTERNS)
             ]
             if non_file_questions:
@@ -393,7 +397,7 @@ class LinkedInJobApplier:
                             break
                         if not filled and q.get('required', q.get('is_required', True)):
                             return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a required screening field. Review the application form."}
-                        logger.info(f"Step {step} fill '{q.get('question','')[:30]}' = '{answer_text[:30]}': {filled}")
+                        logger.info(f"Step {step} fill '{q.get('question','')[:30]}': {filled}")
                         await asyncio.sleep(0.5)
                     else:
                         logger.warning(f"Step {step} empty answer for '{q.get('question','')[:30]}' — skipping")
@@ -412,7 +416,7 @@ class LinkedInJobApplier:
             # AFTER filling questions, check for Review/Submit (end of form)
             has_submit = await page.evaluate("""
             () => {
-                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                 if (!modal) return false;
                 const btns = modal.querySelectorAll('button');
                 for (const b of btns) {
@@ -428,7 +432,7 @@ class LinkedInJobApplier:
 
             has_review = await page.evaluate("""
             () => {
-                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                 if (!modal) return false;
                 const btns = modal.querySelectorAll('button');
                 for (const b of btns) {
@@ -441,7 +445,9 @@ class LinkedInJobApplier:
             """)
             if has_review:
                 logger.info(f"Step {step}: Review button found — clicking")
-                await self._detail_page.click_review()
+                review_clicked = await self._detail_page.click_review()
+                if not review_clicked:
+                    return self._unfinished_form_result("Review is unavailable or the form has validation errors.")
                 # Wait for review page to fully load
                 await asyncio.sleep(3)
 
@@ -449,7 +455,7 @@ class LinkedInJobApplier:
                 review_state = {}
                 try:
                     review_state = await page.evaluate("""() => {
-                        const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                        const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                         if (!modal) return {found: false};
                         const btns = [];
                         modal.querySelectorAll('button').forEach(b => {
@@ -463,7 +469,7 @@ class LinkedInJobApplier:
                         });
                         return {found: true, buttons: btns, text: (modal.innerText || '').substring(0, 300)};
                     }""")
-                    logger.info(f"Step {step}: Post-Review modal state: {review_state}")
+                    logger.info(f"Step {step}: Post-Review buttons: {review_state.get('buttons', [])}")
                 except Exception as e:
                     logger.debug(f"Could not dump review state: {e}")
 
@@ -485,7 +491,7 @@ class LinkedInJobApplier:
                         # Click Back to return to form
                         await page.evaluate("""
                         () => {
-                            const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                            const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                             if (!modal) return;
                             const btns = modal.querySelectorAll('button');
                             for (const b of btns) {
@@ -518,7 +524,7 @@ class LinkedInJobApplier:
                     return {"status": ApplicationStatus.APPLIED}
                 modal_still = await self._detail_page.wait_for_apply_modal(timeout=3000)
                 if not modal_still:
-                    return {"status": ApplicationStatus.UNCERTAIN, "error_message": "No platform confirmation; review before retrying."}
+                    return self._unfinished_form_result("Application dialog closed before completion.")
                 logger.warning(f"No Next button at step {step} — form may be complete or stuck")
                 break
 
@@ -532,10 +538,14 @@ class LinkedInJobApplier:
             return {"status": ApplicationStatus.APPLIED}
         modal_open = await self._detail_page.wait_for_apply_modal(timeout=3000)
         if not modal_open:
-            return {"status": ApplicationStatus.UNCERTAIN, "error_message": "No platform confirmation; review before retrying."}
+            return self._unfinished_form_result("Application dialog closed before completion.")
 
         await self._detail_page.close_apply_modal()
-        return {
-            "status": ApplicationStatus.UNCERTAIN,
-            "error_message": f"Application flow completed {step} steps without clear result",
-        }
+        return self._unfinished_form_result(f"Application form stalled at step {step}.")
+
+    def _unfinished_form_result(self, reason):
+        if getattr(self, "_submission_attempted", False):
+            return {"status": ApplicationStatus.UNCERTAIN,
+                    "error_message": "Submission needs confirmation; review before retrying."}
+        return {"status": ApplicationStatus.FAILED,
+                "error_message": reason + " No submission was attempted; this job can be retried."}

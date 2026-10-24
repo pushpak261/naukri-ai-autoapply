@@ -30,6 +30,7 @@ from src.linked_agent.utils.similarity import LinkedInVectorSimilarityFilter
 from src.linked_agent.browser.apply import LinkedInJobApplier
 from src.linked_agent.browser.login import LinkedInLoginHandler
 from src.linked_agent.browser.search import LinkedInJobSearcher
+from src.linked_agent.browser.navigation import NetworkUnavailableError, navigate
 from src.linked_agent.config.constants import ApplicationStatus
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.models.entities import Job, JobApplication, ResumeProfile
@@ -344,6 +345,10 @@ class LinkedInAgent:
             self._run_error = True
             self._interrupted = True
             log_warning(f'LinkedIn run stopped: {e} No further applications will be attempted.')
+        except NetworkUnavailableError as e:
+            self._run_error = True
+            self._interrupted = True
+            log_warning(str(e))
         except Exception as e:
             self._run_error = True
             if self._interrupted:
@@ -645,7 +650,8 @@ class LinkedInAgent:
             if not match_result.should_apply or match_score < threshold:
                 log_info(
                     f"Skipping: {job.title} @ {job.company} "
-                    f"(score: {match_score:.1f}, threshold: {threshold}%, approved: {match_result.should_apply})"
+                    f"(score: {match_score:.1f}, threshold: {threshold}%, approved: {match_result.should_apply}). "
+                    f"Reason: {match_result.match_reasoning}"
                 )
                 if self._repo and db_job and db_job.id is not None:
                     await self._repo.save_application(
@@ -795,7 +801,7 @@ class LinkedInAgent:
         for attempt in range(2):
             try:
                 logger.debug(f"Navigating to sidebar (attempt {attempt+1}): {target_url[:120]}")
-                await page.goto(target_url, wait_until="domcontentloaded", timeout=30000)
+                await navigate(page, target_url)
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
                 await asyncio.sleep(2)
@@ -813,6 +819,8 @@ class LinkedInAgent:
 
                 logger.warning(f"Sidebar navigation redirected: {current_url[:100]}")
 
+            except NetworkUnavailableError:
+                raise
             except Exception as e:
                 logger.warning(f"Sidebar navigation attempt {attempt+1} failed: {e}")
                 if attempt == 0:
@@ -822,13 +830,15 @@ class LinkedInAgent:
         if job.url:
             try:
                 logger.info(f"Falling back to direct job URL: {job.url[:80]}")
-                await page.goto(job.url, wait_until="domcontentloaded", timeout=30000)
+                await navigate(page, job.url)
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
                 await asyncio.sleep(2)
                 if _matches_job_url(page.url, job_id):
                     await self._wait_for_listing_content(page)
                     return True
+            except NetworkUnavailableError:
+                raise
             except Exception as e:
                 logger.warning(f"Direct job URL navigation failed: {e}")
 
@@ -880,10 +890,12 @@ class LinkedInAgent:
             getattr(self._settings.application, "collect_external_jobs", False)
             and self._external_jobs
         ):
+            self._save_local_report()
             try:
-                await asyncio.to_thread(
-                    send_external_jobs_email, self._external_jobs, self._settings
-                )
+                if self._settings.application.email_notifications_enabled:
+                    await asyncio.to_thread(
+                        send_external_jobs_email, self._external_jobs, self._settings
+                    )
             except Exception as e:
                 logger.error(f"Failed to send external jobs email: {e}")
 
