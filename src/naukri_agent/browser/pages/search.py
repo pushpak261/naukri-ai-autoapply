@@ -27,7 +27,7 @@ SEARCH_STATE_JS = r"""() => {
     const cards = document.querySelectorAll('[class*="srp-jobtuple"], [class*="jobTuple"], article[class*="job"], [class*="sjw__tuple"], [class*="cust-job-tuple"]');
     if ([...cards].some(card => {
         const title = card.querySelector('a[class*="title"][href]');
-        return title && visible(title) && title.textContent.trim();
+        return !card.closest('aside, [class*="recommend" i]') && title && visible(title) && title.textContent.trim();
     })) return 'results';
     if (/no matching jobs|no jobs found|no results found|\b0 (?:jobs|results) found/i.test(text)) return 'empty';
     return null;
@@ -121,7 +121,9 @@ class SearchPage(BasePage):
                 for (const card of cards) {
                     try {
                         const titleElem = card.querySelector('a[class*="title"]');
-                        if (!titleElem) continue;
+                        if (!titleElem || !titleElem.getClientRects().length ||
+                            getComputedStyle(titleElem).visibility === 'hidden' ||
+                            card.closest('aside, [class*="recommend" i]')) continue;
 
                         const title = titleElem.innerText.trim();
                         let url = titleElem.getAttribute('href') || '';

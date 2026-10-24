@@ -173,7 +173,7 @@ class JobSearcher:
             if not queue.empty():
                 await random_delay(3, 6)
 
-        logger.info(
+        logger.debug(
             "Final scraped jobs dictionary:\n"
             + "\n".join(
                 f"  - '{job_id}': {j.title} @ {j.company}" for job_id, j in all_jobs.items()
@@ -182,7 +182,7 @@ class JobSearcher:
         jobs_list = list(all_jobs.values())
         if self.failed_searches and not jobs_list:
             raise SearchLoadError(f"{len(self.failed_searches)} searches failed; no verified search results were obtained.")
-        logger.info(
+        logger.debug(
             "Final scraped jobs list:\n"
             + "\n".join(f"  - {j.title} @ {j.company} (ID: {j.naukri_job_id})" for j in jobs_list)
         )

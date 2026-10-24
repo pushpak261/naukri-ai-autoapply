@@ -57,6 +57,8 @@ class JobApplier:
         self._settings = settings
         self._qa = question_answerer
         self._external_applier = external_applier
+        self._chatbot_managed = False
+        self._chatbot_submission_uncertain = False
 
     async def apply_to_job(self, job: Job) -> dict:
         """
@@ -170,6 +172,8 @@ class JobApplier:
         - Chatbot-style Q&A
         - Resume upload prompt
         """
+        self._chatbot_managed = False
+        self._chatbot_submission_uncertain = False
         # Wait a moment for the apply modal/flow to appear
         await asyncio.sleep(2)
 
@@ -188,8 +192,8 @@ class JobApplier:
                         "error_message": f"Skipped: {failure_msg} and answer_questions_with_pdf is false",
                     }
                 # If answer_questions_with_pdf is true, don't treat unanswered
-                # questions as a failure â€” fall through to screening detection
-                log_info("Mandatory fields detected â€” proceeding to fill screening questions")
+                # questions as a failure — fall through to screening detection
+                log_info("Mandatory fields detected — proceeding to fill screening questions")
             else:
                 log_error(f"Application failed: {failure_msg}")
                 return {
@@ -215,18 +219,26 @@ class JobApplier:
                     "error_message": "Skipped: Screening questions detected and answer_questions_with_pdf is false",
                 }
 
-            log_info("Screening questions detected â€” filling from candidate evidence...")
+            log_info("Screening questions detected — filling from candidate evidence...")
 
-            # Save-then-Submit loop: fill â†’ save intermediate â†’ submit â†’ retry
+            # Save-then-Submit loop: fill → save intermediate → submit → retry
             for submit_attempt in range(1):
                 answered = await self._fill_screening_questions(job)
                 if not answered:
+                    if self._chatbot_submission_uncertain:
+                        return {"status": ApplicationStatus.UNCERTAIN, "error_message": "Chatbot Save was clicked, but its result could not be verified. No second submission was attempted."}
                     log_warning("Could not fill all screening questions")
                     missing = "; ".join(getattr(self, "unanswered_questions", []))
                     return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Required screening answers need review: " + (missing or "Update the profile or review this form.")}
 
                 if await self._detail_page.check_application_success():
                     return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+
+                if self._chatbot_managed:
+                    # The chatbot runner owns Save and dynamic follow-ups.
+                    # Only observe a receipt here; do not submit a second time.
+                    submit_clicked = True
+                    break
 
                 # Let framework reactivity settle before submit
                 await asyncio.sleep(1)
@@ -239,7 +251,7 @@ class JobApplier:
                     await asyncio.sleep(1.5)
                     if await self._detail_page.check_application_success():
                         return {"status": ApplicationStatus.APPLIED, "error_message": ""}
-                    # After Save, more questions might appear â€” try extracting
+                    # After Save, more questions might appear — try extracting
                     more_questions = await self._detail_page.extract_screening_questions()
                     unfilled = [
                         q for q in more_questions
@@ -247,7 +259,7 @@ class JobApplier:
                         or (q.get("value") or "").strip().lower() in ("select", "--select--", "choose")
                     ]
                     if unfilled:
-                        logger.info(f"{len(unfilled)} more questions appeared after Save â€” filling them...")
+                        logger.info(f"{len(unfilled)} more questions appeared after Save — filling them...")
                         if not await self._fill_screening_questions(job):
                             return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Additional required screening answers need review."}
                         await asyncio.sleep(1)
@@ -267,7 +279,7 @@ class JobApplier:
                 # Check for failure indicators
                 failure_msg = await self._detail_page.check_application_failure()
                 if not failure_msg:
-                    # No failure â€” check success and proceed
+                    # No failure — check success and proceed
                     if await self._detail_page.check_application_success():
                         log_success(f"Applied successfully (with questions): {job.title}")
                         return {"status": ApplicationStatus.APPLIED, "error_message": ""}
@@ -357,7 +369,7 @@ class JobApplier:
             if await self._detail_page.is_already_applied():
                 log_success(f"Application confirmed (delayed button check): {job.title}")
                 return {"status": ApplicationStatus.APPLIED, "error_message": ""}
-        # 5. If answer_questions_with_pdf is False and a form is still visible â†’ screening form we couldn't parse
+        # 5. If answer_questions_with_pdf is False and a form is still visible → screening form we couldn't parse
         if not getattr(self._settings.application, "answer_questions_with_pdf", True):
             log_warning(
                 f"Unsubmitted form detected but 'answer_questions_with_pdf' is false. Skipping job: {job.title}"
@@ -367,10 +379,10 @@ class JobApplier:
                 "error_message": "Skipped: Unsubmitted form detected and answer_questions_with_pdf is false",
             }
 
-        log_warning(f"Application status uncertain: {job.title}")
+        logger.info("No receipt in the apply view; checking the original listing: %s", job.title)
         return {
             "status": ApplicationStatus.UNCERTAIN,
-            "error_message": "Status uncertain â€” could not confirm success indicator",
+            "error_message": "Status uncertain — could not confirm success indicator",
         }
 
     def _is_unanswered_questions_failure(self, failure_msg: str) -> bool:
@@ -400,6 +412,11 @@ class JobApplier:
         self.unanswered_questions = []
         self._verified_screening_answers = {}
         try:
+            chatbot = getattr(self._detail_page, "is_chatbot_flow", None)
+            if chatbot and await chatbot() is True:
+                from src.naukri_agent.browser.screening_chatbot import fill_chatbot
+                self._chatbot_managed = True
+                return await fill_chatbot(self, job)
             max_attempts = 8
             attempt = 0
             seen_questions: set[tuple[str, str]] = set()
@@ -419,12 +436,11 @@ class JobApplier:
                     logger.debug("No screening questions found via JS engine. Trying Playwright fallback...")
                     questions = await self._detect_questions_via_playwright()
                     if not questions:
-                        logger.debug("No screening questions detected via any method.")
-                        # Don't break â€” let force-fill handle any remaining fields
-                        if attempt >= 2:
-                            logger.warning("Giving up on question detection. Running force fill for all visible fields.")
-                            await self._force_fill_all_required_via_js()
-                            break
+                        if await self._detail_page._is_apply_modal_visible() is True:
+                            self.unanswered_questions = ["The active screening form could not be read"]
+                            return False
+                        logger.info("No screening fields remain; waiting for a platform receipt.")
+                        return True
 
                 # Filter for unfilled fields
                 unfilled_questions = []
@@ -468,7 +484,7 @@ class JobApplier:
                 )
                 if current_unfilled == last_unfilled_count:
                     if current_question_texts != last_question_texts:
-                        # Question text changed â€” chatbot advanced to a new question
+                        # Question text changed — chatbot advanced to a new question
                         logger.debug("Question text changed, resetting stale counter")
                         stale_iterations = 0
                     else:
@@ -688,6 +704,8 @@ class JobApplier:
 
             return True
 
+        except PlaywrightError:
+            raise
         except Exception as e:
             logger.error(f"Failed in screening questions loop: {e}")
             return False
