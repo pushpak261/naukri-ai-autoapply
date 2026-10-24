@@ -293,8 +293,8 @@ async def test_inline_receipt_is_bound_to_current_job_and_excludes_recommendatio
     await tab.route(
         "https://www.linkedin.com/**",
         lambda route: route.fulfill(
-                content_type="text/html",
-            body="<main><section><h2>Application status</h2><p>Application submitted</p></section></main>"
+            content_type="text/html",
+            body="<main><section><h2>Application status</h2><p>Application submitted</p></section></main>",
         ),
     )
     await tab.goto("https://www.linkedin.com/jobs/view/1234567/")
@@ -302,6 +302,10 @@ async def test_inline_receipt_is_bound_to_current_job_and_excludes_recommendatio
     assert not await inline_submission_confirmed(tab, "9999999")
     await tab.set_content(
         "<main><aside><h2>Application status</h2><p>Application submitted</p></aside><h1>Current job</h1><button>Easy Apply</button></main>"
+    )
+    assert not await inline_submission_confirmed(tab, "1234567")
+    await tab.set_content(
+        '<main><section aria-hidden="true"><h2>Application status</h2><p>Application submitted</p></section><button>Easy Apply</button></main>'
     )
     assert not await inline_submission_confirmed(tab, "1234567")
 
@@ -314,9 +318,9 @@ async def test_submit_with_inline_receipt_counts_once_after_modal_closes(
     await tab.route(
         "https://www.linkedin.com/**",
         lambda route: route.fulfill(
-                content_type="text/html",
+            content_type="text/html",
             body="""<main><section id="status"></section></main>
-      <dialog open><button onclick="document.body.dataset.submits=String(1+Number(document.body.dataset.submits||0));document.querySelector('#status').innerHTML='<h2>Application status</h2><p>Application submitted</p>';this.closest('dialog').remove()">Submit application</button></dialog>"""
+      <dialog open><button onclick="document.body.dataset.submits=String(1+Number(document.body.dataset.submits||0));document.querySelector('#status').innerHTML='<h2>Application status</h2><p>Application submitted</p>';this.closest('dialog').remove()">Submit application</button></dialog>""",
         ),
     )
     await tab.goto("https://www.linkedin.com/jobs/view/1234567/")

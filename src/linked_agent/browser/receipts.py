@@ -19,7 +19,7 @@ async def inline_submission_confirmed(page, job_id):
         r"""() => {
         const root = document.querySelector('main') || document.querySelector('section[aria-label="Primary content"]');
         if (!root) return false;
-        const visible = el => el.getClientRects().length && !el.closest('[inert],[hidden],aside,[componentkey^="JobDetailsSimilarJobs"]');
+        const visible = el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0' && !el.closest('[inert],[hidden],[aria-hidden="true"],aside,[componentkey^="JobDetailsSimilarJobs"]');
         const headings = [...root.querySelectorAll('h2,h3,h4')].filter(el=>visible(el) && /^application status$/i.test(el.innerText.trim()));
         return headings.some(heading => {
             for (let card=heading.parentElement; card && card !== root; card=card.parentElement) {
