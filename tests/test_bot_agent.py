@@ -432,6 +432,20 @@ class TestRun:
             await agent.run()
         log_error.assert_called_once_with("Agent error: JobSearcher not configured.")
 
+    async def test_failed_search_is_an_error_run_and_keeps_discovered_count(self, tmp_path):
+        from src.naukri_agent.utils.exceptions import SearchLoadError
+
+        agent = self._runnable(tmp_path)
+        agent._job_searcher.search_all.side_effect = SearchLoadError("Page-load error after retries")
+        agent._job_searcher.total_found = 12
+        with quiet_async(), stub_process_jobs() as process:
+            await agent.run()
+        assert agent._run_error is True
+        assert agent._jobs_found == 12
+        process.assert_not_awaited()
+        assert agent._repo.update_run_log.await_args.kwargs['status'] == 'error'
+        agent._engine.close.assert_awaited_once()
+
     async def test_missing_job_matcher_is_logged(self, tmp_path):
         agent = self._runnable(tmp_path, jobs=[java_job()])
         agent._job_matcher = None

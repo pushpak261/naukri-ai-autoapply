@@ -25,7 +25,7 @@ Orchestration flow:
 
 from __future__ import annotations
 
-from src.naukri_agent.utils.exceptions import LLMQuotaExceededError
+from src.naukri_agent.utils.exceptions import LLMQuotaExceededError, SearchLoadError
 
 import asyncio
 import contextlib
@@ -283,6 +283,10 @@ class NaukriAgent:
                 raise RuntimeError("JobSearcher not configured.")
             jobs = await searcher.search_all(should_stop=lambda: self._interrupted)
             self._jobs_found = max(self._jobs_found, len(jobs))
+            failed_searches = getattr(searcher, "failed_searches", [])
+            if isinstance(failed_searches, list) and failed_searches:
+                self._run_error = True
+                log_warning(f"Discovery was incomplete: {len(failed_searches)} searches/pages failed. Processing only verified results.")
 
             if self._interrupted:
                 log_warning(
@@ -391,6 +395,12 @@ class NaukriAgent:
         except LLMQuotaExceededError as e:
             self._run_error = True
             log_warning(f'Naukri run stopped: {e} No further applications will be attempted.')
+        except SearchLoadError as error:
+            self._run_error = True
+            found = getattr(self._job_searcher, "total_found", 0)
+            if isinstance(found, int):
+                self._jobs_found = max(self._jobs_found, found)
+            log_error(f"Naukri search failed: {error} Collected jobs remain saved; this run was not a successful empty search.")
         except Exception as e:
             self._run_error = True
             if self._interrupted:

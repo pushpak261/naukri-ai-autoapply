@@ -262,10 +262,10 @@ class TestBuildSearchUrlCoercion:
         assert "salary=20" in url
         assert "jobAge=3" in url
 
-    def test_sort_by_date_uses_d_suffix(self):
+    def test_sort_by_date_uses_f_suffix(self):
         url = build_search_url("go", sort_by="date")
 
-        assert "sort=d" in url
+        assert "sort=f" in url
 
 
 class TestExtractJobId:

@@ -36,6 +36,18 @@ def contains_skill(text, skill):
     )
 
 
+def software_development_role(title):
+    """Recognize development titles without equating every engineering discipline."""
+    return bool(
+        re.search(
+            r"\b(?:software(?:\s+development)?|applications?|back[ -]?end|front[ -]?end|"
+            r"full[ -]?stack|java|python|web|mobile)\s+(?:engineer|developer)\b|\b(?:programmer|sde)\b",
+            str(title or ""),
+            re.I,
+        )
+    )
+
+
 def local_match(profile, job, threshold):
     from src.naukri_agent.ai.resume_parser import DEFAULT_TECH_SKILLS
 
@@ -95,6 +107,9 @@ def local_match(profile, job, threshold):
         "of",
     }
     role_fit = bool(role_words & set(re.findall(r"[a-z]+", (job.title or "").casefold())))
+    role_fit = role_fit or (
+        software_development_role(profile.current_title) and software_development_role(job.title)
+    )
     if not role_words and len(matching) >= 2:
         # Older locally parsed profiles may have no job title. Supported stack
         # terms in the listing title can supply role evidence without inventing

@@ -220,7 +220,11 @@ async def test_search_persists_first_page_even_if_later_page_fails(tmp_path):
             Error("page two failed"),
         ]
         engine = MagicMock()
-        engine.page.url = "https://www.naukri.com/java-jobs?k=Java"
+
+        async def navigate(url):
+            engine.page.url = url
+
+        search.navigate_to_search.side_effect = navigate
         worker = JobSearcher(
             search, AsyncMock(), engine, Settings(project_root=tmp_path), repository=repo
         )

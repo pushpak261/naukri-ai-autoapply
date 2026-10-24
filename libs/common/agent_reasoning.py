@@ -17,28 +17,71 @@ main fit, missing requirements and uncertainty; do not provide hidden reasoning.
 
 
 def eligibility_concern(profile, job):
-    """Veto only an explicit numeric minimum the candidate does not meet."""
+    """Veto explicit minimums, including requirements contradicting card metadata."""
     experience = str(getattr(job, "experience", "") or "").lower()
     match = re.fullmatch(
         r"\s*(\d+(?:\.\d+)?)\s*(?:[-–]\s*\d+(?:\.\d+)?|\+)?\s*(?:years?|yrs?)\s*", experience
     )
-    if match is None:
-        # Do not interpret optional experience, calendar dates, or month counts.
-        match = re.search(
-            r"\bminimum\s+(?:of\s+)?(\d+(?:\.\d+)?)\s+years?\s+(?:of\s+)?(?:professional|work|relevant|industry)\s+experience\b",
-            str(getattr(job, "description", "") or ""),
-            re.I,
-        )
-    if not match:
+    minimums = [float(match[1])] if match else []
+    stated_minimum = description_experience_minimum(getattr(job, "description", ""))
+    if stated_minimum is not None:
+        minimums.append(stated_minimum)
+    if not minimums:
         return ""
     try:
         years = float(profile.total_experience_years)
-        minimum = float(match.group(1))
+        minimum = max(minimums)
     except (ValueError, TypeError, AttributeError):
         return ""
     if math.isfinite(years) and years >= 0 and minimum > years:
         return f"Eligibility check: listing explicitly requires at least {minimum:g} years; the saved resume records {years:g}. Review this mismatch before applying."
     return ""
+
+
+def description_experience_minimum(description):
+    """Read required work tenure; optional sections and business ages are not tenure."""
+    from libs.common.resume_facts import minimum_experience_years
+
+    duration = (
+        r"\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)"
+    )
+    work = r"(?:of\s+)?(?:(?:professional|work|relevant|industry|hands-on)\s+)?experience\b|(?:in|guiding|leading|owning|designing|building|developing|delivering|working)\b"
+    # Split required and preferred sections even in flattened scraped text.
+    parts = re.split(
+        r"\b(requirements|(?:minimum|required|preferred)\s+qualifications|your expertise|must have|nice to have|preferred\s+skills|benefits|responsibilities)\s*:?",
+        str(description or ""),
+        flags=re.I,
+    )
+    required = False
+    minimums = []
+    for index, part in enumerate(parts):
+        if index % 2:
+            required = " ".join(part.casefold().split()) in {
+                "requirements",
+                "minimum qualifications",
+                "required qualifications",
+                "your expertise",
+                "must have",
+            }
+            continue
+        for match in re.finditer(rf"(?<![\d.])({duration})\s+(?:{work})", part, re.I):
+            if _tenure_is_required(part, match, required):
+                minimums.append(minimum_experience_years(match[1]))
+    return max(minimums) if minimums else None
+
+
+def _tenure_is_required(part, match, required_section):
+    before = part[max(0, match.start() - 70) : match.start()]
+    after = part[match.end() : match.end() + 90]
+    if re.search(r"\b(?:lasting|lasts|duration(?:\s+of)?)\s*$", before, re.I):
+        return False
+    # A preference in a required section still isn't a mandatory minimum.
+    if re.search(r"\b(?:preferred|optional|ideally|desirable)\b[^.;\n]*$", before, re.I):
+        return False
+    if re.match(r"[^.;\n]*\b(?:preferred|optional|desirable)\b", after, re.I):
+        return False
+    explicit = re.search(r"\b(?:minimum(?:\s+of)?|at least|requires?|must have)\s*$", before, re.I)
+    return bool(required_section or explicit)
 
 
 def decision_fingerprint(profile, job, ai, threshold):

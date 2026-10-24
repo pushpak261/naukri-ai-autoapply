@@ -6,16 +6,32 @@ Encapsulates all search listing page actions and scraping evaluation scripts.
 from __future__ import annotations
 
 import asyncio
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
 from src.naukri_agent.browser.pages.base import BasePage
-from src.naukri_agent.config.constants import SearchSelectors
 from src.naukri_agent.models.entities import Job
 from src.naukri_agent.utils.helpers import clean_text, extract_naukri_job_id
 from src.naukri_agent.utils.logger import get_logger
+from src.naukri_agent.utils.exceptions import SearchAccessError, SearchLoadError
 
 logger = get_logger(__name__)
+
+SEARCH_STATE_JS = r"""() => {
+    const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+    const text = (document.body?.innerText || '').replace(/\s+/g, ' ').trim();
+    if (/access denied|verify (?:that )?you are human|complete (?:the |a )?captcha|unusual traffic|too many requests/i.test(text)) return 'blocked';
+    if (/\/nlogin\/login|\/account\/login/.test(location.pathname)) return 'login';
+    if (/oops!?\s*something went wrong|there was an error loading the page|service unavailable|temporarily unavailable/i.test(text)) return 'error';
+    const cards = document.querySelectorAll('[class*="srp-jobtuple"], [class*="jobTuple"], article[class*="job"], [class*="sjw__tuple"], [class*="cust-job-tuple"]');
+    if ([...cards].some(card => {
+        const title = card.querySelector('a[class*="title"][href]');
+        return title && visible(title) && title.textContent.trim();
+    })) return 'results';
+    if (/no matching jobs|no jobs found|no results found|\b0 (?:jobs|results) found/i.test(text)) return 'empty';
+    return null;
+}"""
 
 
 class SearchPage(BasePage):
@@ -32,53 +48,55 @@ class SearchPage(BasePage):
         logger.debug("Experience limits are enforced locally: %s-%s", min_exp, max_exp)
 
     async def navigate_to_search(self, search_url: str) -> None:
-        """Navigate to a specific job search URL with retries and race condition prevention."""
+        """Wait for actual results/empty state; retry render failures, never challenges."""
         page = self._engine.page
-
-        # Capture the current first job URL to detect when the results page has transitioned
-        old_job_url = None
-        try:
-            first_card = await page.query_selector('a[class*="title"]')
-            if first_card:
-                old_job_url = await first_card.get_attribute("href")
-        except Exception:
-            pass
-
+        active_url = search_url
         max_retries = 3
         for attempt in range(1, max_retries + 1):
             try:
                 logger.info(
-                    f"Navigating to search page (attempt {attempt}/{max_retries}): {search_url}"
+                    f"Navigating to search page (attempt {attempt}/{max_retries}): {active_url}"
                 )
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
-                await self._interactions.wait_for_navigation_complete()
-
-                # Wait for the DOM results to transition and settle (avoiding stale cards)
-                if old_job_url:
-                    for _ in range(25):  # Wait up to 5 seconds
-                        try:
-                            if await self.has_no_results():
-                                break
-                            new_card = await page.query_selector('a[class*="title"]')
-                            if new_card:
-                                new_job_url = await new_card.get_attribute("href")
-                                if new_job_url != old_job_url:
-                                    break
-                        except Exception:
-                            pass
-                        await asyncio.sleep(0.2)
-                else:
-                    await asyncio.sleep(2)
+                response = await page.goto(active_url, wait_until="domcontentloaded", timeout=60000)
+                if response and response.status in (401, 403, 429):
+                    raise SearchAccessError(f"Naukri search returned HTTP {response.status}; user action is required before restarting.")
+                if response and response.status >= 400:
+                    raise SearchLoadError(f"Naukri search returned HTTP {response.status}.")
+                await self._wait_for_search_state()
                 return
-            except (PlaywrightTimeoutError, PlaywrightError) as e:
+            except SearchAccessError:
+                raise
+            except (SearchLoadError, PlaywrightError) as e:
                 logger.warning(f"Navigation attempt {attempt} failed: {e}")
                 if attempt == max_retries:
-                    raise
+                    raise SearchLoadError(f"Naukri search failed after {max_retries} attempts: {e}") from e
+                # Keep keyword, location, page and filters. Only sorting is
+                # optional; local date sorting still runs in JobFilter.
+                parts = urlsplit(active_url)
+                query = parse_qsl(parts.query, keep_blank_values=True)
+                if any(key == "sort" for key, _ in query):
+                    active_url = urlunsplit(parts._replace(query=urlencode([(k,v) for k,v in query if k != "sort"])))
+                    logger.warning("Retrying the same search without server-side sorting; local filters remain active.")
                 await asyncio.sleep(2 * attempt)  # Exponential backoff
+
+    async def _wait_for_search_state(self) -> str:
+        try:
+            handle = await self._engine.page.wait_for_function(SEARCH_STATE_JS, timeout=20000)
+            try:
+                state = await handle.json_value()
+            finally:
+                await handle.dispose()
+        except PlaywrightTimeoutError as error:
+            raise SearchLoadError("Search did not render job cards or an explicit no-results message.") from error
+        if state in ("blocked", "login"):
+            raise SearchAccessError("Naukri search requires sign-in or manual verification; no further searches will be attempted.")
+        if state == "error":
+            raise SearchLoadError("Naukri displayed its page-load error screen.")
+        return state
 
     async def has_no_results(self) -> bool:
         """Check if there are no search results on the page."""
-        return await self._interactions.element_exists(SearchSelectors.NO_RESULTS)
+        return await self._engine.page.evaluate(SEARCH_STATE_JS) == "empty"
 
     async def scroll_to_load(self) -> None:
         """Perform a gradual scroll to load all dynamic content/cards."""
@@ -92,15 +110,7 @@ class SearchPage(BasePage):
         """
         page = self._engine.page
         try:
-            # Wait for at least one job card to appear before parsing
-            try:
-                await page.wait_for_selector(
-                    '[class*="srp-jobtuple"], [class*="jobTuple"], article[class*="job"], [class*="sjw__tuple"], [class*="cust-job-tuple"]',
-                    state="attached",
-                    timeout=5000,
-                )
-            except PlaywrightTimeoutError:
-                logger.warning("No job cards found within timeout during parse_job_cards.")
+            if await self._wait_for_search_state() == "empty":
                 return []
 
             # Run extraction in a scroll loop to guarantee we catch lazy loaded items
@@ -183,8 +193,10 @@ class SearchPage(BasePage):
             logger.debug(
                 f"Extracted {len(processed_jobs)} unique jobs via JS payload in Page Object"
             )
+            if not processed_jobs:
+                raise SearchLoadError("Visible search results could not be parsed into job listings.")
             return processed_jobs
 
         except PlaywrightError as e:
             logger.error(f"Failed to parse job cards via JS: {e}")
-            return []
+            raise SearchLoadError("Failed to read Naukri search results.") from e
