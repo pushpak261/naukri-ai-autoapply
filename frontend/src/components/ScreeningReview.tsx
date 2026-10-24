@@ -23,6 +23,7 @@ export default function ScreeningReview() {
       setAnswers({});
       await Promise.all([
         queryClient.invalidateQueries({queryKey: ['screening-questions']}),
+        queryClient.invalidateQueries({queryKey: ['screening-memory']}),
         queryClient.invalidateQueries({queryKey: ['applications']}),
       ]);
     } catch (err) { setFailure(err instanceof Error ? err.message : 'Could not save answers.'); }
@@ -31,7 +32,7 @@ export default function ScreeningReview() {
   const inputClass = 'w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-sm text-[var(--color-text)]';
   return <section aria-labelledby="screening-review-title" className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 space-y-3">
     <h2 id="screening-review-title" className="font-semibold">Screening answers {questions.length > 0 && `(${questions.length} need your input)`}</h2>
-    <p className="text-sm text-[var(--color-text-secondary)]">The Naukri agent answers from your saved facts and resume without Gemini. Confirm missing facts here once so it can complete future forms. It submits only after every detected question has an answer.</p>
+    <p className="text-sm text-[var(--color-text-secondary)]">Your agents reuse your resume, saved profile and answers you confirm here. Confirm missing facts once to use them on future forms. External forms can use Gemini for field mapping and general technical explanations. Applications proceed only after every detected question is answered and validated.</p>
     {error && <p role="alert" className="text-sm text-red-400">Could not load screening questions. <button className="underline" onClick={() => refetch()}>Retry</button></p>}
     {!error && data && !questions.length && <p className="text-sm text-[var(--color-text-secondary)]">No questions are waiting for your input. New questions from agent runs will appear here.</p>}
     {questions.map(q => <div key={q.id} className="space-y-2 border-t border-[var(--color-border)] pt-3">

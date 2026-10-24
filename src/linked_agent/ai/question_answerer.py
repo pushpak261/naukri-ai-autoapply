@@ -6,6 +6,7 @@ Uses Gemini LLM to generate accurate answers for screening questions.
 from __future__ import annotations
 
 import json
+import asyncio
 from typing import Any
 
 from src.linked_agent.bot.interfaces import ILLMProvider
@@ -13,6 +14,7 @@ from src.linked_agent.config.settings import Settings
 from src.linked_agent.models.entities import Job, ResumeProfile
 from src.linked_agent.utils.logger import get_logger
 import contextlib
+from libs.common.screening_memory import local_answer, memory_store, remember_generated
 
 logger = get_logger(__name__)
 
@@ -51,13 +53,19 @@ class LinkedInQuestionAnswerer:
         if not questions:
             return []
 
+        store, known = await self._known_answers(questions, job)
         if not self._settings.ai.use_gemini:
-            return self._default_answers(questions)
+            if not store:
+                return self._default_answers(questions)
+            return [known.get(i, {'question': q.get('question',''), 'answer': ''}) for i,q in enumerate(questions)]
+        unresolved = [q for i,q in enumerate(questions) if i not in known]
+        if not unresolved:
+            return [known[i] for i in range(len(questions))]
         if not self._settings.ai.gemini_api_key:
             from src.linked_agent.utils.exceptions import LLMAPIError
             raise LLMAPIError('Configure your Gemini API key before AI screening answers.')
 
-        prompt = self._build_prompt(questions, job)
+        prompt = self._build_prompt(unresolved, job)
 
         try:
             response = await self._llm.generate_content(
@@ -67,12 +75,34 @@ class LinkedInQuestionAnswerer:
                 response_mime_type="application/json",
             )
 
-            return self._parse_response(response, questions)
+            generated = self._parse_response(response, unresolved)
+            await self._remember_generated(unresolved, generated, job, store)
+            pending = iter(generated)
+            return [known[i] if i in known else next(pending) for i in range(len(questions))]
 
         except Exception as e:
             logger.error(f"AI question answering failed: {e}")
             from src.linked_agent.utils.exceptions import LLMAPIError
             raise LLMAPIError('AI screening answers are unavailable. Review the unanswered questions before applying.') from e
+
+    async def _known_answers(self, questions, job):
+        store = memory_store(self._settings)
+        known = {}
+        if store:
+            for index, q in enumerate(questions):
+                answer, source = await asyncio.to_thread(local_answer, q, self._settings, self._resume, job)
+                if answer:
+                    known[index] = {'question': q.get('question',''), 'answer': answer, 'source': source}
+                elif not self._settings.ai.use_gemini:
+                    await asyncio.to_thread(store.remember, q, job)
+        return store, known
+
+    async def _remember_generated(self, questions, answers, job, store):
+        for q, answer in zip(questions, answers, strict=True):
+            if answer.get('answer'):
+                await asyncio.to_thread(remember_generated, q, answer['answer'], self._settings, self._resume, job)
+            elif store:
+                await asyncio.to_thread(store.remember, q, job)
 
     def _default_answers(self, questions: list[dict]) -> list[dict]:
         from libs.common.screening import evidence_answer

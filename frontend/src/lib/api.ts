@@ -259,7 +259,7 @@ export interface ConfigResponse {
   resume: { path: string };
   search: { keywords: string[]; locations: string[]; experience_min: number; experience_max: number; salary_min: number; freshness: number; max_pages: number; sort_by: string; enable_heuristics: boolean };
   application: { daily_cap: number; match_score_threshold: number; max_retries?: number; answer_questions_with_pdf: boolean; delay_between_applies_min: number; delay_between_applies_max: number; skip_external_apply: boolean; dry_run: boolean; enable_project_indexer: boolean };
-  profile: { employment_status?: string; serving_notice?: boolean | null; last_working_date?: string; confirmed_answers?: Record<string, string>; skill_experience_years?: Record<string, number>; current_ctc: string; expected_ctc: string; notice_period: string; current_location: string; preferred_locations: string[]; total_experience: string };
+  profile: { employment_status?: string; serving_notice?: boolean | null; last_working_date?: string; confirmed_answers?: Record<string, string>; skill_experience_years?: Record<string, number>; current_ctc: string; expected_ctc: string; notice_period: string; current_location: string; current_city?: string; current_state?: string; current_country?: string; preferred_locations: string[]; total_experience: string };
   logging: { level: string; log_to_file: boolean };
   notifications?: { email_notifications_enabled: boolean; email_recipient: string; notify_on_apply: boolean; notify_on_failure: boolean; notify_on_scam: boolean; notify_on_match: boolean };
   rate_limits?: { rate_limit_capacity: number; rate_limit_refill_rate: number };
@@ -311,6 +311,7 @@ export interface AgentStatus {
   uptime_seconds: number | null;
   last_run: RunLog | null;
   platform?: 'naukri' | 'linkedin' | null;
+  target_progress?: { target: number; submitted: number; state: string; reason: string; run_id?: number; updated_at?: string } | null;
 }
 
 export interface MultiAgentPlatformStatus {
@@ -692,8 +693,8 @@ export const api = {
   },
 
   agent: {
-    start: (platform: 'naukri' | 'linkedin' = 'naukri') =>
-      fetchJSON<{ status: string; message: string; pid?: number; command?: string }>(`/agent/start?platform=${platform}`, { method: 'POST' }),
+    start: (platform: 'naukri' | 'linkedin' = 'naukri', target: 0 | 100 = 0) =>
+      fetchJSON<{ status: string; message: string; pid?: number; command?: string }>(`/agent/start?platform=${platform}${target ? '&target=100' : ''}`, { method: 'POST' }),
     stop: () => fetchJSON<{ status: string; message: string }>('/agent/stop', { method: 'POST' }),
     status: () => fetchJSON<AgentStatus>('/agent/status'),
     output: (lines = 50000) => fetchText(`/agent/output?lines=${lines}`),
@@ -814,6 +815,8 @@ export const api = {
   },
 
   screening: {
+    memory: (search = '') => fetchJSON<{items: {id: string; question: string; answer: string; field_type: string; options: string[]; source: string; scope: string; updated_at: string; last_used_at: string; use_count: number}[]; total: number}>(`/screening/memory?search=${encodeURIComponent(search)}`),
+    forget: (id: string) => fetchJSON<{forgotten: boolean}>(`/screening/memory/${encodeURIComponent(id)}`, {method: 'DELETE'}),
     questions: () => fetchJSON<{items: {id: string; question: string; field_type: string; options: string[]; jobs: {job_id: number; title: string}[]}[]}>('/screening/questions'),
     save: (answers: Record<string, string>, queueJobs = false) =>
       fetchJSON<{saved: number; queued: number; job_ids: number[]; message: string}>('/screening/answers', {

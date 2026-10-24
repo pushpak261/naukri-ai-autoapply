@@ -51,10 +51,14 @@ class JobApplier:
         detail_page: JobDetailPage,
         settings: Settings,
         question_answerer: IQuestionAnswerer,
+        external_applier=None,
     ) -> None:
         self._detail_page = detail_page
         self._settings = settings
         self._qa = question_answerer
+        self._external_applier = external_applier
+        self._chatbot_managed = False
+        self._chatbot_submission_uncertain = False
 
     async def apply_to_job(self, job: Job) -> dict:
         """
@@ -85,6 +89,14 @@ class JobApplier:
             # Step 2: Check if already applied
             already_applied = await self._detail_page.is_already_applied()
             if already_applied:
+                # Naukri marks an employer-link click as Applied before the
+                # employer receives anything. Resume only known external
+                # destinations; the repository still guards submitted/uncertain jobs.
+                if not self._settings.application.skip_external_apply and self._external_applier:
+                    resolve = getattr(self._external_applier, "saved_destination", None)
+                    cached = resolve(job) if resolve else None
+                    if isinstance(cached, str) and cached:
+                        return await self._external_applier.apply(self._detail_page._engine.page, cached, job)
                 log_warning(f"Already applied: {job.title}")
                 return {
                     "status": ApplicationStatus.SKIPPED_ALREADY_APPLIED,
@@ -96,8 +108,12 @@ class JobApplier:
             if is_external:
                 log_warning(f"External apply detected: {job.title}")
                 external_url = None
-                if getattr(self._settings.application, "collect_external_jobs", False):
+                if not self._settings.application.skip_external_apply or getattr(self._settings.application, "collect_external_jobs", False):
                     external_url = await self._detail_page.get_external_apply_url()
+                if not self._settings.application.skip_external_apply and self._external_applier:
+                    if not external_url:
+                        external_url = await self._detail_page.follow_external_apply_url()
+                    return await self._external_applier.apply(self._detail_page._engine.page, external_url, job)
                 return {
                     "status": ApplicationStatus.SKIPPED_EXTERNAL,
                     "error_message": "External employer form requires separate handling; no native application was submitted",
@@ -156,6 +172,8 @@ class JobApplier:
         - Chatbot-style Q&A
         - Resume upload prompt
         """
+        self._chatbot_managed = False
+        self._chatbot_submission_uncertain = False
         # Wait a moment for the apply modal/flow to appear
         await asyncio.sleep(2)
 
@@ -207,12 +225,20 @@ class JobApplier:
             for submit_attempt in range(1):
                 answered = await self._fill_screening_questions(job)
                 if not answered:
+                    if self._chatbot_submission_uncertain:
+                        return {"status": ApplicationStatus.UNCERTAIN, "error_message": "Chatbot Save was clicked, but its result could not be verified. No second submission was attempted."}
                     log_warning("Could not fill all screening questions")
                     missing = "; ".join(getattr(self, "unanswered_questions", []))
                     return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Required screening answers need review: " + (missing or "Update the profile or review this form.")}
 
                 if await self._detail_page.check_application_success():
                     return {"status": ApplicationStatus.APPLIED, "error_message": ""}
+
+                if self._chatbot_managed:
+                    # The chatbot runner owns Save and dynamic follow-ups.
+                    # Only observe a receipt here; do not submit a second time.
+                    submit_clicked = True
+                    break
 
                 # Let framework reactivity settle before submit
                 await asyncio.sleep(1)
@@ -353,7 +379,7 @@ class JobApplier:
                 "error_message": "Skipped: Unsubmitted form detected and answer_questions_with_pdf is false",
             }
 
-        log_warning(f"Application status uncertain: {job.title}")
+        logger.info("No receipt in the apply view; checking the original listing: %s", job.title)
         return {
             "status": ApplicationStatus.UNCERTAIN,
             "error_message": "Status uncertain — could not confirm success indicator",
@@ -386,6 +412,11 @@ class JobApplier:
         self.unanswered_questions = []
         self._verified_screening_answers = {}
         try:
+            chatbot = getattr(self._detail_page, "is_chatbot_flow", None)
+            if chatbot and await chatbot() is True:
+                from src.naukri_agent.browser.screening_chatbot import fill_chatbot
+                self._chatbot_managed = True
+                return await fill_chatbot(self, job)
             max_attempts = 8
             attempt = 0
             seen_questions: set[tuple[str, str]] = set()
@@ -405,12 +436,11 @@ class JobApplier:
                     logger.debug("No screening questions found via JS engine. Trying Playwright fallback...")
                     questions = await self._detect_questions_via_playwright()
                     if not questions:
-                        logger.debug("No screening questions detected via any method.")
-                        # Don't break — let force-fill handle any remaining fields
-                        if attempt >= 2:
-                            logger.warning("Giving up on question detection. Running force fill for all visible fields.")
-                            await self._force_fill_all_required_via_js()
-                            break
+                        if await self._detail_page._is_apply_modal_visible() is True:
+                            self.unanswered_questions = ["The active screening form could not be read"]
+                            return False
+                        logger.info("No screening fields remain; waiting for a platform receipt.")
+                        return True
 
                 # Filter for unfilled fields
                 unfilled_questions = []
@@ -422,7 +452,7 @@ class JobApplier:
                         from src.naukri_agent.utils.helpers import resolve_path_within
                         label = str(q.get("question", ""))
                         selected = resolve_path_within(self._settings.resume.path, self._settings.resumes_dir)
-                        is_resume = re.search(r"\b(?:resume|résumé|cv)\b", label, re.I)
+                        is_resume = re.search(r"\b(?:resume|rÃ©sumÃ©|cv)\b", label, re.I)
                         uploaded = bool(is_resume and selected and selected.is_file() and await self._detail_page.upload_resume_file(q, str(selected)))
                         if not uploaded and q.get("required", True):
                             from libs.common.screening_review import ScreeningReviewStore
@@ -674,6 +704,8 @@ class JobApplier:
 
             return True
 
+        except PlaywrightError:
+            raise
         except Exception as e:
             logger.error(f"Failed in screening questions loop: {e}")
             return False

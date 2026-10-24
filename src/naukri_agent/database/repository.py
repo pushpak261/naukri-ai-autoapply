@@ -587,7 +587,7 @@ class SQLAlchemyRepository(IRepository):
             result = await session.execute(select(DBRunLog).filter(DBRunLog.id == run_log_id))
             run_log = result.scalar_one_or_none()
             if run_log:
-                run_log.ended_at = datetime.now(UTC)
+                run_log.ended_at = None if status == "running" else datetime.now(UTC)
                 run_log.jobs_found = jobs_found
                 run_log.jobs_applied = jobs_applied
                 run_log.jobs_skipped = jobs_skipped

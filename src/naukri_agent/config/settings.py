@@ -111,6 +111,7 @@ class ApplicationSettings(BaseModel):
     """Application behavior controls."""
 
     daily_cap: int = 25
+    run_target: Literal[0, 100] = 0
     match_score_threshold: int = 70
     answer_questions_with_pdf: bool = True
     delay_between_applies_min: int = 30
@@ -159,6 +160,9 @@ class ProfileSettings(BaseModel):
     expected_ctc: str = ""
     notice_period: str = ""
     current_location: str = ""
+    current_city: str = ""
+    current_state: str = ""
+    current_country: str = ""
     preferred_locations: list[str] = Field(default_factory=list)
     total_experience: str = ""
     github_url: str = ""

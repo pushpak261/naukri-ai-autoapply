@@ -155,7 +155,8 @@ def _fernet_for_settings(settings: Any) -> Fernet | None:
     try:
         return Fernet(key_str.encode() if isinstance(key_str, str) else key_str)
     except Exception:
-        return None
+        # Browser engines also accept deployment passphrases, deriving a Fernet key.
+        return Fernet(base64.urlsafe_b64encode(hashlib.sha256(key_str.encode()).digest()))
 
 
 def _try_decrypt_session(raw: bytes, settings: Any) -> bytes:

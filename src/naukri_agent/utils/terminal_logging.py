@@ -28,8 +28,9 @@ class DualStream:
         clean_data = strip_ansi(data)
         if clean_data:
             with self.lock:
-                self.log_file.write(clean_data)
-                self.log_file.flush()
+                if not self.log_file.closed:
+                    self.log_file.write(clean_data)
+                    self.log_file.flush()
 
         # Flush original stream if data contains a newline.
         # This ensures real-time delivery through the pipe to the API's reader thread.
@@ -43,7 +44,8 @@ class DualStream:
     def flush(self) -> None:
         self.original_stream.flush()
         with self.lock:
-            self.log_file.flush()
+            if not self.log_file.closed:
+                self.log_file.flush()
 
     def isatty(self) -> bool:
         return getattr(self.original_stream, "isatty", lambda: False)()

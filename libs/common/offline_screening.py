@@ -6,6 +6,27 @@ from libs.common.local_matching import contains_skill, normalize_skill
 from libs.common.screening import evidence_answer, format_evidence
 
 
+def general_technical_question(question):
+    text = str(question.get("question", "")).casefold().strip()
+    return (
+        not question.get("options")
+        and question.get("type", "text") in ("text", "textarea", "contenteditable")
+        and bool(
+            re.match(r"(?:what (?:is|are)|define|explain|difference between|how does)\b", text)
+        )
+        and bool(
+            re.search(
+                r"\b(?:java|sql|spring|python|javascript|react|http|https|api|rest|database|transaction|thread|concurrency|synchronization|garbage collection|dependency injection|oop|polymorphism|inheritance|encapsulation|microservices|algorithm|data structure|cache|caching|oauth|jwt|docker|kubernetes|kafka|git|jvm|jdk|jre|acid)\b",
+                text,
+            )
+        )
+        and not re.search(
+            r"\b(?:you|your|candidate|applicant|worked|project|employer|experience|years|months|history|salary|compensation|ctc|notice|birth|criminal|gender|disability|religion|ethnicity|certification|license|nationality|citizenship|visa|sponsorship|consent|agree|signature|password|passport|ssn)\b",
+            text,
+        )
+    )
+
+
 def offline_answer(question, settings, candidate, job):
     direct = evidence_answer(question, settings, candidate)
     if direct:
@@ -24,7 +45,9 @@ def offline_answer(question, settings, candidate, job):
         if contains_skill(f"{job.title} {job.skills} {job.description}", normalize_skill(skill))
     ]
     value = ""
-    if re.search(
+    if re.fullmatch(r"(?:add |key |technical )?skills?(?: set)?[?*:.\s]*", text):
+        value = ", ".join(skills)
+    elif re.search(
         r"tell (?:me|us) about yourself|introduce yourself|brief (?:introduction|profile)|professional summary",
         text,
     ):

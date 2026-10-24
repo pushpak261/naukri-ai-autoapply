@@ -3,7 +3,7 @@
 import asyncio
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from api.deps import state
@@ -23,6 +23,22 @@ class ScreeningAnswers(BaseModel):
 async def screening_questions():
     store = ScreeningReviewStore(state.settings.project_root)
     return {"items": await asyncio.to_thread(store.pending)}
+
+
+@router.get("/api/screening/memory")
+async def screening_memory(search: Annotated[str, Query(max_length=200)] = ""):
+    store = ScreeningReviewStore(state.settings.project_root)
+    return await asyncio.to_thread(store.memory, search)
+
+
+@router.delete("/api/screening/memory/{identifier}")
+async def forget_screening_answer(identifier: str):
+    store = ScreeningReviewStore(state.settings.project_root)
+    try:
+        await asyncio.to_thread(store.forget, identifier)
+    except ValueError as error:
+        raise HTTPException(404, str(error)) from error
+    return {"forgotten": True}
 
 
 @router.put("/api/screening/answers")

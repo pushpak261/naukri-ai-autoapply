@@ -128,7 +128,7 @@ class ApplicationSettings(BaseModel):
     delay_between_applies_max: int = 180
     delay_between_actions_min: float = 3.0
     delay_between_actions_max: float = 8.0
-    skip_external_apply: bool = False
+    skip_external_apply: bool = True
     collect_external_jobs: bool = True
     email_recipient: str = ""
     dry_run: bool = False
@@ -162,6 +162,9 @@ class ProfileSettings(BaseModel):
     expected_ctc: str = ""
     notice_period: str = ""
     current_location: str = ""
+    current_city: str = ""
+    current_state: str = ""
+    current_country: str = ""
     preferred_locations: list[str] = Field(default_factory=list)
     total_experience: str = ""
 

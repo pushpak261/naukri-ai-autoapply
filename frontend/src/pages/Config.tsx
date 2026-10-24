@@ -27,6 +27,9 @@ interface ConfigForm {
   expected_ctc: string;
   notice_period: string;
   current_location: string;
+  current_city: string;
+  current_state: string;
+  current_country: string;
   preferred_locations: string;
   total_experience: string;
   employment_status: string;
@@ -69,6 +72,9 @@ function configToForm(config: ConfigResponse): ConfigForm {
     expected_ctc: config.profile.expected_ctc,
     notice_period: config.profile.notice_period,
     current_location: config.profile.current_location,
+    current_city: config.profile.current_city ?? config.profile.current_location,
+    current_state: config.profile.current_state ?? '',
+    current_country: config.profile.current_country ?? '',
     preferred_locations: config.profile.preferred_locations.join(', '),
     total_experience: config.profile.total_experience,
     employment_status: config.profile.employment_status ?? '',
@@ -132,7 +138,7 @@ export default function Config() {
         match_score_threshold: form.match_score_threshold,
         delay_between_applies_min: form.delay_between_applies_min,
         delay_between_applies_max: form.delay_between_applies_max,
-        skip_external_apply: true,
+        skip_external_apply: form.skip_external_apply,
         dry_run: form.dry_run,
         answer_questions_with_pdf: form.answer_questions_with_pdf,
         use_gemini: form.use_gemini,
@@ -143,6 +149,9 @@ export default function Config() {
         expected_ctc: form.expected_ctc,
         notice_period: form.notice_period,
         current_location: form.current_location,
+        current_city: form.current_city,
+        current_state: form.current_state,
+        current_country: form.current_country,
         preferred_locations: form.preferred_locations.split(',').map((s: string) => s.trim()).filter(Boolean),
         total_experience: form.total_experience,
         employment_status: form.employment_status,
@@ -334,8 +343,10 @@ export default function Config() {
             </div>
             <div className="flex flex-col gap-3">
               <div className="flex items-center gap-3">
-                <p className="text-sm text-[var(--color-text-secondary)]">External employer forms require manual review. Automatic submission supports Naukri native forms and LinkedIn Easy Apply.</p>
+                <input type="checkbox" id="external_apply" checked={!form.skip_external_apply} onChange={(e) => setForm({ ...form, skip_external_apply: !e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)]" />
+                <label htmlFor="external_apply" className="text-sm text-[var(--color-text-secondary)]">Apply on external employer websites with Gemini</label>
               </div>
+              <p className="text-xs muted">Requires a saved Gemini API key, even when Gemini is off for native applications. Sends your saved application profile and form labels to Gemini, and completed answers and resume to the employer. Required unknown answers appear in Screening answers. Login, CAPTCHA and legal agreements need your direct review. Only confirmed submissions count as applied.</p>
               <div className="flex items-center gap-3">
                 <input type="checkbox" id="dry_run" checked={form.dry_run} onChange={(e) => setForm({ ...form, dry_run: e.target.checked })} className="w-4 h-4 rounded border-[var(--color-border)] bg-[var(--color-bg)] text-[var(--color-primary)] focus:ring-[#38bdf8]" />
                 <label htmlFor="dry_run" className="text-sm text-[var(--color-text-secondary)]">Dry Run (score only, no apply)</label>
@@ -398,8 +409,16 @@ export default function Config() {
               <input type="text" value={form.notice_period} onChange={(e) => setForm({ ...form, notice_period: e.target.value })} className={inputClass} placeholder="Immediate" />
             </div>
             <div>
-              <label className={labelClass}>Current Location</label>
-              <input type="text" value={form.current_location} onChange={(e) => setForm({ ...form, current_location: e.target.value })} className={inputClass} placeholder="Pune" />
+              <label htmlFor="current-city" className={labelClass}>Current city</label>
+              <input id="current-city" type="text" value={form.current_city} onChange={(e) => setForm({ ...form, current_location: e.target.value, current_city: e.target.value })} className={inputClass} placeholder="Pune" />
+            </div>
+            <div>
+              <label htmlFor="current-state" className={labelClass}>State / province</label>
+              <input id="current-state" type="text" value={form.current_state} onChange={(e) => setForm({ ...form, current_state: e.target.value })} className={inputClass} placeholder="Maharashtra" />
+            </div>
+            <div>
+              <label htmlFor="current-country" className={labelClass}>Country of residence</label>
+              <input id="current-country" type="text" value={form.current_country} onChange={(e) => setForm({ ...form, current_country: e.target.value })} className={inputClass} placeholder="India" />
             </div>
             <div>
               <label className={labelClass}>Total Experience</label>

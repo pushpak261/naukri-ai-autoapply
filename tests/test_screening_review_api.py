@@ -7,6 +7,7 @@ from sqlalchemy import select
 
 from api.deps import AppState, current_state
 from api.routes.screening import ScreeningAnswers, save_screening_answers, screening_questions
+from api.routes.screening import screening_memory, forget_screening_answer
 from libs.common.screening_review import ScreeningReviewStore
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.db_schema import Application, Job, setup_database_manager
@@ -97,3 +98,30 @@ def test_last_working_date_must_be_explicit_and_valid():
         assert model(last_working_date="").last_working_date == ""
         with pytest.raises(ValidationError):
             model(last_working_date="not fixed")
+
+
+@pytest.mark.asyncio
+async def test_memory_can_be_searched_corrected_and_forgotten_within_its_tenant(tmp_path):
+    runtime = AppState()
+    runtime.settings = Settings(project_root=tmp_path / "first")
+    token = current_state.set(runtime)
+    store = ScreeningReviewStore(runtime.settings.project_root)
+    try:
+        identifier = store.observe(
+            {"question": "Saved skill"}, "Java", SimpleNamespace(), "profile", "context"
+        )
+        assert (await screening_memory())["total"] == 1
+        assert not (await screening_memory("No match"))["items"]
+        await save_screening_answers(ScreeningAnswers(answers={identifier: "Java and SQL"}))
+        item = (await screening_memory("skill"))["items"][0]
+        assert item["answer"] == "Java and SQL" and item["source"] == "confirmed"
+        runtime.settings = Settings(project_root=tmp_path / "second")
+        assert (await screening_memory())["total"] == 0
+        with pytest.raises(HTTPException) as missing:
+            await forget_screening_answer(identifier)
+        assert missing.value.status_code == 404
+        runtime.settings = Settings(project_root=tmp_path / "first")
+        assert (await forget_screening_answer(identifier))["forgotten"]
+        assert not (await screening_memory())["items"]
+    finally:
+        current_state.reset(token)

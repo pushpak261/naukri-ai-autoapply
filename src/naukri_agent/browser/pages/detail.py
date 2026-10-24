@@ -74,6 +74,46 @@ class JobDetailPage(BasePage):
         await button.click(timeout=5000)
         return True
 
+    async def follow_external_apply_url(self) -> str | None:
+        """Resolve signed-in-only employer redirects without submitting an ATS form."""
+        page = self._engine.page
+        original_url = page.url
+        popups = []
+        def capture_popup(popup):
+            popups.append(popup)
+        page.context.on("page", capture_popup)
+        try:
+            if not await self.click_external_apply_button():
+                return None
+            for _ in range(20):
+                resolved = await self._resolved_employer_url([*popups, page])
+                if resolved:
+                    return resolved
+                await asyncio.sleep(0.5)
+            return None
+        except PlaywrightError:
+            return None
+        finally:
+            page.context.remove_listener("page", capture_popup)
+            for popup in popups:
+                with contextlib.suppress(PlaywrightError):
+                    await popup.close()
+            if page.url != original_url:
+                with contextlib.suppress(PlaywrightError):
+                    await page.goto(original_url, wait_until="domcontentloaded", timeout=30000)
+
+    @staticmethod
+    async def _resolved_employer_url(pages):
+        from urllib.parse import urlsplit
+        from libs.common.external_apply import public_https
+
+        for target in pages:
+            url = target.url
+            host = urlsplit(url).hostname
+            if host and host not in ("naukri.com", "www.naukri.com") and await public_https(url):
+                return url
+        return None
+
     async def is_external_apply_successful(self) -> bool:
         """Check if the external apply page shows a success/confirmation."""
         page = self._engine.page
@@ -155,44 +195,21 @@ class JobDetailPage(BasePage):
         return False
 
     async def is_chatbot_flow(self) -> bool:
-        """Check if the current apply form is a chatbot interface."""
-        if await self._interactions.element_exists(
-            '[class*="chatbot-container"], [class*="bot-msg"], [class*="chatbot-msg"], '
-            '[class*="nI-chatbot"], [class*="chatbot_"], [class*="bot-body"], '
-            '[class*="chat-body"], [class*="screening-bot"], [class*="screening_bot"], '
-            '[class*="apply-chat"], [class*="chat-panel"]'
-        ):
-            return True
-        # Fallback: check for chatbot pattern (bot messages + text input + Save button)
+        """Require a visible screening panel with an actionable control."""
+        from src.naukri_agent.browser.screening_chatbot import CHATBOT_CONTAINERS
         try:
-            page = self._engine.page
-            return await page.evaluate(
-                r"""() => {
-                    // Look for a panel that has both bot messages and a text input + Save button
-                    const panels = document.querySelectorAll(
-                        '[class*="chat" i], [class*="bot" i], [class*="screening" i], ' +
-                        '[class*="apply" i], [class*="modal" i], [class*="dialog" i]'
-                    );
-                    for (const panel of panels) {
-                        const style = window.getComputedStyle(panel);
-                        if (style.display === 'none' || style.visibility === 'hidden') continue;
-                        const text = panel.innerText || '';
-                        const hasInput = panel.querySelector('input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]), textarea, [contenteditable="true"]');
-                        const hasSaveBtn = Array.from(panel.querySelectorAll('button, [role="button"], a, [tabindex]')).some(
-                            b => (b.textContent || '').trim().toLowerCase().includes('save')
-                        );
-                        // Bot questions typically contain ? and are conversational
-                        const lines = text.split('\\n').filter(l => l.trim().length > 0);
-                        const questionLines = lines.filter(l => l.includes('?')).length;
-                        const hasBotMessage = panel.querySelector('.botMsg, .botItem, [class*="bot-msg"], [class*="bot-message"]');
-                        if (hasInput && hasSaveBtn && (hasBotMessage || questionLines >= 1 || text.toLowerCase().includes('question'))) {
-                            return true;
-                        }
-                    }
-                    return false;
-                }"""
-            )
-        except Exception:
+            return bool(await self._engine.page.evaluate(r"""selector => {
+                const visible = el => el && el.getClientRects().length &&
+                    getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0';
+                return [...document.querySelectorAll(selector)].some(panel => {
+                    if (!visible(panel)) return false;
+                    const controls = panel.querySelectorAll('input:not([type="hidden"]), textarea, select, [contenteditable="true"], [role="radio"], [role="checkbox"]');
+                    const actions = panel.querySelectorAll('button, a, [role="button"], [tabindex]');
+                    return [...controls].some(visible) || [...actions].some(el =>
+                        visible(el) && /^(?:save|next|continue|submit)(?:\s|$)/i.test((el.innerText || '').trim()));
+                });
+            }""", CHATBOT_CONTAINERS))
+        except PlaywrightError:
             return False
 
     async def _find_active_form_container(self):
@@ -266,13 +283,6 @@ class JobDetailPage(BasePage):
 
     async def detect_screening_questions(self) -> bool:
         """Check if the apply flow is showing screening questions."""
-        page = self._engine.page
-        url = page.url.lower()
-
-        # If on dedicated apply flow URL, then questions exist
-        if "naukri.com/myapply" in url or "saveapply" in url or "postapply" in url:
-            return True
-
         # If it's a chatbot flow, it represents a screening questionnaire
         if await self.is_chatbot_flow():
             return True
@@ -1076,6 +1086,8 @@ class JobDetailPage(BasePage):
                 return await self._fill_text_multi_strategy(
                     page, question, answer, selector, stable_selector, fingerprint
                 )
+        except PlaywrightError:
+            raise
         except Exception as e:
             logger.error(f"Failed to fill answer using metadata for '{q_text}': {e}")
 
@@ -1138,175 +1150,19 @@ class JobDetailPage(BasePage):
     async def _fill_choice_multi_strategy(
         self, page, question: dict, options: list[dict], answer: str, is_checkbox: bool
     ) -> bool:
-        """Multi-strategy radio/checkbox fill with label text and DOM fallback."""
-        q_text = question.get("question", "")
-
-        # Strategy 1: Try metadata-based selection (using data-agent-field-id)
-        if await self._select_choice_option_by_metadata(options, answer, is_checkbox):
+        """Click only the requested option; missing selectors require review."""
+        values = {part.strip().casefold() for part in answer.split(',')} if is_checkbox else {answer.strip().casefold()}
+        matched = [opt for opt in options if str(opt.get('text', '')).strip().casefold() in values
+                   or str(opt.get('value', '')).strip().casefold() in values]
+        covered = {str(opt.get(key, '')).strip().casefold() for opt in matched for key in ('text', 'value')}
+        if not matched or not values.issubset(covered) or (not is_checkbox and len(matched) != 1):
+            return False
+        # Reuse the precise click/label logic for both original and stable selectors.
+        candidates = [{**opt, 'selector': opt.get('selector') or opt.get('stableSelector')} for opt in matched]
+        if await self._select_choice_option_by_metadata(candidates, answer, is_checkbox):
             return True
-
-        # Strategy 2: Try stable selectors for each option
-        for opt in options:
-            stable_sel = opt.get("stableSelector", "")
-            if stable_sel:
-                elem = await page.query_selector(stable_sel)
-                if elem:
-                    try:
-                        parent_label = await elem.evaluate_handle("el => el.closest('label')")
-                        label_elem = parent_label.as_element()
-                        if label_elem:
-                            await label_elem.scroll_into_view_if_needed()
-                            await label_elem.click()
-                            return True
-                        await elem.scroll_into_view_if_needed()
-                        await elem.click()
-                        return True
-                    except Exception:
-                        pass
-
-        # Strategy 3: Try by element fingerprint for each option
-        for opt in options:
-            fp = opt.get("elementFingerprint", "")
-            if fp:
-                elem = await page.evaluate_handle(
-                    """(fp) => {
-                        try {
-                            const d = JSON.parse(fp);
-                            const sel = d.type ? 'input[type="' + d.type + '"]' : 'input';
-                            const candidates = Array.from(document.querySelectorAll(sel));
-                            for (const c of candidates) {
-                                if (d.name && c.getAttribute('name') === d.name) return c;
-                                if (d.id && c.id === d.id) return c;
-                                // Match by label text
-                                if (d.labelText && d.labelText.length > 5) {
-                                    const lbl = c.closest('label') || (c.id && document.querySelector('label[for="' + CSS.escape(c.id) + '"]'));
-                                    if (lbl && (lbl.innerText || '').trim().toLowerCase() === d.labelText) return c;
-                                }
-                            }
-                            return null;
-                        } catch(e) { return null; }
-                    }""",
-                    fp
-                )
-                if elem:
-                    elem = elem.as_element()
-                    if elem:
-                        try:
-                            await elem.scroll_into_view_if_needed()
-                            await elem.click()
-                            return True
-                        except Exception:
-                            pass
-
-        # Strategy 4: Find by label text matching on page
-        answer_lower = answer.lower().strip()
-        try:
-            labels = await page.query_selector_all("label")
-            for label in labels:
-                try:
-                    label_text = (await label.text_content() or "").strip()
-                    if not label_text:
-                        continue
-                    # Check if this label contains the question text
-                    if q_text and (q_text.lower() in label_text.lower() or label_text.lower() in q_text.lower()):
-                        radio = await label.query_selector('input[type="radio"], input[type="checkbox"]')
-                        if radio:
-                            await label.scroll_into_view_if_needed()
-                            await label.click()
-                            return True
-                except Exception:
-                    pass
-
-            # Strategy 5: Find by answer text in labels
-            for label in labels:
-                try:
-                    label_text = (await label.text_content() or "").strip().lower()
-                    if answer_lower == label_text or answer_lower in label_text or label_text in answer_lower:
-                        radio = await label.query_selector('input[type="radio"], input[type="checkbox"]')
-                        if radio:
-                            await label.scroll_into_view_if_needed()
-                            await label.click()
-                            return True
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
-        # Strategy 6: JS direct DOM manipulation for toggles/switches
-        if q_text:
-            js_result = await page.evaluate(
-                """({ qText, answer, isCheckbox }) => {
-                    if (!CSS.escape) {
-                        CSS.escape = function(value) {
-                            if (typeof value !== 'string') return '';
-                            var result = '';
-                            for (var i = 0; i < value.length; i++) {
-                                var ch = value.charAt(i);
-                                if (ch === '\\') result += '\\\\';
-                            else if (/[ !"#$%&'()*+,./:;<=>?@\\[\\]^`{|}~]/.test(ch) || ch.charCodeAt(0) <= 0x1f) {
-                                    result += '\\' + ch.charCodeAt(0).toString(16) + ' ';
-                                } else result += ch;
-                            }
-                            return result;
-                        };
-                    }
-                    const ql = qText.toLowerCase();
-                    const al = answer.toLowerCase().trim();
-                    const shouldCheck = al === 'yes' || al === 'true' || al === '1' || al === 'y';
-
-                    // Find toggle/switch elements with matching text
-                    const toggles = document.querySelectorAll(
-                        '[role="switch"], [class*="toggle" i], [class*="switch" i], ' +
-                        'label:has(input[type="checkbox"]), label:has(input[type="radio"])'
-                    );
-                    for (const tg of toggles) {
-                        const tText = (tg.innerText || tg.textContent || '').trim().toLowerCase();
-                        if (!tText) continue;
-                        if (ql && (tText.includes(ql) || ql.includes(tText))) {
-                            // Found matching toggle - click it
-                            tg.click();
-                            return true;
-                        }
-                    }
-
-                    // Find any visible unchecked checkbox/radio that's still in form
-                    if (shouldCheck) {
-                        const inputs = document.querySelectorAll(
-                            'input[type="checkbox"]:not([style*="display: none"]):not([style*="visibility: hidden"]), ' +
-                            'input[type="radio"]:not([style*="display: none"]):not([style*="visibility: hidden"])'
-                        );
-                        for (const inp of inputs) {
-                            if (!inp.checked && inp.offsetParent !== null) {
-                                const lbl = inp.closest('label') || (inp.id && document.querySelector('label[for="' + CSS.escape(inp.id) + '"]'));
-                                const ctxText = lbl ? (lbl.innerText || '').trim().toLowerCase() : '';
-                                if (ql && (ctxText.includes(ql) || ql.includes(ctxText))) {
-                                    inp.click();
-                                    inp.checked = true;
-                                    inp.dispatchEvent(new Event('change', { bubbles: true }));
-                                    inp.dispatchEvent(new Event('input', { bubbles: true }));
-                                    return true;
-                                }
-                            }
-                        }
-                        // Last resort: check first visible unchecked checkbox
-                        for (const inp of inputs) {
-                            if (!inp.checked && inp.offsetParent !== null) {
-                                inp.click();
-                                inp.checked = true;
-                                inp.dispatchEvent(new Event('change', { bubbles: true }));
-                                inp.dispatchEvent(new Event('input', { bubbles: true }));
-                                return true;
-                            }
-                        }
-                    }
-                    return false;
-                }""",
-                {"qText": q_text, "answer": answer, "isCheckbox": is_checkbox}
-            )
-            if js_result:
-                return True
-
-        return False
+        stable = [{**opt, 'selector': opt.get('stableSelector')} for opt in matched]
+        return await self._select_choice_option_by_metadata(stable, answer, is_checkbox)
 
     async def _fill_text_multi_strategy(
         self, page, question: dict, answer: str,
@@ -1314,8 +1170,7 @@ class JobDetailPage(BasePage):
     ) -> bool:
         """Multi-strategy text/number/date field fill.
 
-        After successfully filling in a chatbot flow, automatically triggers
-        the Save button so the answer registers and the next question appears.
+        The screening controller owns Save/Next; filling never advances it.
         """
         q_text = question.get("question", "")
         filled = False
@@ -1412,13 +1267,6 @@ class JobDetailPage(BasePage):
             if js_result:
                 filled = True
 
-        # After successful fill in chatbot flow, trigger Save button so the
-        # answer registers and the next question appears.
-        if filled and await self.is_chatbot_flow():
-            await asyncio.sleep(0.3)
-            with contextlib.suppress(Exception):
-                await self.click_chatbot_save_button()
-
         return filled
 
     async def _fill_single_text_input(self, page, selector: str, answer: str) -> bool:
@@ -1451,7 +1299,7 @@ class JobDetailPage(BasePage):
             """Verify the framework accepted the value by re-reading it."""
             async def _inner():
                 try:
-                    actual = await elem.evaluate("el => el.value || ''")
+                    actual = await elem.evaluate("el => el.isContentEditable ? el.innerText : (el.value || '')")
                     return actual.strip() == expected_val
                 except Exception:
                     return False
@@ -1632,41 +1480,16 @@ class JobDetailPage(BasePage):
         matched_any = False
 
         async def click_element_or_label(elem) -> bool:
-            """Try to click the element or its parent/associated label for visibility safety."""
-            clicked = False
-            # Try parent label first
-            try:
-                parent_label = await elem.evaluate_handle("el => el.closest('label')")
-                label_elem = parent_label.as_element()
-                if label_elem:
-                    await label_elem.scroll_into_view_if_needed()
-                    await label_elem.click()
-                    clicked = True
-            except Exception:
-                pass
-
-            # Try associated label[for] next
-            if not clicked:
-                try:
-                    elem_id = await elem.get_attribute("id")
-                    if elem_id:
-                        label_elem = await page.query_selector(f'label[for="{elem_id}"]')
-                        if label_elem:
-                            await label_elem.scroll_into_view_if_needed()
-                            await label_elem.click()
-                            clicked = True
-                except Exception:
-                    pass
-
-            # Fallback to direct click
-            if not clicked:
-                try:
-                    await elem.scroll_into_view_if_needed()
-                    await elem.click()
-                    clicked = True
-                except Exception as e:
-                    logger.debug(f"Direct click failed on element: {e}")
-            return clicked
+            """Resolve a click target first, then perform exactly one click."""
+            if await elem.evaluate("el => el.checked === true || el.getAttribute('aria-checked') === 'true' || el.getAttribute('aria-selected') === 'true'"):
+                return True
+            target_handle = await elem.evaluate_handle("el => el.labels?.[0] || el.closest('label') || el")
+            target = target_handle.as_element()
+            if target is None:
+                return False
+            await target.scroll_into_view_if_needed()
+            await target.click()
+            return True
 
         for opt in options:
             o_text = opt.get("text", "").lower().strip()
@@ -1679,14 +1502,17 @@ class JobDetailPage(BasePage):
                     is_match = True
                     break
 
+            if not is_match:
+                is_match = str(opt.get("value", "")).strip().casefold() in answers_list
             if is_match and selector:
                 elem = await page.query_selector(selector)
-                if elem:
-                    success = await click_element_or_label(elem)
-                    if success:
-                        matched_any = True
-                        if not is_checkbox:
-                            return True
+                if elem is None or not await click_element_or_label(elem):
+                    return False
+                matched_any = True
+                if not is_checkbox:
+                    return True
+            elif is_match:
+                return False
 
         return matched_any
 
@@ -1764,11 +1590,6 @@ class JobDetailPage(BasePage):
                                 el.dispatchEvent(new Event('blur', { bubbles: true }));
                             }""")
                             await asyncio.sleep(0.3)
-
-                            # Trigger Save button so the answer registers and advances
-                            save_clicked = await self.click_chatbot_save_button()
-                            if not save_clicked:
-                                await text_input.press("Enter")
 
                             logger.debug(
                                 "Chatbot: typed into text input for question '%s' with answer '%s'",
@@ -1955,10 +1776,16 @@ class JobDetailPage(BasePage):
         """Use one native click inside the active form, respecting disabled ancestors."""
         import re
 
-        selector = '.chatbot_Drawer:visible, [class*="chatbot-container" i]:visible, [class*="chat-panel" i]:visible'
+        from src.naukri_agent.browser.screening_chatbot import CHATBOT_CONTAINERS
+        selector = ', '.join(f'{part.strip()}:visible' for part in CHATBOT_CONTAINERS.split(','))
         if not chatbot_only:
             selector += ', [role="dialog"]:visible, [class*="apply-modal"]:visible, [class*="apply-form"]:visible, [class*="screening"]:visible, form:visible'
         for container in await self._engine.page.locator(selector).all():
+            valid = await container.evaluate("""root => [...root.querySelectorAll('input, select, textarea, [aria-invalid="true"]')]
+                .filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+                .every(el => el.getAttribute('aria-invalid') !== 'true' && (typeof el.checkValidity !== 'function' || el.checkValidity()))""")
+            if not valid:
+                continue
             candidates = container.locator('button, a, [role="button"], [tabindex], input[type="submit"], input[type="button"]')
             for candidate in await candidates.all():
                 text = await candidate.get_attribute('value') if await candidate.evaluate("el => el.tagName === 'INPUT'") else await candidate.inner_text()
@@ -1979,12 +1806,12 @@ class JobDetailPage(BasePage):
                     return True
                 except PlaywrightError as error:
                     logger.warning(f"Screening action could not be confirmed: {error}")
-                    return False
+                    raise
         return False
 
     async def click_chatbot_save_button(self) -> bool:
-        """Advance an answered chatbot question without clicking listing Save/Apply."""
-        return await self._click_screening_action(r"save(?:\s*(?:&|and)\s*(?:next|continue))?|next|continue", chatbot_only=True)
+        """Advance or submit once inside the validated, active chatbot panel."""
+        return await self._click_screening_action(r"save(?:\s*(?:&|and)\s*(?:next|continue))?|next|continue|submit(?: application)?|apply(?: now)?", chatbot_only=True)
 
     async def click_intermediate_save_button(self) -> bool:
         """Advance only an enabled Save/Next/Continue control in the active form."""

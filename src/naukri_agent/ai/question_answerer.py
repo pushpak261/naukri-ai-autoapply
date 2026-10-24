@@ -368,8 +368,11 @@ class QuestionAnswerer(IQuestionAnswerer):
     def _activate_job_context(self, job):
         import hashlib
         from libs.common.agent_reasoning import decision_fingerprint
+        from libs.common.screening_memory import memory_store
+        store = memory_store(self._settings)
+        revision = store.revision() if store else 0
         evidence = decision_fingerprint(self._profile, job, self._settings.ai, self._settings.application.match_score_threshold)
-        context = hashlib.sha256((evidence + json.dumps(self._direct_answers, sort_keys=True, default=str)).encode()).hexdigest()[:32]
+        context = hashlib.sha256((evidence + json.dumps(self._direct_answers, sort_keys=True, default=str) + f'|memory:{revision}').encode()).hexdigest()[:32]
         if context != self._cache_context:
             self._cache = QACache(self._settings.project_root / 'data' / f'qa_job_evidence_v3_{context}.json')
             self._cache_context = context
@@ -532,26 +535,23 @@ class QuestionAnswerer(IQuestionAnswerer):
 
         # First pass: try direct answers and CACHE
         offline_sources = {}
-        review_store = None
-        if not self._settings.ai.use_gemini:
-            from libs.common.screening_review import ScreeningReviewStore
-            review_store = ScreeningReviewStore(self._settings.project_root)
+        from libs.common.screening_memory import local_answer, memory_store, profile_context, remember_generated
+        review_store = memory_store(self._settings)
         for index, original_question in enumerate(questions):
             q = {**original_question, "index": original_question.get("index", index)}
             question_text = q.get("question", "")
             q_type = q.get("type", "text")
             options = q.get("options", [])
             if self._settings.ai.use_gemini:
-                direct = self._try_direct_answer(question_text, q_type, options)
+                context = profile_context(self._settings, self._profile) if review_store else ""
+                direct = await asyncio.to_thread(review_store.answer_for, q, job, context) if review_store else ""
+                source = "confirmed_answer" if direct else "ai_or_facts"
+                direct = direct or self._try_direct_answer(question_text, q_type, options)
             else:
-                from libs.common.offline_screening import offline_answer
-                direct, source = offline_answer(q, self._settings, self._profile, job)
-                if not direct:
-                    direct = await asyncio.to_thread(review_store.answer_for, q, job)
-                    source = "confirmed_answer" if direct else "needs_input"
-                offline_sources[q["index"]] = source
-                if not direct:
-                    await asyncio.to_thread(review_store.remember, q, job)
+                direct, source = await asyncio.to_thread(local_answer, q, self._settings, self._profile, job)
+            offline_sources[q["index"]] = source
+            if not direct and review_store and not self._settings.ai.use_gemini:
+                await asyncio.to_thread(review_store.remember, q, job)
             q_key = _normalize_question_text(question_text)
             # Offline answers are cheap and must reflect the current saved
             # facts. Never resurrect an old AI/cache answer after facts change.
@@ -648,6 +648,9 @@ class QuestionAnswerer(IQuestionAnswerer):
                                     ans["confidence"] = "high"
                                     self._cache.set(q_key, user_ans)
                                     self._cache.save()
+                                    if orig_q and review_store:
+                                        identifier = await asyncio.to_thread(review_store.remember, orig_q, job)
+                                        await asyncio.to_thread(review_store.save_answers, {identifier: user_ans})
                             except Exception as user_e:
                                 logger.debug(f"Interactive user prompt skipped: {user_e}")
 
@@ -660,6 +663,13 @@ class QuestionAnswerer(IQuestionAnswerer):
 
         # Sort by original index
         answers.sort(key=lambda x: x.get("index", 0))
+        by_index = {q.get("index", index): q for index, q in enumerate(questions)}
+        for answer in answers:
+            question = by_index.get(answer.get("index"), {})
+            if not answer.get("answer") and review_store:
+                await asyncio.to_thread(review_store.remember, question, job)
+            elif answer.get("source") not in ("confirmed_answer", "saved_facts", "technical_knowledge", "resume"):
+                await asyncio.to_thread(remember_generated, question, answer["answer"], self._settings, self._profile, job)
         return answers
 
     def _generate_intelligent_fallback(self, answer_entry: dict, job: Job) -> str:

@@ -285,6 +285,7 @@ async def test_follow_up_question_reusing_input_id_is_saved(tmp_path):
     detail.fill_answer_by_metadata = AsyncMock(side_effect=fill)
     detail.click_intermediate_save_button = AsyncMock(side_effect=save)
     detail.is_chatbot_flow = AsyncMock(return_value=False)
+    detail._is_apply_modal_visible = AsyncMock(return_value=False)
     settings = Settings(project_root=tmp_path, ai={"use_gemini": False},
                         profile={"current_ctc": "5 LPA", "expected_ctc": "9 LPA"})
     worker = JobApplier(detail, settings, QuestionAnswerer(AsyncMock(), settings, ResumeProfile()))

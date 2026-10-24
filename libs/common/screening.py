@@ -3,18 +3,50 @@
 import re
 
 
+def _address_answer(text, profile):
+    label = question_key(text)
+    label = re.sub(r"^(?:what is |which is )?(?:your )?(?:current |residential )?", "", label)
+    aliases = {
+        "city": "current_city",
+        "city name": "current_city",
+        "city town": "current_city",
+        "state": "current_state",
+        "state name": "current_state",
+        "province": "current_state",
+        "state province": "current_state",
+        "state or province": "current_state",
+        "country": "current_country",
+        "country name": "current_country",
+        "country of residence": "current_country",
+        "country region": "current_country",
+    }
+    key = aliases.get(label)
+    if not key:
+        return None
+    value = getattr(profile, key, "")
+    if key == "current_city" and not value:
+        legacy = getattr(profile, "current_location", "")
+        return legacy if "," not in legacy else ""
+    return value
+
+
 def _basic_answer(question, settings, candidate=None):
     text = str(question.get("question", "")).casefold()
     profile = settings.profile
     value = ""
-    if "email" in text:
+    address = _address_answer(text, profile)
+    if address is not None:
+        value = address
+    elif "email" in text:
         value = getattr(profile, "email", "") or getattr(candidate, "email", "")
     elif any(word in text for word in ("phone", "mobile", "contact number")):
         value = getattr(profile, "phone", "") or getattr(candidate, "phone", "")
-    elif "first name" in text:
-        value = getattr(profile, "first_name", "")
-    elif "last name" in text or "surname" in text:
-        value = getattr(profile, "last_name", "")
+    elif any(label in text for label in ("first name", "given name", "forename")):
+        names = str(getattr(candidate, "name", "") or "").split()
+        value = getattr(profile, "first_name", "") or (names[0] if names else "")
+    elif any(label in text for label in ("last name", "surname", "family name")):
+        names = str(getattr(candidate, "name", "") or "").split()
+        value = getattr(profile, "last_name", "") or (names[-1] if len(names) > 1 else "")
     elif "name" in text and not any(
         word in text for word in ("company", "employer", "school", "college")
     ):

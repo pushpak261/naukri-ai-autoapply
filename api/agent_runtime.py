@@ -303,9 +303,11 @@ async def supervise(
                 if proc is None or not platform:
                     return
                 dead = proc.poll() is not None
+                from libs.common.run_target import MAX_RUNTIME_SECONDS, requested_target
+                runtime_limit = MAX_RUNTIME_SECONDS if requested_target(proc) else max_runtime_seconds
                 overrun = (
                     started_at is not None
-                    and (now_ts - started_at).total_seconds() > max_runtime_seconds
+                    and (now_ts - started_at).total_seconds() > runtime_limit
                 )
                 if dead or overrun:
                     if overrun and not dead:

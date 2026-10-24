@@ -35,6 +35,9 @@ class ConfigUpdate(BaseModel):
     expected_ctc: str | None = None
     notice_period: str | None = None
     current_location: str | None = None
+    current_city: str | None = None
+    current_state: str | None = None
+    current_country: str | None = None
     preferred_locations: list[str] | None = None
     total_experience: str | None = None
     employment_status: Literal["", "employed", "unemployed", "student"] | None = None
@@ -121,6 +124,9 @@ async def get_config():
             "expected_ctc": s.profile.expected_ctc,
             "notice_period": s.profile.notice_period,
             "current_location": s.profile.current_location,
+            "current_city": s.profile.current_city,
+            "current_state": s.profile.current_state,
+            "current_country": s.profile.current_country,
             "preferred_locations": s.profile.preferred_locations,
             "total_experience": s.profile.total_experience,
             "confirmed_answers": s.profile.confirmed_answers,
@@ -179,9 +185,13 @@ async def get_config():
         },
     }
 
-@router.put("/api/config")
+@router.put("/api/config", responses={422: {"description": "Invalid settings or missing Gemini key for external applications"}})
 async def update_config(update: ConfigUpdate):
     from src.naukri_agent.config.settings import get_settings
+
+    if update.skip_external_apply is False and not (update.gemini_api_key or state.settings.ai.gemini_api_key):
+        from fastapi import HTTPException
+        raise HTTPException(422, "Save a Gemini API key before enabling external employer applications.")
 
     config_path = state.settings.project_root / "config.yaml"
     if not config_path.exists():
@@ -218,6 +228,9 @@ async def update_config(update: ConfigUpdate):
         (["profile", "expected_ctc"], update.expected_ctc, False),
         (["profile", "notice_period"], update.notice_period, False),
         (["profile", "current_location"], update.current_location, False),
+        (["profile", "current_city"], update.current_city, False),
+        (["profile", "current_state"], update.current_state, False),
+        (["profile", "current_country"], update.current_country, False),
         (["profile", "preferred_locations"], update.preferred_locations, False),
         (["profile", "total_experience"], update.total_experience, False),
         (["profile", "employment_status"], update.employment_status, False),
@@ -267,12 +280,16 @@ async def update_config(update: ConfigUpdate):
         'model': update.ai_model, 'use_gemini': update.use_gemini,
         'enable_matching': update.enable_matching}.items() if value is not None}
     platform_path = state.settings.project_root / 'linkedin_config.yaml'
-    if ai_changes and platform_path.exists():
+    if (ai_changes or update.skip_external_apply is not None) and platform_path.exists():
         platform_config = yaml.safe_load(platform_path.read_text(encoding='utf-8')) or {}
         if isinstance(platform_config.get('ai'), dict):
             for key in ai_changes:
                 platform_config['ai'].pop(key, None)
-            platform_path.write_text(yaml.safe_dump(platform_config), encoding='utf-8')
+        if update.skip_external_apply is not None:
+            platform_config.setdefault('application', {})['skip_external_apply'] = update.skip_external_apply
+            if not update.skip_external_apply:
+                platform_config['application']['easy_apply_only'] = False
+        platform_path.write_text(yaml.safe_dump(platform_config), encoding='utf-8')
     reload_current_settings()
 
     return {"status": "ok", "message": "Configuration updated"}

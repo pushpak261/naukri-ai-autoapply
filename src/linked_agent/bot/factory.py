@@ -124,6 +124,7 @@ class LinkedInDependencyFactory:
         )
 
     def create_question_answerer(self, resume_profile: ResumeProfile) -> IQuestionAnswerer:
+        self._resume_profile = resume_profile
         return LinkedInQuestionAnswerer(
             llm_provider=self.get_llm_provider(),
             settings=self._settings,
@@ -158,6 +159,8 @@ class LinkedInDependencyFactory:
         )
 
     def create_job_applier(self, question_answerer: IQuestionAnswerer) -> LinkedInJobApplier:
+        from libs.common.external_apply import ExternalJobApplier
+
         detail_page = LinkedInJobDetailPage(
             engine=self.get_browser_engine(),
             interactions=self.get_browser_interactions(),
@@ -166,4 +169,5 @@ class LinkedInDependencyFactory:
             detail_page=detail_page,
             settings=self._settings,
             question_answerer=question_answerer,
+            external_applier=ExternalJobApplier(self._settings, getattr(self, "_resume_profile", None)),
         )
