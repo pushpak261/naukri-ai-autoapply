@@ -282,9 +282,16 @@ def evidence_answer(question, settings, candidate=None):
             value = format(stated, "g") if stated is not None else ""
             if not value and getattr(candidate, "total_experience_years", 0) > 0:
                 value = format(candidate.total_experience_years, "g")
-        if value and re.search(
-            r"\b(?:do you have|have you worked|do you know|have you used|at least|minimum|more than)\b",
-            text,
+        numeric_response = (
+            question.get("input_type") or question.get("type")
+        ) == "number" or re.search(r"\b(?:how many|number of)\b", text)
+        if (
+            value
+            and not numeric_response
+            and re.search(
+                r"\b(?:do you have|have you worked|do you know|have you used|at least|minimum|more than)\b",
+                text,
+            )
         ):
             required = re.search(r"(\d+(?:\.\d+)?)\s*(years?|months?)", text)
             actual = _numeric(value)

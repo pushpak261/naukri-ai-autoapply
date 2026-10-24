@@ -18,6 +18,7 @@ from src.linked_agent.browser.pages.base import BasePage
 from src.linked_agent.config.constants import SearchSelectors
 from src.linked_agent.models.entities import Job
 from src.linked_agent.utils.helpers import clean_text, extract_linkedin_job_id
+from src.linked_agent.utils.exceptions import LoginError, RateLimitError
 from src.linked_agent.utils.logger import get_logger
 import contextlib
 
@@ -44,7 +45,11 @@ class LinkedInSearchPage(BasePage):
                 logger.info(
                     f"Navigating to LinkedIn search (attempt {attempt}/{max_retries}): {search_url}"
                 )
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                response = await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                if response and response.status == 429:
+                    raise RateLimitError("LinkedIn requested a pause (HTTP 429); stop and review before another run.")
+                if response and response.status in (401, 403):
+                    raise LoginError("LinkedIn requires sign-in or verification before searching.")
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
 
@@ -73,10 +78,11 @@ class LinkedInSearchPage(BasePage):
 
                 # Check for blocking pages
                 if "/login" in actual_url or "signup" in actual_url:
-                    raise RuntimeError("Navigated to login/signup page — session expired")
+                    raise LoginError("Navigated to login/signup page — session expired")
                 if "captcha" in actual_url.lower() or "challenge" in actual_url.lower():
-                    raise RuntimeError("CAPTCHA challenge detected")
+                    raise LoginError("LinkedIn verification requires your attention")
 
+                self._requested_search_params = intended_params
                 await self._ensure_search_location(requested)
                 if "2" in intended_params.get("f_WT", [""])[0].split(","):
                     await self._ensure_search_location("Remote")
@@ -97,7 +103,7 @@ class LinkedInSearchPage(BasePage):
         if not requested:
             return
         page = self._engine.page
-        label = page.locator('[aria-label^="Location "]').first
+        label = page.locator('[aria-label^="Location "]:visible').first
         if not await label.count():
             return  # Legacy layout still supports location= directly.
         if requested.casefold() == "remote":
@@ -114,12 +120,19 @@ class LinkedInSearchPage(BasePage):
 
         target = normalized(requested)
         if target not in normalized(await label.inner_text()):
-            button = page.locator('[role="button"]:has(> [aria-label^="Location "])').first
-            await button.click()
-            editor = page.locator('[contenteditable="true"][aria-label="Location"]')
-            await editor.click()
-            await editor.press("ControlOrMeta+a")
-            await page.keyboard.type(requested, delay=60)
+            await label.click(timeout=5000)
+            editor = page.locator('[contenteditable="true"][aria-label="Location"]:visible, input[role="combobox"][aria-label*="Location" i]:visible').first
+            try:
+                await editor.fill(requested, timeout=5000)
+            except PlaywrightTimeoutError:
+                controls = await page.evaluate("""() => [...document.querySelectorAll('input, [contenteditable], [aria-label^="Location "]')]
+                    .filter(el=>el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+                    .map(el=>({tag:el.tagName,role:el.getAttribute('role'),label:el.getAttribute('aria-label'),
+                        placeholder:el.getAttribute('placeholder'),editable:el.getAttribute('contenteditable'),
+                        id:el.id, parentTag:el.parentElement.tagName,parentRole:el.parentElement.getAttribute('role'),
+                        parentClass:el.parentElement.className}))""")
+                logger.warning("Visible LinkedIn location controls after opening picker: %s", controls)
+                raise
             # Autocomplete can replace/close its popover before Playwright's
             # click actionability checks finish. Capture the actual suggested
             # search link while it is present, then follow that same link.
@@ -142,9 +155,16 @@ class LinkedInSearchPage(BasePage):
                 or not parse_qs(parsed.query).get("geoId", [""])[0].isdigit()
             ):
                 raise RuntimeError("LinkedIn returned an invalid location suggestion")
+            params = parse_qs(parsed.query)
+            intended = getattr(self, "_requested_search_params", {})
+            for key in ("keywords", "f_TPR", "f_E", "f_WT", "f_AL", "f_JT", "sortBy", "start"):
+                if key in intended:
+                    params[key] = intended[key]
+            if intended:
+                destination = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
             await page.goto(destination, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_function(
-                "target => {const el=document.querySelector('[aria-label^=\"Location \"]'); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
+                "target => {const el=[...document.querySelectorAll('[aria-label^=\"Location \"]')].find(el=>el.getClientRects().length); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
                 arg=target,
                 timeout=10000,
             )

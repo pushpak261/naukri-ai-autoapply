@@ -53,29 +53,31 @@ def setup_logging(
     Configure the root logger with Rich console output and optional file output.
     """
     root = logging.getLogger()
-    if root.handlers:
-        return  # Already configured
-
     log_level = getattr(logging, level.upper(), logging.INFO)
-    root.setLevel(log_level)
+    root.setLevel(min(root.level or log_level, log_level))
 
     # Console handler with Rich
-    rich_handler = RichHandler(
-        console=console,
-        show_path=False,
-        show_time=True,
-        rich_tracebacks=True,
-        markup=True,
-    )
-    rich_handler.setLevel(log_level)
-    root.addHandler(rich_handler)
+    if not root.handlers:
+        rich_handler = RichHandler(
+            console=console,
+            show_path=False,
+            show_time=True,
+            rich_tracebacks=True,
+            markup=True,
+        )
+        rich_handler.setLevel(log_level)
+        root.addHandler(rich_handler)
 
     # File handler
     if log_to_file:
         log_path = Path(log_dir)
         log_path.mkdir(parents=True, exist_ok=True)
+        target = (log_path / "linkedin_agent.log").resolve()
+        if any(isinstance(handler, logging.FileHandler) and Path(handler.baseFilename).resolve() == target
+               for handler in root.handlers):
+            return
         file_handler = logging.FileHandler(
-            log_path / "linkedin_agent.log",
+            target,
             encoding="utf-8",
         )
         file_handler.setLevel(log_level)

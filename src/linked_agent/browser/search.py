@@ -25,6 +25,7 @@ from src.linked_agent.bot.interfaces import IBrowserEngine
 from src.linked_agent.models.entities import Job
 from src.linked_agent.utils.helpers import LinkedInURLUtility
 from src.linked_agent.utils.logger import get_logger
+from src.linked_agent.utils.exceptions import LoginError, RateLimitError
 
 logger = get_logger(__name__)
 
@@ -118,7 +119,7 @@ class LinkedInJobSearcher:
 
                 await asyncio.sleep(LINKEDIN_RATE_LIMIT_DELAY / 1000)
 
-        logger.info(
+        logger.debug(
             "LinkedIn search complete — all jobs dictionary:\n"
             + "\n".join(
                 f"  [{job_id}] {j.title} @ {j.company}"
@@ -255,6 +256,8 @@ class LinkedInJobSearcher:
 
                     page_jobs = await self._search_page.parse_job_cards(search_url=search_url)
 
+                except (LoginError, RateLimitError):
+                    raise
                 except Exception as e:
                     logger.warning(f"Search page {page_num + 1} failed: {e}")
                     empty_pages += 1
@@ -274,6 +277,8 @@ class LinkedInJobSearcher:
                         break
                     search_url = self._engine.page.url
                     page_jobs = await self._search_page.parse_job_cards(search_url=search_url)
+                except (LoginError, RateLimitError):
+                    raise
                 except Exception as e:
                     logger.warning(f"Click pagination page {page_num + 1} failed: {e}")
                     empty_pages += 1
@@ -284,9 +289,7 @@ class LinkedInJobSearcher:
 
             # Check for rate limiting in page content
             if await self._detect_rate_limiting(page_jobs):
-                self._rate_limited = True
-                logger.warning("Rate limiting detected — will pause after this page")
-                break
+                raise RateLimitError("LinkedIn requested a pause; review the account before another run.")
 
             if not page_jobs:
                 logger.info(f"No job results on page {page_num + 1} — stopping search for '{keyword}'")
@@ -343,20 +346,20 @@ class LinkedInJobSearcher:
         try:
             page = self._engine.page
             current_url = page.url
-            if "/login" in current_url or "signup" in current_url:
-                raise RuntimeError("Session expired — redirected to login page")
+            if any(part in current_url for part in ("/login", "/signup", "/checkpoint", "/challenge", "/authwall")):
+                raise LoginError("LinkedIn sign-in or verification requires your attention")
 
             body_text = await page.evaluate(
                 "document.body?.innerText?.substring(0, 500) || ''"
             )
             if "sign in" in body_text.lower() or "join now" in body_text.lower():
                 logger.warning("Session may have expired — login-related text detected")
-            if "captcha" in body_text.lower() or "verify" in body_text.lower():
-                raise RuntimeError("CAPTCHA/verification challenge detected")
+            if any(text in body_text.casefold() for text in ("complete the captcha", "verify you are human", "security verification", "unusual activity")):
+                raise LoginError("LinkedIn verification requires your attention")
 
             # Stay on current page — the heartbeat ping to a static page keeps session alive
             logger.info("Session health check passed")
-        except PlaywrightError as e:
+        except (PlaywrightError, LoginError, RateLimitError) as e:
             logger.error(f"Session health check failed: {e}")
             raise
         except Exception as e:

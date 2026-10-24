@@ -562,477 +562,25 @@ class LinkedInJobDetailPage(BasePage):
 
         return False
 
-    async def extract_screening_questions(self) -> list[dict[str, str]]:
-        """
-        Extract screening questions from the Easy Apply modal.
-        LinkedIn uses a multi-step form; this extracts questions from the current step.
-        """
-        page = self._engine.page
-        questions: list[dict[str, str]] = []
-
-        js_script = """
-        () => {
-            const questions = [];
-            const seen = new Set();
-            const handledGroups = new Set();
-            const selectValue = element => {
-                const option = element.selectedOptions?.[0];
-                if (!option || option.disabled || /^(select|choose|please select)( |$)/i.test((option.textContent || '').trim())) return '';
-                return (option.textContent || element.value || '').trim();
-            };
-            const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
-            if (!modal) return questions;
-
-            // Find any file inputs — mark as file upload
-            const fileInputs = modal.querySelectorAll('input[type="file"]');
-            for (const fi of fileInputs) {
-                const label = fi.closest('label') || fi.parentElement;
-                const qText = label ? label.innerText.trim() : 'File upload';
-                if (seen.has(qText)) continue;
-                seen.add(qText);
-                questions.push({
-                    question: qText,
-                    field_type: 'file',
-                    input_id: fi.id || '',
-                    options: [],
-                    current_value: fi.files && fi.files.length > 0 ? fi.files[0].name : '',
-                    is_required: fi.required
-                });
-            }
-
-            // Strategy 1: find by form group containers
-            const formGroups = modal.querySelectorAll('.jobs-easy-apply-form-section__grouping, .fb-dash-form-element');
-            for (const group of formGroups) {
-                const label = group.querySelector('label, .t-14');
-                if (!label) continue;
-                const questionText = label.innerText.trim();
-                if (!questionText || seen.has(questionText)) continue;
-                // Skip radio option labels that are just "Yes"/"No"/"Other"
-                if (['yes', 'no', 'other', 'none'].includes(questionText.toLowerCase())) continue;
-                if (questionText.toLowerCase().includes('deselect resume') || questionText.toLowerCase().includes('remove resume')) continue;
-                seen.add(questionText);
-
-                // Skip if this group contains a file input
-                if (group.querySelector('input[type="file"]')) continue;
-
-                const textInput = group.querySelector('input[type="text"], input[type="number"], textarea');
-                const selectInput = group.querySelector('select, div[role="listbox"]');
-                const radioInputs = group.querySelectorAll('input[type="radio"], div[role="radio"]');
-                const checkboxInputs = group.querySelectorAll('input[type="checkbox"], div[role="checkbox"]');
-
-                let field_type = 'text';
-                let options = [];
-                let current_value = '';
-
-                if (radioInputs.length > 0) {
-                    field_type = 'radio';
-                    const checked = Array.from(radioInputs).find(r => r.checked || r.getAttribute('aria-checked') === 'true');
-                    current_value = checked ? (checked.value || 'Selected') : '';
-                    options = Array.from(radioInputs).map(r => {
-                        const rl = r.closest('label') || r.parentElement;
-                        return rl ? rl.innerText.trim() : '';
-                    }).filter(Boolean);
-                } else if (checkboxInputs.length > 0) {
-                    field_type = 'checkbox';
-                    current_value = Array.from(checkboxInputs).some(c => c.checked || c.getAttribute('aria-checked') === 'true') ? 'Selected' : '';
-                    options = Array.from(checkboxInputs).map(c => {
-                        const cl = c.closest('label') || c.parentElement;
-                        return cl ? cl.innerText.trim() : '';
-                    }).filter(Boolean);
-                } else if (selectInput) {
-                    field_type = 'dropdown';
-                    if (selectInput.tagName === 'SELECT') {
-                        options = Array.from(selectInput.options).map(o => o.text.trim()).filter(Boolean);
-                        current_value = selectValue(selectInput);
-                    } else if (selectInput.getAttribute('role') === 'listbox') {
-                        const items = selectInput.querySelectorAll('[role="option"]');
-                        options = Array.from(items).map(o => (o.innerText || o.getAttribute('aria-label') || '').trim()).filter(Boolean);
-                        const selected = selectInput.querySelector('[role="option"][aria-selected="true"]');
-                        current_value = selected ? (selected.innerText || selected.getAttribute('aria-label') || '').trim() : '';
-                    }
-                } else if (textInput) {
-                    current_value = textInput.value || '';
-                }
-
-                handledGroups.add(group);
-                questions.push({
-                    question: questionText,
-                    field_type: field_type,
-                    options: options,
-                    current_value: current_value,
-                    is_required: label.getAttribute('aria-required') === 'true' ||
-                                 group.querySelector('[aria-required="true"]') !== null
-                });
-            }
-
-            // Strategy 2: find labels with associated inputs not caught by Strategy 1
-            const allLabels = modal.querySelectorAll('label');
-            for (const label of allLabels) {
-                const owner = label.closest('.jobs-easy-apply-form-section__grouping, .fb-dash-form-element');
-                if (owner && handledGroups.has(owner)) continue;
-                const questionText = label.innerText.trim();
-                if (!questionText || seen.has(questionText)) continue;
-                // Skip labels that are just "Yes"/"No"/"Other" — these are radio options, not questions
-                if (['yes', 'no', 'other', 'none'].includes(questionText.toLowerCase())) continue;
-                // Skip "Deselect resume" / "Select resume" labels — these are resume management controls
-                if (questionText.toLowerCase().includes('deselect resume') || questionText.toLowerCase().includes('remove resume') || questionText.toLowerCase().includes('select resume')) continue;
-                seen.add(questionText);
-
-                const forId = label.getAttribute('for');
-                let input = forId ? document.getElementById(forId) : label.querySelector('input, select, textarea');
-                if (!input) input = label.closest('.fb-dash-form-element, .artdeco-entity-lockup, div')?.querySelector('input, select, textarea');
-                if (!input) continue;
-
-                // Skip file inputs (already handled above)
-                if (input.type === 'file') continue;
-
-                let field_type = 'text';
-                let options = [];
-                let current_value = '';
-
-                if (input.tagName === 'SELECT') {
-                    field_type = 'dropdown';
-                    options = Array.from(input.options).map(o => o.text.trim()).filter(Boolean);
-                    current_value = selectValue(input);
-                } else if (input.type === 'radio') {
-                    field_type = 'radio';
-                    // Find the fieldset or container with a heading for this radio group
-                    const fieldset = input.closest('fieldset');
-                    if (fieldset) {
-                        const legend = fieldset.querySelector('legend');
-                        if (legend && !seen.has(legend.innerText.trim())) {
-                            // Use legend as question text
-                            const legendText = legend.innerText.trim();
-                            seen.add(legendText);
-                            if (questions.length > 0 && questions[questions.length - 1].question === questionText) {
-                                questions.pop();
-                            }
-                            questions.push({
-                                question: legendText,
-                                field_type: 'radio',
-                                options: Array.from(fieldset.querySelectorAll('label')).map(l => l.innerText.trim()).filter(Boolean),
-                                current_value: fieldset.querySelector('input[type=radio]:checked')?.value || '',
-                                is_required: input.required
-                            });
-                            continue;
-                        }
-                    }
-                    const container = input.closest('fieldset, div');
-                    if (container) {
-                        options = Array.from(container.querySelectorAll('label')).map(l => l.innerText.trim()).filter(Boolean);
-                    }
-                } else if (input.type === 'checkbox') {
-                    field_type = 'checkbox';
-                    current_value = input.checked ? 'Yes' : '';
-                } else {
-                    current_value = input.value || '';
-                }
-
-                questions.push({
-                    question: questionText,
-                    field_type: field_type,
-                    options: options,
-                    current_value: current_value,
-                    is_required: label.getAttribute('aria-required') === 'true' ||
-                                 (input && input.required)
-                });
-            }
-
-            // Strategy 3: find Required radio questions not caught by Strategy 1/2
-            // LinkedIn often has Required radio questions like "Are you comfortable working remotely?"
-            // that appear as standalone label+radio groups outside .fb-dash-form-element
-            const requiredRadios = modal.querySelectorAll('[aria-required="true"], .jobs-easy-apply-form-section__grouping [required]');
-            for (const reqEl of requiredRadios) {
-                const owner = reqEl.closest('.jobs-easy-apply-form-section__grouping, .fb-dash-form-element');
-                if (owner && handledGroups.has(owner)) continue;
-                // Walk up to find the container with label text
-                let container = reqEl.closest('fieldset, div[role="radiogroup"], .fb-dash-form-element');
-                if (!container) container = reqEl.parentElement;
-                if (!container) continue;
-
-                // Find the question text — look for a label/sibling with text
-                let questionText = '';
-                const labels = container.querySelectorAll('label, span, legend');
-                for (const l of labels) {
-                    const t = l.innerText.trim();
-                    if (t && !['yes', 'no', 'other', 'none'].includes(t.toLowerCase()) &&
-                        !t.toLowerCase().includes('deselect resume') && !t.toLowerCase().includes('remove resume')) {
-                        questionText = t;
-                        break;
-                    }
-                }
-                if (!questionText) {
-                    // Try parent's text content before the radio group
-                    const parent = container.parentElement;
-                    if (parent) {
-                        const textNodes = parent.innerText.split('\\n').filter(t => t.trim());
-                        for (const t of textNodes) {
-                            if (t.includes('?') || t.toLowerCase().includes('required')) {
-                                questionText = t.replace(/\\s*Required\\s*/i, '').trim();
-                                break;
-                            }
-                        }
-                    }
-                }
-                if (!questionText || seen.has(questionText)) continue;
-                if (['yes', 'no', 'other', 'none'].includes(questionText.toLowerCase())) continue;
-                seen.add(questionText);
-
-                // Find radio options
-                const radios = container.querySelectorAll('input[type="radio"], div[role="radio"]');
-                const radioOptions = [];
-                for (const r of radios) {
-                    const rl = r.closest('label') || r.parentElement;
-                    const optText = rl ? rl.innerText.trim() : '';
-                    if (optText && !radioOptions.includes(optText)) {
-                        radioOptions.push(optText);
-                    }
-                }
-                if (radioOptions.length === 0) continue;
-
-                questions.push({
-                    question: questionText,
-                    field_type: 'radio',
-                    options: radioOptions,
-                    current_value: '',
-                    is_required: true
-                });
-            }
-
-            return questions;
-        }
-        """
-
-        try:
-            raw_questions = await page.evaluate(js_script)
-            questions = raw_questions if isinstance(raw_questions, list) else []
-        except PlaywrightError as e:
-            logger.error(f"Failed to extract screening questions: {e}")
-
-        return questions
+    async def extract_screening_questions(self) -> list[dict[str, Any]]:
+        from src.linked_agent.browser.screening_form import extract
+        return await extract(self._engine.page)
 
     async def fill_answer(self, question: dict[str, Any], answer: str) -> bool:
-        """Fill an answer for a screening question in the current modal step."""
-        page = self._engine.page
-
-        field_type = question.get("field_type", "text")
-        question_text = question.get("question", "")
-        current_value = question.get("current_value", "")
-
-        # Skip fields that are already filled with a real value (not placeholder)
-        if current_value and field_type == "dropdown":
-            placeholder_values = ("select an option", "none", "n/a", "other", "")
-            if current_value.lower().strip() not in placeholder_values:
-                logger.debug(f"Skipping pre-filled dropdown: {question_text} = {current_value}")
-                return True
-
-        # Skip non-fillable question types
-        if question_text.lower().startswith("deselect resume") or question_text.lower().startswith("follow "):
-            logger.debug(f"Skipping non-fillable question: {question_text}")
-            return True
-
-        try:
-            if field_type == "text":
-                question_lower = question_text.lower()
-                is_location_field = any(kw in question_lower for kw in ["location", "city", "country", "residence"])
-                if is_location_field:
-                    loc_answer = answer.strip()
-                    result = await self._fill_combobox_answer(question_text, loc_answer)
-                    logger.debug(f"fill_answer combobox '{question_text}' = '{loc_answer}': {result}")
-                    if result:
-                        return True
-
-                safe_answer = json.dumps(answer)
-                safe_question = json.dumps(question_text)
-                js_fill = f"""
-                () => {{
-                    const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
-                    if (!modal) return false;
-                    const qText = {safe_question};
-                    const norm = s => (s || '').toLowerCase().replace(/[*?]/g, '').replace(/\\s+/g, ' ').trim();
-                    const cleanQ = norm(qText);
-
-                    // Strategy 1: Find container matching question_text
-                    const containers = modal.querySelectorAll('.fb-dash-form-element, .jobs-easy-apply-form-section__grouping, fieldset, div');
-                    for (const c of containers) {{
-                        const labelEl = c.querySelector('label, legend, span.t-14');
-                        if (labelEl) {{
-                            const lt = norm(labelEl.innerText);
-                            if (lt === cleanQ || lt.includes(cleanQ) || cleanQ.includes(lt)) {{
-                                const input = c.querySelector('input[type="text"], input[type="number"], textarea');
-                                if (input && input.offsetParent !== null) {{
-                                    input.focus();
-                                    const proto = input.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-                                    const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                                    nativeSetter.call(input, {safe_answer});
-                                    input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                    input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                    input.dispatchEvent(new Event('blur', {{ bubbles: true }}));
-                                    return true;
-                                }}
-                            }}
-                        }}
-                    }}
-
-                    // Strategy 2: Find label matching question_text and walk up to find input
-                    const labels = modal.querySelectorAll('label, legend');
-                    for (const label of labels) {{
-                        const lt = norm(label.innerText);
-                        if (lt === cleanQ || lt.includes(cleanQ) || cleanQ.includes(lt)) {{
-                            const forId = label.getAttribute('for');
-                            let input = forId ? document.getElementById(forId) : null;
-                            if (!input) {{
-                                let parent = label.parentElement;
-                                for (let i = 0; i < 4 && parent; i++) {{
-                                    input = parent.querySelector('input[type="text"], input[type="number"], textarea');
-                                    if (input) break;
-                                    parent = parent.parentElement;
-                                }}
-                            }}
-                            if (input && input.offsetParent !== null) {{
-                                input.focus();
-                                const proto = input.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-                                const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                                nativeSetter.call(input, {safe_answer});
-                                input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                                input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                                input.dispatchEvent(new Event('blur', {{ bubbles: true }}));
-                                return true;
-                            }}
-                        }}
-                    }}
-
-                    // Fallback: fill first empty input
-                    const inputs = modal.querySelectorAll('input[type="text"], input[type="number"], textarea');
-                    for (const input of inputs) {{
-                        if (input.offsetParent !== null && !input.value) {{
-                            input.focus();
-                            const proto = input.tagName === 'TEXTAREA' ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype;
-                            const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value').set;
-                            nativeSetter.call(input, {safe_answer});
-                            input.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                            input.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                            input.dispatchEvent(new Event('blur', {{ bubbles: true }}));
-                            return true;
-                        }}
-                    }}
-
-                    return false;
-                }}
-                """
-                result = await page.evaluate(js_fill)
-                logger.debug(f"fill_answer text '{question_text}' = '{answer}': {result}")
-                return result
-
-            elif field_type == "dropdown":
-                options = question.get("options", [])
-                if options:
-                    best_match = self._find_best_option(answer, options)
-                    if best_match:
-                        result = await self._click_dropdown_option(best_match, question_text=question_text)
-                        logger.debug(f"fill_answer dropdown '{question_text}' = '{best_match}': {result}")
-                        return result
-
-            elif field_type == "radio":
-                options = question.get("options", [])
-                if options:
-                    best_match = self._find_best_option(answer, options)
-                    if best_match:
-                        result = await self._click_radio_option(best_match, question_text=question_text)
-                        logger.debug(f"fill_answer radio '{question_text}' = '{best_match}': {result}")
-                        return result
-
-        except PlaywrightError as e:
-            logger.error(f"Failed to fill answer: {e}")
-
-        return False
+        from src.linked_agent.browser.screening_form import fill
+        return await fill(self._engine.page, question, answer)
 
     async def click_next(self) -> bool:
-        """Click the Next/Continue button in the multi-step form."""
-        page = self._engine.page
-        try:
-            result = await page.evaluate("""
-            () => {
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
-                if (!modal) return false;
-                const btns = modal.querySelectorAll('button');
-                for (const b of btns) {
-                    const text = (b.innerText || '').trim().toLowerCase();
-                    const label = (b.getAttribute('aria-label') || '').toLowerCase();
-                    if ((text.includes('next') || text.includes('continue') || label.includes('next') || label.includes('continue')) && b.offsetParent !== null && !b.disabled) {
-                        b.click();
-                        return true;
-                    }
-                }
-                // Fallback: try any enabled primary button that isn't blacklisted
-                const blacklist = ['submit', 'review', 'back', 'dismiss', 'close', 'cancel', 'skip', 'delete', 'remove', 'discard', 'save & exit', 'save and exit', 'exit', 'x'];
-                for (const b of btns) {
-                    const text = (b.innerText || '').trim().toLowerCase();
-                    const label = (b.getAttribute('aria-label') || '').toLowerCase();
-                    if (b.offsetParent !== null && !b.disabled
-                        && !blacklist.some(w => text.includes(w) || label.includes(w))
-                        && text.length > 0) {
-                        b.click();
-                        return true;
-                    }
-                }
-                return false;
-            }
-            """)
-            return result
-        except PlaywrightError as e:
-            logger.debug(f"Failed to click next: {e}")
-        return False
+        from src.linked_agent.browser.screening_form import action
+        return await action(self._engine.page, "next")
 
     async def click_review(self) -> bool:
-        """Click the Review button."""
-        page = self._engine.page
-        try:
-            result = await page.evaluate("""
-            () => {
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
-                if (!modal) return false;
-                const btns = modal.querySelectorAll('button');
-                for (const b of btns) {
-                    const text = (b.innerText || '').trim().toLowerCase();
-                    const label = (b.getAttribute('aria-label') || '').toLowerCase();
-                    if ((text.includes('review') || label.includes('review')) && b.offsetParent !== null && !b.disabled) {
-                        b.click();
-                        return true;
-                    }
-                }
-                return false;
-            }
-            """)
-            return result
-        except PlaywrightError as e:
-            logger.debug(f"Failed to click review: {e}")
-        return False
+        from src.linked_agent.browser.screening_form import action
+        return await action(self._engine.page, "review")
 
     async def submit_application(self) -> bool:
-        """Click the Submit button to finalize the application."""
-        page = self._engine.page
-        try:
-            result = await page.evaluate("""
-            () => {
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
-                if (!modal) return false;
-                const btns = modal.querySelectorAll('button');
-                for (const b of btns) {
-                    const text = (b.innerText || '').trim().toLowerCase();
-                    const label = (b.getAttribute('aria-label') || '').toLowerCase();
-                    if ((text.includes('submit') || label.includes('submit')) && b.offsetParent !== null && !b.disabled) {
-                        b.click();
-                        return true;
-                    }
-                }
-                return false;
-            }
-            """)
-            return result
-        except PlaywrightError as e:
-            logger.debug(f"Failed to submit application: {e}")
-        return False
+        from src.linked_agent.browser.screening_form import action
+        return await action(self._engine.page, "submit")
 
     async def has_submit_success(self) -> bool:
         """Check if the application was submitted successfully.
@@ -1044,7 +592,7 @@ class LinkedInJobDetailPage(BasePage):
         try:
             result = await page.evaluate("""
             () => {
-                const modal = document.querySelector('div.jobs-easy-apply-modal, div[role="dialog"], div.artdeco-modal');
+                const modal = [...document.querySelectorAll('div.jobs-easy-apply-modal, div[role="dialog"], div.artdeco-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 // A closed modal alone cannot establish submission.
                 if (!modal) return {success: false, reason: 'modal_gone', text: '', buttons: []};
 
@@ -1111,7 +659,7 @@ class LinkedInJobDetailPage(BasePage):
         try:
             return await page.evaluate("""
             () => {
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 return modal ? (modal.innerText || '').substring(0, 500) : 'NO MODAL FOUND';
             }
             """)
@@ -1173,7 +721,7 @@ class LinkedInJobDetailPage(BasePage):
         try:
             still_open = await page.evaluate("""
             () => {
-                const m = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                const m = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 return m && m.offsetParent !== null;
             }
             """)
@@ -1290,7 +838,7 @@ class LinkedInJobDetailPage(BasePage):
             if question_text:
                 result = await page.evaluate(f"""
                 () => {{
-                    const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                    const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                     if (!modal) return null;
                     const qText = {safe_q};
                     const answer = {safe_opt};
@@ -1374,7 +922,7 @@ class LinkedInJobDetailPage(BasePage):
             if question_text:
                 listbox_found = await page.evaluate(f"""
                 () => {{
-                    const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                    const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                     if (!modal) return false;
                     const qText = {safe_q};
                     const answer = {safe_opt};
@@ -1446,7 +994,7 @@ class LinkedInJobDetailPage(BasePage):
             # Strategy 4: Fallback — find ANY div[role="listbox"] in modal and try matching
             listbox_found = await page.evaluate(f"""
             () => {{
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const answer = {safe_opt};
 
@@ -1488,7 +1036,7 @@ class LinkedInJobDetailPage(BasePage):
             safe_q = _json.dumps(question_text)
             result = await page.evaluate(f"""
             () => {{
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const optStr = {safe_opt}.toLowerCase().trim();
                 const qStr = {safe_q}.toLowerCase().trim();
@@ -1563,7 +1111,7 @@ class LinkedInJobDetailPage(BasePage):
             # Step 1: Type the search string into the combobox input
             typed = await page.evaluate(f"""
             () => {{
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const qText = {safe_q};
                 const norm = s => (s || '').toLowerCase().replace(/[*?]/g, '').replace(/\\s+/g, ' ').trim();
@@ -1621,7 +1169,7 @@ class LinkedInJobDetailPage(BasePage):
             # Step 2: Try clicking the matching option in the typeahead dropdown
             option_clicked = await page.evaluate(f"""
             () => {{
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal') || document.body;
+                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1) || document.body;
                 const target = {safe_ans}.toLowerCase().trim();
 
                 const optionEls = modal.querySelectorAll('[role="option"], .basic-typeahead__typeahead-results li, .search-basic-typeahead-results li, li[role="option"], div[role="option"]');

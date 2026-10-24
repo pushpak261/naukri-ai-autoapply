@@ -19,6 +19,7 @@ import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -68,6 +69,16 @@ from src.linked_agent.utils.logger import (
 )
 
 logger = get_logger(__name__)
+
+
+def _matches_job_url(url, identifier):
+    parsed = urlsplit(url)
+    if parsed.scheme != "https" or parsed.hostname not in ("linkedin.com", "www.linkedin.com"):
+        return False
+    direct = re.search(r"/jobs/view/(?:[^/]*-)?(\d+)(?:/|$)", parsed.path)
+    if direct:
+        return direct[1] == str(identifier)
+    return parsed.path.startswith("/jobs/search") and parse_qs(parsed.query).get("currentJobId") == [str(identifier)]
 
 
 class LinkedInAgent:
@@ -789,7 +800,7 @@ class LinkedInAgent:
 
                 # Verify we're on a search page with the job sidebar open
                 current_url = page.url
-                if "currentJobId" in current_url or "/jobs/view/" in current_url:
+                if _matches_job_url(current_url, job_id):
                     # Wait for Apply button area to render — using textContent
                     # matching to catch buttons where text is in nested elements
                     try:
@@ -830,7 +841,7 @@ class LinkedInAgent:
                         'button[aria-label*="Apply" i]',
                         timeout=8000, state='visible'
                     )
-                return True
+                return _matches_job_url(page.url, job_id)
             except Exception as e:
                 logger.warning(f"Direct job URL navigation failed: {e}")
 
@@ -901,7 +912,7 @@ class LinkedInAgent:
                 f"  Easy Apply Only: {'Yes' if self._settings.application.easy_apply_only else 'No'}\n"
                 f"  External Apply: {'Disabled' if self._settings.application.skip_external_apply else 'Gemini employer forms'}\n"
                 f"  Dry Run: {'Yes' if self._settings.application.dry_run else 'No'}\n"
-                f"  AI Model: {self._settings.ai.model}\n"
+                f"  AI Model: {self._settings.ai.model if self._settings.ai.use_gemini else 'Disabled (offline rules)'}\n"
                 f"  Freshness: {self._settings.search.freshness}\n"
                 f"  Max Pages: {self._settings.search.max_pages}\n"
                 f"  Apply Delay: {self._settings.application.delay_between_applies_min}-{self._settings.application.delay_between_applies_max}s",

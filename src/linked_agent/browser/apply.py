@@ -21,6 +21,10 @@ logger = get_logger(__name__)
 LINKEDIN_HOSTS = ("www.linkedin.com", "linkedin.com")
 
 
+def _question_identity(fields):
+    return [(f.get('question'), f.get('field_type'), f.get('selector')) for f in fields]
+
+
 class LinkedInJobApplier:
     """
     Handles LinkedIn Easy Apply job application flow.
@@ -305,7 +309,7 @@ class LinkedInJobApplier:
                 # (pre-filled form or info-only step)
                 has_submit = await page.evaluate("""
                 () => {
-                    const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                    const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                     if (!modal) return false;
                     const btns = modal.querySelectorAll('button');
                     for (const b of btns) {
@@ -371,6 +375,7 @@ class LinkedInJobApplier:
                     answers = await self._question_answerer.answer_questions(non_file_questions, job)
                 else:
                     answers = await self._answer_screening_questions_locally(non_file_questions, job)
+                form_changed = False
                 for q, a in zip(non_file_questions, answers, strict=True):
                     answer_text = a.get("answer", "")
                     field_type = q.get("field_type", "text")
@@ -382,12 +387,19 @@ class LinkedInJobApplier:
                         return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
                         filled = await self._detail_page.fill_answer(q, answer_text)
+                        refreshed = await self._detail_page.extract_screening_questions()
+                        if _question_identity(refreshed) != _question_identity(questions):
+                            form_changed = True
+                            break
                         if not filled and q.get('required', q.get('is_required', True)):
                             return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a required screening field. Review the application form."}
                         logger.info(f"Step {step} fill '{q.get('question','')[:30]}' = '{answer_text[:30]}': {filled}")
                         await asyncio.sleep(0.5)
                     else:
                         logger.warning(f"Step {step} empty answer for '{q.get('question','')[:30]}' — skipping")
+                if form_changed:
+                    logger.info("Screening questions changed after filling; reading the new form before advancing.")
+                    continue
 
             # Unfollow company if configured
             if self._settings.application.unfollow_after_apply:
@@ -400,7 +412,7 @@ class LinkedInJobApplier:
             # AFTER filling questions, check for Review/Submit (end of form)
             has_submit = await page.evaluate("""
             () => {
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const btns = modal.querySelectorAll('button');
                 for (const b of btns) {
@@ -416,7 +428,7 @@ class LinkedInJobApplier:
 
             has_review = await page.evaluate("""
             () => {
-                const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const btns = modal.querySelectorAll('button');
                 for (const b of btns) {
@@ -437,7 +449,7 @@ class LinkedInJobApplier:
                 review_state = {}
                 try:
                     review_state = await page.evaluate("""() => {
-                        const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                        const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                         if (!modal) return {found: false};
                         const btns = [];
                         modal.querySelectorAll('button').forEach(b => {
@@ -473,7 +485,7 @@ class LinkedInJobApplier:
                         # Click Back to return to form
                         await page.evaluate("""
                         () => {
-                            const modal = document.querySelector('div[role="dialog"], .jobs-easy-apply-modal');
+                            const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                             if (!modal) return;
                             const btns = modal.querySelectorAll('button');
                             for (const b of btns) {
