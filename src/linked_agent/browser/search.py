@@ -337,7 +337,7 @@ class LinkedInJobSearcher:
         Checks login status indicators every SESSION_HEARTBEAT_INTERVAL seconds.
         """
         now = asyncio.get_event_loop().time()
-        if now - self._last_health_check < SESSION_HEARTBEAT_INTERVAL:
+        if self._last_health_check and now - self._last_health_check < SESSION_HEARTBEAT_INTERVAL:
             return
 
         self._last_health_check = now

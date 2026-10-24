@@ -5,6 +5,9 @@ freshness and application filters when resolving a modern location picker, and
 prioritizes the shared company preference list before evaluating eligible jobs.
 An expired session, verification challenge or rate limit ends discovery for review.
 The selected listing URL must identify the job being evaluated.
+Verified location IDs persist across restarts and are checked against the visible
+destination label. Modern search cards exclude hidden copies and sidebar job
+recommendations, so discovery and card indices refer to the result list.
 
 Native Easy Apply questions use the shared resume, confirmed profile facts and
 answer memory with Gemini disabled. Numeric experience questions remain numeric;

@@ -9,7 +9,10 @@ rather than fragile CSS selectors.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
@@ -28,11 +31,50 @@ logger = get_logger(__name__)
 class LinkedInSearchPage(BasePage):
     """Page Object representing the LinkedIn Job Search Results page."""
 
+    def _location_cache_path(self) -> Path | None:
+        root = getattr(getattr(self._engine, "_settings", None), "project_root", None)
+        return root / "data/linkedin/search_locations.json" if isinstance(root, Path) else None
+
+    def _location_ids(self) -> dict[str, str]:
+        if hasattr(self, "_resolved_location_ids"):
+            return self._resolved_location_ids
+        locations = {}
+        path = self._location_cache_path()
+        if path:
+            try:
+                saved = json.loads(path.read_text())
+                if isinstance(saved, dict):
+                    locations = {
+                        name: identifier for name, identifier in saved.items()
+                        if isinstance(name, str) and isinstance(identifier, str) and identifier.isdigit()
+                    }
+            except (OSError, ValueError):
+                pass
+        self._resolved_location_ids = locations
+        return locations
+
+    def _remember_location(self, requested: str, identifier: str) -> None:
+        if not identifier.isdigit():
+            return
+        locations = self._location_ids()
+        if locations.get(requested) == identifier:
+            return
+        locations[requested] = identifier
+        path = self._location_cache_path()
+        if path:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = path.with_suffix(f".{os.getpid()}.tmp")
+                temporary.write_text(json.dumps(locations), encoding="utf-8")
+                temporary.replace(path)
+            except OSError as error:
+                logger.warning("Cannot persist verified LinkedIn locations: %s", error)
+
     async def navigate_to_search(self, search_url: str) -> None:
         """Navigate to a specific LinkedIn job search URL with retries."""
         page = self._engine.page
         requested = parse_qs(urlparse(search_url).query).get("location", [""])[0]
-        geo_ids = getattr(self, "_resolved_location_ids", {})
+        geo_ids = self._location_ids()
         if requested in geo_ids:
             parsed = urlparse(search_url)
             params = parse_qs(parsed.query)
@@ -132,6 +174,12 @@ class LinkedInSearchPage(BasePage):
                         id:el.id, parentTag:el.parentElement.tagName,parentRole:el.parentElement.getAttribute('role'),
                         parentClass:el.parentElement.className}))""")
                 logger.warning("Visible LinkedIn location controls after opening picker: %s", controls)
+                root = getattr(getattr(self._engine, "_settings", None), "project_root", None)
+                if isinstance(root, Path):
+                    diagnostic = root / "data/linkedin/location-picker.png"
+                    diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                    with contextlib.suppress(PlaywrightError):
+                        await page.screenshot(path=str(diagnostic))
                 raise
             # Autocomplete can replace/close its popover before Playwright's
             # click actionability checks finish. Capture the actual suggested
@@ -170,7 +218,7 @@ class LinkedInSearchPage(BasePage):
             )
         geo_id = parse_qs(urlparse(page.url).query).get("geoId", [""])[0]
         if geo_id:
-            self._resolved_location_ids = {**getattr(self, "_resolved_location_ids", {}), requested: geo_id}
+            self._remember_location(requested, geo_id)
 
     async def has_no_results(self) -> bool:
         """Check if there are no search results or if the page shows an empty/error state."""
@@ -680,11 +728,14 @@ class LinkedInSearchPage(BasePage):
         """Count job cards safely, returning 0 on error."""
         try:
             return await page.evaluate("""
-                () => Math.max(
-                    document.querySelectorAll('[componentkey^="job-card-component-ref-"][role="button"]').length,
-                    document.querySelectorAll('[data-view-name="job-card"], li[data-view-name="job-card"]').length,
-                    document.querySelectorAll('a[href*="/jobs/view/"]').length
-                )
+                () => {
+                    const modern = Array.from(document.querySelectorAll('[componentkey^="job-card-component-ref-"][role="button"]'))
+                        .filter(card => card.getClientRects().length).length;
+                    return modern || Math.max(
+                        document.querySelectorAll('[data-view-name="job-card"], li[data-view-name="job-card"]').length,
+                        document.querySelectorAll('a[href*="/jobs/view/"]').length
+                    );
+                }
             """)
         except Exception:
             return 0
@@ -785,6 +836,7 @@ class LinkedInSearchPage(BasePage):
             // New LinkedIn search-results pages use clickable components with
             // stable job IDs instead of /jobs/view anchors and legacy CSS.
             for (const card of document.querySelectorAll('[componentkey^="job-card-component-ref-"][role="button"]')) {
+                if (!card.getClientRects().length) continue;
                 const key = card.getAttribute('componentkey') || '';
                 const id = key.match(/^job-card-component-ref-(\d+)$/)?.[1];
                 if (!id) continue;
@@ -805,6 +857,10 @@ class LinkedInSearchPage(BasePage):
                     applicant_count: 0, description: '', card_index: cardIdx++,
                     linkedin_job_id: id});
             }
+
+            // A modern result list is complete. Legacy anchors elsewhere belong
+            // to the selected job or recommendations, not additional results.
+            if (jobs.length) return jobs;
 
             // Collect all candidate card nodes (any element that might be a job card)
             const candidates = [];

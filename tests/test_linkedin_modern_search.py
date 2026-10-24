@@ -42,6 +42,10 @@ async def test_modern_button_cards_are_unique_and_have_complete_metadata(search_
     await page.set_content(
         card("101", "Java Developer", "First Company", "Pune")
         + card("102", "Backend Engineer", "Second Company", "Mumbai")
+        + "<div hidden>"
+        + card("103", "Hidden Job", "Hidden Company", "Delhi")
+        + "</div>"
+        + '<aside><a href="/jobs/view/999">Recommended unrelated job</a></aside>'
     )
     raw = await search._extract_cards_from_dom(page)
     assert await search._safe_card_count(page) == 2

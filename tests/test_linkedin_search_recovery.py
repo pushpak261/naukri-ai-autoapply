@@ -1,7 +1,7 @@
 """Location changes keep the requested filters; access blocks stop discovery."""
 
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -98,7 +98,39 @@ async def test_http_rate_limit_stops_without_retrying(search_page):
 
 
 @pytest.mark.asyncio
-async def test_expired_session_is_not_swallowed_or_reported_as_no_jobs(tmp_path):
+async def test_verified_location_cache_survives_a_restart(search_page, tmp_path, monkeypatch):
+    import json
+    from src.linked_agent.browser.pages.search import LinkedInSearchPage
+
+    search, page = search_page
+    search._engine._settings = SimpleNamespace(project_root=tmp_path)
+    search._remember_location("Pune", "114806696")
+    path = tmp_path / "data/linkedin/search_locations.json"
+    assert json.loads(path.read_text()) == {"Pune": "114806696"}
+    resumed = LinkedInSearchPage(search._engine, AsyncMock())
+    visited = []
+
+    async def serve(route):
+        visited.append(route.request.url)
+        await route.fulfill(body='<div aria-label="Location Pune">Pune</div>')
+
+    await page.route("**/*", serve)
+    monkeypatch.setattr("src.linked_agent.browser.pages.search.asyncio.sleep", AsyncMock())
+    await resumed.navigate_to_search(
+        "https://www.linkedin.com/jobs/search/?keywords=Java&location=Pune&f_E=1,2"
+    )
+    query = parse_qs(urlsplit(visited[-1]).query)
+    assert query["geoId"] == ["114806696"]
+    assert query["f_E"] == ["1,2"]
+    assert query["keywords"] == ["Java"]
+
+
+@pytest.mark.asyncio
+async def test_expired_session_is_not_swallowed_or_reported_as_no_jobs(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        "src.linked_agent.browser.search.asyncio.get_event_loop",
+        lambda: SimpleNamespace(time=lambda: 1),
+    )
     engine = SimpleNamespace(
         page=SimpleNamespace(url="https://www.linkedin.com/checkpoint/challenge")
     )
@@ -110,6 +142,18 @@ async def test_expired_session_is_not_swallowed_or_reported_as_no_jobs(tmp_path)
     worker = LinkedInJobSearcher(search, AsyncMock(), engine, Settings(project_root=tmp_path))
     with pytest.raises(LoginError):
         await worker._search_keyword("Java", "Pune")
+
+
+def test_location_cache_storage_failure_keeps_verified_in_memory(tmp_path, monkeypatch):
+    from pathlib import Path
+    from src.linked_agent.browser.pages.search import LinkedInSearchPage
+
+    search = LinkedInSearchPage(
+        SimpleNamespace(_settings=SimpleNamespace(project_root=tmp_path)), AsyncMock()
+    )
+    monkeypatch.setattr(Path, "mkdir", MagicMock(side_effect=OSError("Read-only storage")))
+    search._remember_location("Pune", "114806696")
+    assert search._location_ids() == {"Pune": "114806696"}
 
 
 @pytest.mark.parametrize(
