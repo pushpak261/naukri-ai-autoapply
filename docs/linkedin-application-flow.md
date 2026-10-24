@@ -5,6 +5,10 @@ freshness and application filters when resolving a modern location picker, and
 prioritizes the shared company preference list before evaluating eligible jobs.
 An expired session, verification challenge or rate limit ends discovery for review.
 The selected listing URL must identify the job being evaluated.
+Its job-description content must also load before evaluation; a browser error
+page cannot qualify from the URL alone. Entry/intern searches reject explicitly
+senior, lead, architect and vice-president titles even if LinkedIn labels them
+as entry level.
 Verified location IDs persist across restarts and are checked against the visible
 destination label. Modern search cards exclude hidden copies and sidebar job
 recommendations, so discovery and card indices refer to the result list.
@@ -27,8 +31,12 @@ External employer applications retain their separate enabled setting and Gemini
 key requirement. Employer-specific authentication, missing information or
 unsupported steps remain visible in Applications. Native local answers do not
 require Gemini.
+Apply controls may be buttons or links. Employer links are followed only after
+the popup listener is installed; they are not mistaken for a native modal.
 
 Use Command center's Parallel mode to start LinkedIn while an existing Naukri run
 continues. Starting both platforms reuses any already-running platform rather than
 launching a duplicate. LinkedIn's file log is added even when the shared database
 has already configured the root logger.
+Parallel mode also provides a Stop button for each platform, using the existing
+platform-specific stop endpoint.

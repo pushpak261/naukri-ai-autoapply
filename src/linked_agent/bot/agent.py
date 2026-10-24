@@ -550,6 +550,8 @@ class LinkedInAgent:
                     sidebar_already_applied = sidebar_details.get("already_applied", False)
                 else:
                     logger.warning(f"Could not open sidebar for description: {job.title} @ {job.company}")
+                    self._jobs_skipped += 1
+                    continue
 
                 await self._interactions.action_delay()
 
@@ -801,19 +803,7 @@ class LinkedInAgent:
                 # Verify we're on a search page with the job sidebar open
                 current_url = page.url
                 if _matches_job_url(current_url, job_id):
-                    # Wait for Apply button area to render — using textContent
-                    # matching to catch buttons where text is in nested elements
-                    try:
-                        await page.wait_for_selector(
-                            'button:has-text("Apply"):not(:has-text("Show"):has-text("Filter")), '
-                            'button[aria-label*="Apply" i], '
-                            'button[aria-label*="already applied" i], '
-                            'span:text-is("Applied")',
-                            timeout=10000, state='visible'
-                        )
-                    except PlaywrightTimeoutError:
-                        logger.debug("Apply button area not visible yet — continuing anyway")
-
+                    await self._wait_for_listing_content(page)
                     return True
 
                 # If redirected away (e.g., to login), retry once
@@ -836,18 +826,27 @@ class LinkedInAgent:
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
                 await asyncio.sleep(2)
-                with contextlib.suppress(PlaywrightTimeoutError):
-                    await page.wait_for_selector(
-                        'button[aria-label*="Apply" i]',
-                        timeout=8000, state='visible'
-                    )
-                return _matches_job_url(page.url, job_id)
+                if _matches_job_url(page.url, job_id):
+                    await self._wait_for_listing_content(page)
+                    return True
             except Exception as e:
                 logger.warning(f"Direct job URL navigation failed: {e}")
 
         return False
 
+    async def _wait_for_listing_content(self, page) -> None:
+        """An expected URL alone cannot distinguish a loaded listing from a browser error."""
+        await page.wait_for_function("""() => [...document.querySelectorAll(
+            '[componentkey^="JobDetails_AboutTheJob_"], .jobs-description__content, .jobs-box__html-content, .description__text, .show-more-less-html__markup'
+        )].some(el => el.getClientRects().length && el.textContent.trim().length > 20)""", timeout=10000)
+
     def _is_excluded(self, job: Job) -> bool:
+        levels = set(self._settings.search.experience_level)
+        if levels and levels <= {"1", "2"} and re.search(
+            r"\b(?:senior|sr\.?|lead|staff|principal|architect|director|vice[ -]president|vp)\b",
+            job.title or "", re.I,
+        ):
+            return True
         if not self._exclusion_spec:
             return False
         return self._exclusion_spec.is_satisfied_by(job)

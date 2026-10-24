@@ -180,6 +180,23 @@ export default function AgentControl() {
 
   const handleRefresh = async () => { await monitor.refresh(); };
 
+  const handleStopPlatform = async (target: 'naukri' | 'linkedin') => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    setActionLoading('stop');
+    setShowStopConfirm(false);
+    try {
+      await api.multi.stop(target);
+      notify('info', `Stopped ${target === 'linkedin' ? 'LinkedIn' : 'Naukri'}`);
+      await monitor.refresh();
+    } catch (err) {
+      notify('error', `Failed to stop ${target}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      actionRef.current = false;
+      setActionLoading(null);
+    }
+  };
+
   const successRate = metrics && (metrics.jobs_applied + metrics.jobs_failed) > 0
     ? Math.round((metrics.jobs_applied / (metrics.jobs_applied + metrics.jobs_failed)) * 100)
     : null;
@@ -448,6 +465,15 @@ export default function AgentControl() {
               Refresh
             </button>
           </div>
+          {parallelMode && <div className="flex gap-2 mt-3">
+            {(['naukri', 'linkedin'] as const).map(target => <button key={target}
+              onClick={() => handleStopPlatform(target)}
+              disabled={!multiStatus?.agents[target].running || actionLoading !== null || loading}
+              className="px-3 py-2 rounded-lg border text-sm disabled:opacity-40"
+              style={{ borderColor: 'var(--color-border)' }}>
+              Stop {target === 'linkedin' ? 'LinkedIn' : 'Naukri'}
+            </button>)}
+          </div>}
         </div>
       </div>
 

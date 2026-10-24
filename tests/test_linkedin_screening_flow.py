@@ -178,3 +178,78 @@ async def test_typeahead_uses_only_its_related_suggestions(search_page):
     assert await page.fill_answer(question, "Pune")
     assert await tab.locator("#city").input_value() == "Pune, Maharashtra, India"
     assert await tab.locator("body").get_attribute("data-wrong") is None
+
+
+@pytest.mark.asyncio
+async def test_employer_apply_anchor_is_not_clicked_as_native_or_in_recommendations(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<aside><button onclick="document.body.dataset.wrong='1'">Easy Apply</button></aside>
+      <section aria-label="Primary content"><button aria-label="Apply filter">Filter</button>
+      <a href="https://www.linkedin.com/safety/go/?url=https%3A%2F%2Femployer.example.invalid" aria-label="Apply on company website"
+        onclick="event.preventDefault();document.body.dataset.external='1'">Apply</a></section>"""
+    )
+    page = detail(tab)
+    assert not await page.has_easy_apply()
+    assert not await page.click_easy_apply()
+    assert await tab.locator("body").get_attribute("data-external") is None
+    assert await page.click_any_apply_button()
+    assert await tab.locator("body").get_attribute("data-external") == "1"
+    assert await tab.locator("body").get_attribute("data-wrong") is None
+
+
+@pytest.mark.asyncio
+async def test_native_apply_link_opens_the_modal(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<main><a href="#application" onclick="event.preventDefault();document.body.insertAdjacentHTML('beforeend','<div role=dialog>Contact info</div>')">Easy Apply</a></main>"""
+    )
+    page = detail(tab)
+    assert await page.has_easy_apply()
+    assert await page.click_easy_apply()
+    assert await tab.locator("[role=dialog]").inner_text() == "Contact info"
+
+
+@pytest.mark.parametrize(
+    "title,levels,excluded",
+    [
+        ("Java Senior Engineer, Vice President", ["1", "2"], True),
+        ("Java Lead_ Vice President- Software Engineer", ["2"], True),
+        ("Software Engineer I - Java", ["1", "2"], False),
+        ("Senior Java Developer", ["4"], False),
+    ],
+)
+def test_entry_search_rejects_explicit_senior_titles(title, levels, excluded):
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job
+
+    agent = object.__new__(LinkedInAgent)
+    agent._settings = Settings(search={"experience_level": levels})
+    agent._exclusion_spec = None
+    assert (
+        agent._is_excluded(Job("1", title, "Company", "https://www.linkedin.com/jobs/view/1"))
+        is excluded
+    )
+
+
+@pytest.mark.asyncio
+async def test_job_error_page_does_not_count_as_loaded_listing(search_page):
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from playwright.async_api import TimeoutError
+
+    _, tab = search_page
+    agent = object.__new__(LinkedInAgent)
+    await tab.set_content("<main>This site cannot be reached</main>")
+    original = tab.wait_for_function
+
+    async def bounded_wait(script, **kwargs):
+        return await original(script, timeout=100)
+
+    wrapped = SimpleNamespace(wait_for_function=bounded_wait)
+    with pytest.raises(TimeoutError):
+        await agent._wait_for_listing_content(wrapped)
+    await tab.set_content(
+        '<div componentkey="JobDetails_AboutTheJob_123">Java and Spring Boot development role.</div>'
+    )
+    await agent._wait_for_listing_content(wrapped)

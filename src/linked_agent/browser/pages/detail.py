@@ -205,62 +205,9 @@ class LinkedInJobDetailPage(BasePage):
         return details
 
     async def has_easy_apply(self) -> bool:
-        """Check if any Apply button is present that can open the Easy Apply modal.
-        Detects both 'Easy Apply' buttons and regular 'Apply' buttons (LinkedIn
-        often shows just 'Apply' but still opens the Easy Apply modal)."""
-        page = self._engine.page
-        try:
-            # Wait up to 8s for the button to appear (LinkedIn React lazy-loads it)
-            await page.wait_for_selector(
-                JobDetailSelectors.APPLY_BUTTON, timeout=8000, state="visible"
-            )
-            return True
-        except PlaywrightTimeoutError:
-            pass
-
-        # Debug: log what buttons ARE on the page
-        try:
-            debug = await page.evaluate("""() => {
-                const btns = [];
-                document.querySelectorAll('button').forEach(b => {
-                    const t = (b.textContent || b.innerText || '').trim().substring(0, 80);
-                    const a = b.getAttribute('aria-label') || '';
-                    if ((t.toLowerCase().includes('apply') || a.toLowerCase().includes('apply'))
-                        && !a.includes('filter') && !t.toLowerCase().includes('show results')) {
-                        btns.push({text: t, aria: a, visible: b.offsetParent !== null, display: getComputedStyle(b).display});
-                    }
-                });
-                return btns;
-            }""")
-            if debug:
-                logger.warning(f"has_easy_apply timed out but found buttons: {debug}")
-            else:
-                logger.warning("has_easy_apply timed out — NO apply buttons on page at all")
-        except Exception as e:
-            logger.debug(f"Could not inspect buttons: {e}")
-
-        # JS fallback: check for ANY apply button (Easy Apply or regular "Apply")
-        try:
-            fallback = await page.evaluate("""() => {
-                const btns = document.querySelectorAll('button');
-                for (const b of btns) {
-                    const tc = (b.textContent || b.innerText || '').trim().toLowerCase();
-                    const a = (b.getAttribute('aria-label') || '').toLowerCase();
-                    const isApply = tc.includes('apply') || a.includes('apply');
-                    const isFilter = a.includes('filter') || tc.includes('show results') || a.includes('show results');
-                    if (isApply && !isFilter && b.offsetParent !== null && !b.disabled) {
-                        return true;
-                    }
-                }
-                return false;
-            }""")
-            if fallback:
-                logger.warning("has_easy_apply resolved via JS fallback — Apply button IS present")
-                return True
-        except Exception as e:
-            logger.debug(f"JS fallback check failed: {e}")
-
-        return False
+        """Check native Apply controls without confusing employer links with a modal."""
+        from src.linked_agent.browser.apply_controls import available
+        return await available(self._engine.page, "native")
 
     async def has_already_applied(self) -> bool:
         """Check if already applied to this job (with brief wait)."""
@@ -274,153 +221,14 @@ class LinkedInJobDetailPage(BasePage):
             return False
 
     async def click_easy_apply(self) -> bool:
-        """Click the Easy Apply button in the sidebar to open the application modal.
-        Matches both 'Easy Apply' and regular 'Apply' buttons since both
-        can open the same LinkedIn Easy Apply modal.
-
-        Returns True if the button was found and clicked — the caller is
-        responsible for waiting for the modal via wait_for_apply_modal().
-        """
-        page = self._engine.page
-
-        # Strategy 1: Playwright's built-in selector (matches Easy Apply + Apply)
-        try:
-            btn = await page.query_selector(JobDetailSelectors.APPLY_BUTTON)
-            if btn:
-                try:
-                    await btn.click(timeout=5000)
-                    logger.info("Apply button clicked successfully via Playwright selector")
-                    return True
-                except PlaywrightError:
-                    logger.debug("Playwright click failed, trying JS fallback")
-        except Exception as e:
-            logger.debug(f"Playwright selector failed: {e}")
-
-        # Strategy 2: JS fallback — text-based matching, prioritizes Easy Apply
-        # but also clicks regular "Apply" buttons that open the modal.
-        try:
-            clicked = await page.evaluate("""() => {
-                const allBtns = document.querySelectorAll('button');
-
-                // Helper: check if a button is an apply button
-                function isApplyBtn(b) {
-                    const tc = (b.textContent || b.innerText || '').trim().toLowerCase();
-                    const a = (b.getAttribute('aria-label') || '').toLowerCase();
-                    return (tc.includes('apply') || a.includes('apply'))
-                        && !a.includes('filter')
-                        && !tc.includes('show results')
-                        && !a.includes('show results');
-                }
-
-                // Helper: check if button is truly visible
-                function isVisible(b) {
-                    if (b.offsetParent === null) return false;
-                    if (b.disabled) return false;
-                    const style = window.getComputedStyle(b);
-                    if (style.display === 'none' || style.visibility === 'hidden') return false;
-                    return true;
-                }
-
-                // Try sidebar first (most specific)
-                const sidebar = document.querySelector('.jobs-search__job-details, .job-details, [class*="job-details"], [class*="scaffold-layout__detail"]');
-                if (sidebar) {
-                    const btns = sidebar.querySelectorAll('button');
-                    // Prioritize Easy Apply text
-                    for (const b of btns) {
-                        const tc = (b.textContent || b.innerText || '').trim().toLowerCase();
-                        const a = (b.getAttribute('aria-label') || '').toLowerCase();
-                        if ((tc.includes('easy apply') || a.includes('easy apply')) && isVisible(b)) {
-                            b.click(); return true;
-                        }
-                    }
-                    // Then try any Apply button
-                    for (const b of btns) {
-                        if (isApplyBtn(b) && isVisible(b)) { b.click(); return true; }
-                    }
-                }
-
-                // Try all buttons on page — prioritize Easy Apply
-                for (const b of allBtns) {
-                    const tc = (b.textContent || b.innerText || '').trim().toLowerCase();
-                    const a = (b.getAttribute('aria-label') || '').toLowerCase();
-                    if ((tc.includes('easy apply') || a.includes('easy apply')) && isVisible(b)) {
-                        b.click(); return true;
-                    }
-                }
-                for (const b of allBtns) {
-                    if (isApplyBtn(b) && isVisible(b)) { b.click(); return true; }
-                }
-
-                return false;
-            }""")
-            if not clicked:
-                logger.warning("No Apply button found to click (Easy Apply or regular Apply)")
-                return False
-        except Exception as e:
-            logger.error(f"Failed to click Apply button: {e}")
-            return False
-
-        logger.info("Apply button clicked successfully (JS fallback)")
-        return True
-
-    async def has_external_apply(self) -> bool:
-        """Check if an external Apply button/link is present (with brief wait)."""
-        page = self._engine.page
-        try:
-            await page.wait_for_selector(
-                JobDetailSelectors.EXTERNAL_APPLY, timeout=5000, state="visible"
-            )
-            return True
-        except PlaywrightTimeoutError:
-            return False
+        """Open only a native Easy Apply control; employer links need a popup listener."""
+        from src.linked_agent.browser.apply_controls import click
+        return await click(self._engine.page, "native")
 
     async def click_any_apply_button(self) -> bool:
-        """Click external/navigation Apply buttons (those that redirect to
-        external career sites). Also catches any Apply button missed by
-        click_easy_apply() — the caller will check for Easy Apply modal
-        after clicking regardless."""
-        page = self._engine.page
-        try:
-            result = await page.evaluate("""
-            () => {
-                const btns = document.querySelectorAll('button');
-                function isVisible(b) {
-                    if (b.offsetParent === null) return false;
-                    if (b.disabled) return false;
-                    const style = window.getComputedStyle(b);
-                    if (style.display === 'none' || style.visibility === 'hidden') return false;
-                    return true;
-                }
-                for (const b of btns) {
-                    const tc = (b.textContent || b.innerText || '').trim().toLowerCase();
-                    const a = (b.getAttribute('aria-label') || '').toLowerCase();
-                    // Prioritize "Apply on" / external apply indicators
-                    if ((tc.includes('apply on') || a.includes('apply on')) && isVisible(b)) {
-                        b.click(); return true;
-                    }
-                }
-                for (const b of btns) {
-                    const tc = (b.textContent || b.innerText || '').trim().toLowerCase();
-                    const a = (b.getAttribute('aria-label') || '').toLowerCase();
-                    if ((tc.includes('apply') || a.includes('apply'))
-                        && !a.includes('filter')
-                        && !tc.includes('show results')
-                        && !a.includes('show results')
-                        && isVisible(b)) {
-                        b.click();
-                        return true;
-                    }
-                }
-                return false;
-            }
-            """)
-            if result:
-                await asyncio.sleep(2)
-                logger.info("Clicked Apply button (external fallback)")
-            return result
-        except Exception as e:
-            logger.error(f"Failed to click any apply button: {e}")
-            return False
+        """Follow an Apply button or link after the caller installs its popup listener."""
+        from src.linked_agent.browser.apply_controls import click
+        return await click(self._engine.page)
 
     async def click_external_apply(self) -> str | None:
         """
