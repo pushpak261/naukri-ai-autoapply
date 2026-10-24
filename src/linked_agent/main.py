@@ -234,5 +234,51 @@ SESSION_ENCRYPTION_KEY=
     ))
 
 
+@cli.command("verify-application")
+@click.argument("job_id")
+def verify_application(job_id: str) -> None:
+    """Inspect an uncertain application's saved account without submitting anything."""
+    import re
+    if not re.fullmatch(r"\d{6,20}", job_id):
+        raise click.BadParameter("Use the numeric LinkedIn job ID.")
+
+    async def _verify():
+        import contextlib
+        import json
+        from src.linked_agent.config.settings import get_settings
+        from src.linked_agent.bot.factory import LinkedInDependencyFactory
+        from src.linked_agent.browser.navigation import navigate
+
+        settings = get_settings()
+        factory = LinkedInDependencyFactory(settings)
+        engine = factory.get_browser_engine()
+        try:
+            page = await engine.launch()
+            if not await factory.create_login_handler().login():
+                raise click.ClickException("LinkedIn sign-in requires attention.")
+            await navigate(page, f"https://www.linkedin.com/jobs/view/{job_id}/")
+            with contextlib.suppress(Exception):
+                await page.wait_for_load_state("networkidle", timeout=10000)
+            await asyncio.sleep(3)
+            result = await page.evaluate(r"""() => {
+                const scope = document.querySelector('section[aria-label="Primary content"], main') || document.body;
+                const text = (scope.innerText || '').split(/About the job/i)[0].slice(0,1800);
+                const visible = el => el.getClientRects().length && !el.closest('[inert],[hidden]');
+                return {appliedSignals: text.split('\n').filter(t => /^\s*(?:Applied\b|Application (?:sent|submitted)\b|You applied\b)/i.test(t)).map(t=>t.trim()),
+                    applyControls: [...scope.querySelectorAll('button,a')].filter(visible).map(el=>(el.innerText || el.getAttribute('aria-label') || '').trim()).filter(t=>/^(?:Easy Apply|Apply|Applied|View application)(?:$| to )/i.test(t))};
+            }""")
+            from src.linked_agent.browser.receipts import inline_submission_confirmed
+            result['confirmed'] = await inline_submission_confirmed(page, job_id)
+            folder = settings.project_root / "data" / "linkedin"
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f"verification_{job_id}.png"
+            await page.screenshot(path=str(path))
+            console.print(json.dumps({"job_id": job_id, **result, "screenshot": str(path)}))
+        finally:
+            await engine.close()
+
+    _run_async(_verify())
+
+
 if __name__ == "__main__":
     cli()

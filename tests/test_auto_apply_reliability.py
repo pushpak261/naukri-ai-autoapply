@@ -29,6 +29,7 @@ async def test_linkedin_required_unknown_stops_before_submit_even_when_matching_
     settings = LinkedInSettings(project_root=tmp_path, ai={'use_gemini':True, 'enable_matching':False})
     detail = MagicMock()
     detail.wait_for_apply_modal = AsyncMock(return_value=True)
+    detail.wait_for_apply_step = AsyncMock(return_value=True)
     detail.has_submit_success = AsyncMock(return_value=False)
     detail.extract_screening_questions = AsyncMock(return_value=[{'question':'Work authorization?', 'field_type':'radio', 'required':True, 'options':['Yes','No']}])
     qa = MagicMock()
@@ -47,6 +48,7 @@ async def test_linkedin_modal_disappearance_is_not_submission_confirmation(tmp_p
     from src.linked_agent.browser.apply import LinkedInJobApplier
     detail = MagicMock()
     detail.wait_for_apply_modal = AsyncMock(side_effect=[True, False])
+    detail.wait_for_apply_step = AsyncMock(return_value=True)
     detail.has_submit_success = AsyncMock(return_value=False)
     detail.extract_screening_questions = AsyncMock(return_value=[])
     detail.get_modal_text = AsyncMock(return_value='Review application')
@@ -107,6 +109,7 @@ async def test_linkedin_evidenced_answer_and_confirmed_submission(tmp_path):
     from src.linked_agent.browser.apply import LinkedInJobApplier
     detail = MagicMock()
     detail.wait_for_apply_modal = AsyncMock(return_value=True)
+    detail.wait_for_apply_step = AsyncMock(return_value=True)
     detail.has_submit_success = AsyncMock(side_effect=[False, True])
     question = {'question':'Total work experience?', 'field_type':'text', 'required':True}
     detail.extract_screening_questions = AsyncMock(return_value=[question])

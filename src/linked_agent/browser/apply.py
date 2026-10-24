@@ -242,9 +242,12 @@ class LinkedInJobApplier:
         if not clicked:
             self._submission_attempted = False
             return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Submit is unavailable or disabled. Check required fields."}
-        for _ in range(6):
+        for _ in range(20):
             await asyncio.sleep(1)
             if await self._detail_page.has_submit_success():
+                return {"status": ApplicationStatus.APPLIED}
+            from src.linked_agent.browser.receipts import inline_submission_confirmed
+            if await inline_submission_confirmed(self._detail_page.page, getattr(self, '_active_job_id', '')):
                 return {"status": ApplicationStatus.APPLIED}
         return {"status": ApplicationStatus.UNCERTAIN, "error_message": "Submission was attempted once but platform confirmation is missing. Review before retrying."}
 
@@ -259,6 +262,7 @@ class LinkedInJobApplier:
         - Review
         """
         max_steps = 15
+        self._active_job_id = job.linkedin_job_id
         step = 0
         modal_found = False
         last_step_signatures = []
@@ -447,6 +451,8 @@ class LinkedInJobApplier:
                 logger.info(f"Step {step}: Review button found — clicking")
                 review_clicked = await self._detail_page.click_review()
                 if not review_clicked:
+                    from src.linked_agent.browser.screening_form import validation_state
+                    logger.warning("Review blocked: %s", await validation_state(page))
                     return self._unfinished_form_result("Review is unavailable or the form has validation errors.")
                 # Wait for review page to fully load
                 await asyncio.sleep(3)

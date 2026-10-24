@@ -12,8 +12,8 @@ const visible = el => !!el?.getClientRects().length && !el.closest('[inert], [hi
 const modal = [...document.querySelectorAll('dialog, [role="dialog"], .jobs-easy-apply-modal')].filter(visible).at(-1);
 const customInvalid = el => (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).some(id => {
     const hint = document.getElementById(id);
-    return hint && visible(hint) && /\binvalid input\b/i.test(hint.innerText || '');
-});
+    return hint && visible(hint) && /invalid input|enter a valid (?:answer|number)|enter (?:a )?(?:whole|decimal) number/i.test(hint.innerText || '');
+}) || el.getAttribute('aria-invalid') === 'true';
 """
 
 EXTRACT = (
@@ -227,9 +227,9 @@ def _numeric_equivalent(field, answer):
 
 async def _text_accepted(locator, answer):
     return await locator.input_value() == str(answer) and await locator.evaluate(
-        r"""el => el.checkValidity() && !(el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).some(id => {
+        r"""el => el.checkValidity() && el.getAttribute('aria-invalid') !== 'true' && !(el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).some(id => {
             const hint = document.getElementById(id);
-            return hint && hint.getClientRects().length && /\binvalid input\b/i.test(hint.innerText || '');
+            return hint && hint.getClientRects().length && /invalid input|enter a valid (?:answer|number)|enter (?:a )?(?:whole|decimal) number/i.test(hint.innerText || '');
         })"""
     )
 
@@ -243,7 +243,7 @@ async def _fill_text(page, locator, answer, field):
     await locator.fill(str(answer))
     if not await locator.count():
         return True
-    await locator.dispatch_event("blur")
+    await locator.evaluate("el => el.blur()")
     await asyncio.sleep(0.1)
     if await _text_accepted(locator, answer):
         return True
@@ -251,7 +251,7 @@ async def _fill_text(page, locator, answer, field):
     if not equivalent or equivalent == str(answer):
         return False
     await locator.fill(equivalent)
-    await locator.dispatch_event("blur")
+    await locator.evaluate("el => el.blur()")
     await asyncio.sleep(0.1)
     return await _text_accepted(locator, equivalent)
 
@@ -291,4 +291,21 @@ async def action(page, kind):
     return true;
     }""",
         kind,
+    )
+
+
+async def validation_state(page):
+    """Only labels and validation flags; never include candidate answer values."""
+    return await page.evaluate(
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return {modal: false};
+const fields = [...modal.querySelectorAll('input, select, textarea')].filter(visible);
+return {invalid: fields.filter(el => (el.willValidate && !el.validity.valid) || customInvalid(el)).map(el => ({
+    question: el.getAttribute('aria-label') || [...(el.labels || [])].map(x=>x.textContent).join(' ') || el.name || el.type,
+    nativeValid: el.validity.valid, ariaInvalid: el.getAttribute('aria-invalid'), customInvalid: customInvalid(el)
+})), markers: [...modal.querySelectorAll('[aria-invalid="true"]')].filter(visible).map(el => ({tag: el.tagName, id: el.id})),
+buttons: [...modal.querySelectorAll('button')].filter(visible).map(el => ({text: el.innerText || el.getAttribute('aria-label'), disabled: el.disabled}))};
+}"""
     )

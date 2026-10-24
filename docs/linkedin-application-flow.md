@@ -71,3 +71,8 @@ the platform rejects separators. Unknown facts are never replaced by numbers.
 LinkedIn question reviews resolve the mirrored dashboard job ID before queueing
 a retry. Job details support multiple attempts while retaining any prior applied,
 applying or uncertain status as a submission guard.
+Receipt checks also accept the selected job's inline Application status card;
+another job's status, a recommendation or a closed dialog cannot establish a
+submission. Confirmation is allowed up to twenty seconds without clicking Submit
+again. `verify-application JOB_ID` inspects the configured LinkedIn session and
+saves a private screenshot without submitting or changing any application.

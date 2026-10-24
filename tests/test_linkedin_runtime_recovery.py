@@ -268,3 +268,62 @@ async def test_custom_error_cannot_advance_or_rewrite_an_unknown_fact(search_pag
     assert not await page.fill_answer(field, "Unsupported")
     assert not await page.click_review()
     assert await tab.locator("body").get_attribute("data-clicked") is None
+
+
+@pytest.mark.asyncio
+async def test_legacy_aria_validation_reformats_only_confirmed_quantities(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><label for="salary">Current CTC per annum</label>
+      <input id="salary" required onfocusout="this.setAttribute('aria-invalid',String(!/^[0-9]+$/.test(this.value)))">
+      <button>Review</button></div>"""
+    )
+    page = detail(tab)
+    (field,) = await page.extract_screening_questions()
+    assert await page.fill_answer(field, "4.5 LPA")
+    assert await tab.locator("#salary").input_value() == "450000"
+    assert await page.click_review()
+
+
+@pytest.mark.asyncio
+async def test_inline_receipt_is_bound_to_current_job_and_excludes_recommendations(search_page):
+    from src.linked_agent.browser.receipts import inline_submission_confirmed
+
+    _, tab = search_page
+    await tab.route(
+        "https://www.linkedin.com/**",
+        lambda route: route.fulfill(
+                content_type="text/html",
+            body="<main><section><h2>Application status</h2><p>Application submitted</p></section></main>"
+        ),
+    )
+    await tab.goto("https://www.linkedin.com/jobs/view/1234567/")
+    assert await inline_submission_confirmed(tab, "1234567")
+    assert not await inline_submission_confirmed(tab, "9999999")
+    await tab.set_content(
+        "<main><aside><h2>Application status</h2><p>Application submitted</p></aside><h1>Current job</h1><button>Easy Apply</button></main>"
+    )
+    assert not await inline_submission_confirmed(tab, "1234567")
+
+
+@pytest.mark.asyncio
+async def test_submit_with_inline_receipt_counts_once_after_modal_closes(
+    search_page, tmp_path, monkeypatch
+):
+    _, tab = search_page
+    await tab.route(
+        "https://www.linkedin.com/**",
+        lambda route: route.fulfill(
+                content_type="text/html",
+            body="""<main><section id="status"></section></main>
+      <dialog open><button onclick="document.body.dataset.submits=String(1+Number(document.body.dataset.submits||0));document.querySelector('#status').innerHTML='<h2>Application status</h2><p>Application submitted</p>';this.closest('dialog').remove()">Submit application</button></dialog>"""
+        ),
+    )
+    await tab.goto("https://www.linkedin.com/jobs/view/1234567/")
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    worker = LinkedInJobApplier(detail(tab), Settings(project_root=tmp_path), SimpleNamespace())
+    result = await worker._handle_easy_apply_flow(
+        Job("1234567", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1234567/")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.locator("body").get_attribute("data-submits") == "1"
