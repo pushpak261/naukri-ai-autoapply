@@ -162,25 +162,7 @@ class LinkedInSearchPage(BasePage):
 
         target = normalized(requested)
         if target not in normalized(await label.inner_text()):
-            await label.click(timeout=5000)
-            editor = page.locator('[contenteditable="true"][aria-label="Location"]:visible, input[role="combobox"][aria-label*="Location" i]:visible').first
-            try:
-                await editor.fill(requested, timeout=5000)
-            except PlaywrightTimeoutError:
-                controls = await page.evaluate("""() => [...document.querySelectorAll('input, [contenteditable], [aria-label^="Location "]')]
-                    .filter(el=>el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
-                    .map(el=>({tag:el.tagName,role:el.getAttribute('role'),label:el.getAttribute('aria-label'),
-                        placeholder:el.getAttribute('placeholder'),editable:el.getAttribute('contenteditable'),
-                        id:el.id, parentTag:el.parentElement.tagName,parentRole:el.parentElement.getAttribute('role'),
-                        parentClass:el.parentElement.className}))""")
-                logger.warning("Visible LinkedIn location controls after opening picker: %s", controls)
-                root = getattr(getattr(self._engine, "_settings", None), "project_root", None)
-                if isinstance(root, Path):
-                    diagnostic = root / "data/linkedin/location-picker.png"
-                    diagnostic.parent.mkdir(parents=True, exist_ok=True)
-                    with contextlib.suppress(PlaywrightError):
-                        await page.screenshot(path=str(diagnostic))
-                raise
+            await self._open_location_editor(label, requested)
             # Autocomplete can replace/close its popover before Playwright's
             # click actionability checks finish. Capture the actual suggested
             # search link while it is present, then follow that same link.
@@ -195,21 +177,7 @@ class LinkedInSearchPage(BasePage):
                 timeout=10000,
             )
             destination = await suggestion.json_value()
-            parsed = urlparse(destination)
-            if (
-                parsed.scheme != "https"
-                or parsed.hostname != "www.linkedin.com"
-                or not parsed.path.startswith("/jobs/search")
-                or not parse_qs(parsed.query).get("geoId", [""])[0].isdigit()
-            ):
-                raise RuntimeError("LinkedIn returned an invalid location suggestion")
-            params = parse_qs(parsed.query)
-            intended = getattr(self, "_requested_search_params", {})
-            for key in ("keywords", "f_TPR", "f_E", "f_WT", "f_AL", "f_JT", "sortBy", "start"):
-                if key in intended:
-                    params[key] = intended[key]
-            if intended:
-                destination = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+            destination = self._filtered_location_url(destination)
             await page.goto(destination, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_function(
                 "target => {const el=[...document.querySelectorAll('[aria-label^=\"Location \"]')].find(el=>el.getClientRects().length); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
@@ -219,6 +187,46 @@ class LinkedInSearchPage(BasePage):
         geo_id = parse_qs(urlparse(page.url).query).get("geoId", [""])[0]
         if geo_id:
             self._remember_location(requested, geo_id)
+
+    async def _open_location_editor(self, label, requested: str) -> None:
+        page = self._engine.page
+        await label.click(timeout=5000)
+        editor = page.locator('[contenteditable="true"][aria-label="Location"]:visible, input[role="combobox"][aria-label*="Location" i]:visible').first
+        try:
+            await editor.fill(requested, timeout=5000)
+        except PlaywrightTimeoutError:
+            controls = await page.evaluate("""() => [...document.querySelectorAll('input, [contenteditable], [aria-label^="Location "]')]
+                .filter(el=>el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+                .map(el=>({tag:el.tagName,role:el.getAttribute('role'),label:el.getAttribute('aria-label'),
+                    placeholder:el.getAttribute('placeholder'),editable:el.getAttribute('contenteditable'),
+                    id:el.id, parentTag:el.parentElement.tagName,parentRole:el.parentElement.getAttribute('role'),
+                    parentClass:el.parentElement.className}))""")
+            logger.warning("Visible LinkedIn location controls after opening picker: %s", controls)
+            root = getattr(getattr(self._engine, "_settings", None), "project_root", None)
+            if isinstance(root, Path):
+                diagnostic = root / "data/linkedin/location-picker.png"
+                diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(PlaywrightError):
+                    await page.screenshot(path=str(diagnostic))
+            raise
+
+    def _filtered_location_url(self, destination: str) -> str:
+        parsed = urlparse(destination)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "www.linkedin.com"
+            or not parsed.path.startswith("/jobs/search")
+            or not parse_qs(parsed.query).get("geoId", [""])[0].isdigit()
+        ):
+            raise RuntimeError("LinkedIn returned an invalid location suggestion")
+        params = parse_qs(parsed.query)
+        intended = getattr(self, "_requested_search_params", {})
+        for key in ("keywords", "f_TPR", "f_E", "f_WT", "f_AL", "f_JT", "sortBy", "start"):
+            if key in intended:
+                params[key] = intended[key]
+        if intended:
+            destination = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+        return destination
 
     async def has_no_results(self) -> bool:
         """Check if there are no search results or if the page shows an empty/error state."""
