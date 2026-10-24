@@ -94,16 +94,16 @@ async def test_hidden_modals_and_invalid_required_fields_cannot_submit(search_pa
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("native_dialog", [False, True])
 async def test_offline_multistep_application_answers_dynamic_questions_then_submits_once(
-    search_page, tmp_path, monkeypatch
+    search_page, tmp_path, monkeypatch, native_dialog
 ):
     from src.linked_agent.browser.apply import LinkedInJobApplier
     from src.linked_agent.config.settings import Settings
     from src.linked_agent.models.entities import Job, ResumeProfile
 
     _, tab = search_page
-    await tab.set_content(
-        """<div role="dialog"><label for="email">Email address</label>
+    markup = """<div role="dialog"><label for="email">Email address</label>
       <input id="email" type="email" required><button onclick="second()">Next</button></div>
       <script>
       window.submissions=0;
@@ -120,7 +120,14 @@ async def test_offline_multistep_application_answers_dynamic_questions_then_subm
         document.querySelector('[role=dialog]').innerHTML='<button onclick="done()">Submit application</button>';}
       function done(){window.submissions++;document.querySelector('[role=dialog]').innerHTML='<p>Application sent</p><button>Done</button>';}
       </script>"""
-    )
+    if native_dialog:
+        markup = markup.replace('<div role="dialog">', "<dialog open>", 1).replace(
+            "</div>", "</dialog>", 1
+        )
+        markup = markup.replace(
+            "querySelector('[role=dialog]')", "querySelector('dialog, [role=dialog]')"
+        )
+    await tab.set_content(markup)
     page = detail(tab)
     settings = Settings(
         project_root=tmp_path,
@@ -233,6 +240,21 @@ def test_entry_search_rejects_explicit_senior_titles(title, levels, excluded):
     )
 
 
+def test_entry_search_rejects_explicit_leadership_in_generic_title():
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job
+
+    agent = object.__new__(LinkedInAgent)
+    agent._settings = Settings(search={"experience_level": ["2"]})
+    agent._exclusion_spec = None
+    job = Job("1", "Java Developer", "Company", "https://www.linkedin.com/jobs/view/1")
+    job.description = "Own complex changes and act as a technical lead for solution design."
+    assert agent._is_excluded(job)
+    job.description = "Develop APIs under guidance from senior engineers."
+    assert not agent._is_excluded(job)
+
+
 @pytest.mark.asyncio
 async def test_job_error_page_does_not_count_as_loaded_listing(search_page):
     from src.linked_agent.bot.agent import LinkedInAgent
@@ -253,3 +275,23 @@ async def test_job_error_page_does_not_count_as_loaded_listing(search_page):
         '<div componentkey="JobDetails_AboutTheJob_123">Java and Spring Boot development role.</div>'
     )
     await agent._wait_for_listing_content(wrapped)
+
+
+@pytest.mark.asyncio
+async def test_modern_city_wrapper_and_equivalent_suggestions(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<dialog open><div componentkey="easyApplyFieldFocus_ea.q::1::UNKNOWN::value.validation">
+      <p>Location (city)*</p><div><input aria-autocomplete="list" aria-owns="cities" placeholder="Enter city or location"></div></div>
+      <div role="listbox" id="cities">
+      <div role="option">Pune District, Maharashtra, India</div>
+      <div role="option" onclick="document.querySelector('input').value=this.textContent;this.parentElement.remove()">Pune City, Maharashtra, India</div>
+      <div role="option">Pune City, Maharashtra, India</div></div><button>Next</button></dialog>"""
+    )
+    page = detail(tab)
+    assert await page.wait_for_apply_modal()
+    (question,) = await page.extract_screening_questions()
+    assert question["question"] == "Location (city)*"
+    assert question["is_required"]
+    assert await page.fill_answer(question, "Pune")
+    assert await tab.locator("input").input_value() == "Pune City, Maharashtra, India"

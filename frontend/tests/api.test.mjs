@@ -329,3 +329,15 @@ test('a 100-application run is an explicit start option', async () => {
   assert.ok(requests[1].url.endsWith('/agent/start?platform=naukri'));
   assert.equal(requests[0].options.method, 'POST');
 });
+
+test('a selected listing uses the normal agent endpoint with its own platform', async () => {
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    requests.push({url, options});
+    return json({status: 'started'});
+  };
+  await api.agent.start('linkedin', 0, [17]);
+  assert.ok(requests[0].url.endsWith('/agent/start?platform=linkedin'));
+  assert.deepEqual(JSON.parse(requests[0].options.body), [17]);
+  assert.equal(requests[0].options.method, 'POST');
+});

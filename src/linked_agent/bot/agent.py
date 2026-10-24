@@ -847,6 +847,11 @@ class LinkedInAgent:
             job.title or "", re.I,
         ):
             return True
+        if levels and levels <= {"1", "2"} and re.search(
+            r"\b(?:act|serve) as (?:a )?technical lead\b|\b(?:demonstrated|proven) technical leadership\b",
+            job.description or "", re.I,
+        ):
+            return True
         if not self._exclusion_spec:
             return False
         return self._exclusion_spec.is_satisfied_by(job)

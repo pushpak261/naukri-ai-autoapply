@@ -24,6 +24,9 @@ checkbox answer is bound to its actual question and control. Missing options do
 not select a different option or another question's field. Conditional questions
 are read again after the form changes. Next, Review and Submit require valid
 visible fields; an unrelated enabled button is never used as a step action.
+Both native HTML dialogs and legacy role-based dialogs use this same flow.
+Modern field wrappers supply labels for required city typeaheads; equivalent city
+suggestions are accepted only within the control's associated list.
 Resume uploads remain restricted to resume fields. One submission attempt is
 followed by a platform receipt check; missing confirmation remains uncertain.
 
@@ -40,3 +43,5 @@ launching a duplicate. LinkedIn's file log is added even when the shared databas
 has already configured the root logger.
 Parallel mode also provides a Stop button for each platform, using the existing
 platform-specific stop endpoint.
+Saved listings can also start the normal agent pipeline directly from Job details,
+with the same eligibility, duplicate, validation and submission checks.

@@ -339,7 +339,7 @@ class LinkedInJobDetailPage(BasePage):
             new_element = await page.evaluate("""
                 () => {
                     // Check for any dialog-like element that appeared
-                    const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"], [role="modal"]');
+                    const dialogs = document.querySelectorAll('dialog, [role="dialog"], [role="alertdialog"], [role="modal"]');
                     for (const d of dialogs) {
                         if (d.offsetHeight > 100 && d.offsetWidth > 100) {
                             return {found: true, tag: d.tagName, role: d.getAttribute('role'), class: d.className};
@@ -400,7 +400,7 @@ class LinkedInJobDetailPage(BasePage):
         try:
             result = await page.evaluate("""
             () => {
-                const modal = [...document.querySelectorAll('div.jobs-easy-apply-modal, div[role="dialog"], div.artdeco-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div.jobs-easy-apply-modal, div[role="dialog"], div.artdeco-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 // A closed modal alone cannot establish submission.
                 if (!modal) return {success: false, reason: 'modal_gone', text: '', buttons: []};
 
@@ -467,7 +467,7 @@ class LinkedInJobDetailPage(BasePage):
         try:
             return await page.evaluate("""
             () => {
-                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 return modal ? (modal.innerText || '').substring(0, 500) : 'NO MODAL FOUND';
             }
             """)
@@ -483,7 +483,7 @@ class LinkedInJobDetailPage(BasePage):
             await page.evaluate("""
             () => {
                 // Try X button
-                const modal = document.querySelector('div[role="dialog"]');
+                const modal = document.querySelector('dialog, div[role="dialog"]');
                 if (modal) {
                     const closeBtn = modal.querySelector('button[aria-label="Dismiss" i], button[aria-label="Close" i], button.artdeco-modal__dismiss');
                     if (closeBtn) { closeBtn.click(); return; }
@@ -501,7 +501,7 @@ class LinkedInJobDetailPage(BasePage):
             discard_clicked = await page.evaluate("""
             () => {
                 // Look for discard confirmation dialog
-                const dialogs = document.querySelectorAll('div[role="dialog"], div[role="alertdialog"]');
+                const dialogs = document.querySelectorAll('dialog, div[role="dialog"], div[role="alertdialog"]');
                 for (const dialog of dialogs) {
                     const text = (dialog.innerText || '').toLowerCase();
                     if (text.includes('discard') || text.includes('are you sure') || text.includes('unsaved')) {
@@ -529,7 +529,7 @@ class LinkedInJobDetailPage(BasePage):
         try:
             still_open = await page.evaluate("""
             () => {
-                const m = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const m = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 return m && m.offsetParent !== null;
             }
             """)
@@ -541,7 +541,7 @@ class LinkedInJobDetailPage(BasePage):
                 with contextlib.suppress(PlaywrightError):
                     await page.evaluate("""
                     () => {
-                        const dialogs = document.querySelectorAll('div[role="dialog"], div[role="alertdialog"]');
+                        const dialogs = document.querySelectorAll('dialog, div[role="dialog"], div[role="alertdialog"]');
                         for (const dialog of dialogs) {
                             const text = (dialog.innerText || '').toLowerCase();
                             if (text.includes('discard') || text.includes('are you sure')) {
@@ -646,7 +646,7 @@ class LinkedInJobDetailPage(BasePage):
             if question_text:
                 result = await page.evaluate(f"""
                 () => {{
-                    const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                    const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                     if (!modal) return null;
                     const qText = {safe_q};
                     const answer = {safe_opt};
@@ -730,7 +730,7 @@ class LinkedInJobDetailPage(BasePage):
             if question_text:
                 listbox_found = await page.evaluate(f"""
                 () => {{
-                    const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                    const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                     if (!modal) return false;
                     const qText = {safe_q};
                     const answer = {safe_opt};
@@ -802,7 +802,7 @@ class LinkedInJobDetailPage(BasePage):
             # Strategy 4: Fallback — find ANY div[role="listbox"] in modal and try matching
             listbox_found = await page.evaluate(f"""
             () => {{
-                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const answer = {safe_opt};
 
@@ -844,7 +844,7 @@ class LinkedInJobDetailPage(BasePage):
             safe_q = _json.dumps(question_text)
             result = await page.evaluate(f"""
             () => {{
-                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const optStr = {safe_opt}.toLowerCase().trim();
                 const qStr = {safe_q}.toLowerCase().trim();
@@ -919,7 +919,7 @@ class LinkedInJobDetailPage(BasePage):
             # Step 1: Type the search string into the combobox input
             typed = await page.evaluate(f"""
             () => {{
-                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const qText = {safe_q};
                 const norm = s => (s || '').toLowerCase().replace(/[*?]/g, '').replace(/\\s+/g, ' ').trim();
@@ -977,7 +977,7 @@ class LinkedInJobDetailPage(BasePage):
             # Step 2: Try clicking the matching option in the typeahead dropdown
             option_clicked = await page.evaluate(f"""
             () => {{
-                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1) || document.body;
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1) || document.body;
                 const target = {safe_ans}.toLowerCase().trim();
 
                 const optionEls = modal.querySelectorAll('[role="option"], .basic-typeahead__typeahead-results li, .search-basic-typeahead-results li, li[role="option"], div[role="option"]');

@@ -6,7 +6,7 @@ import re
 
 FORM_SCOPE = r"""
 const visible = el => !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
-const modal = [...document.querySelectorAll('[role="dialog"], .jobs-easy-apply-modal')].filter(visible).at(-1);
+const modal = [...document.querySelectorAll('dialog, [role="dialog"], .jobs-easy-apply-modal')].filter(visible).at(-1);
 """
 
 EXTRACT = (
@@ -27,7 +27,7 @@ const path = el => {
 };
 const text = el => (el?.innerText || el?.textContent || '').trim().replace(/\s+/g, ' ');
 const ownLabel = el => [...(el.labels || [])].map(text).join(' ') || text(el.closest('label')) || el.getAttribute('aria-label') || '';
-const groupOf = el => el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping') || el.parentElement;
+const groupOf = el => el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping, [componentkey^="easyApplyFieldFocus_"]') || el.parentElement;
 const optionText = el => ownLabel(el) || text(el) || el.value || '';
 const seen = new Set(), result = [];
 for (const input of controls) {
@@ -41,11 +41,11 @@ for (const input of controls) {
     members.forEach(el => seen.add(el));
     let label = ownLabel(input);
     if (choice) {
-        const heading = group.querySelector('legend, [data-test-form-element-label], .fb-dash-form-element__label');
+        const heading = group.querySelector('legend, [data-test-form-element-label], .fb-dash-form-element__label, :scope > p');
         const firstLabel = [...group.querySelectorAll('label, .t-14')].find(el => !el.querySelector('input') && !el.htmlFor);
         label = text(heading) || text(firstLabel) || (members.length === 1 ? label : '');
     } else if (!label) {
-        label = text(group.querySelector('legend, label, .fb-dash-form-element__label, .t-14'));
+        label = text(group.querySelector('legend, label, .fb-dash-form-element__label, .t-14, :scope > p'));
     }
     label ||= input.placeholder || input.name || (type === 'file' ? 'Resume upload' : 'Unlabelled required field');
     if (/^(de)?select resume|^remove resume|^follow /i.test(label)) continue;
@@ -153,12 +153,15 @@ async def _fill_typeahead(page, locator, answer):
             ):
                 continue
             label = normalized(await option.inner_text())
+            label = re.sub(
+                r"^" + re.escape(normalized(answer)) + r"\s+city(?=,|$)", normalized(answer), label
+            )
             if await option.is_visible() and (
                 label == normalized(answer) or label.startswith(normalized(answer) + ",")
             ):
-                matches.append(option)
-        if len(matches) == 1:
-            await matches[0].click()
+                matches.append((label, option))
+        if matches and len({label for label, _ in matches}) == 1:
+            await matches[0][1].click()
             return True
         await asyncio.sleep(0.25)
     return False
@@ -177,7 +180,10 @@ async def _current_field(page, question):
 
 
 async def _fill_text(page, locator, answer):
-    if await locator.get_attribute("role") == "combobox":
+    if (
+        await locator.get_attribute("role") == "combobox"
+        or await locator.get_attribute("aria-autocomplete") == "list"
+    ):
         return await _fill_typeahead(page, locator, answer)
     await locator.fill(str(answer))
     if not await locator.count():

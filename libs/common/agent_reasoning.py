@@ -53,7 +53,7 @@ def description_experience_minimum(description):
         flags=re.I,
     )
     required = False
-    minimums = []
+    minimums = _labelled_experience_minimums(str(description or ""), duration)
     for index, part in enumerate(parts):
         if index % 2:
             required = " ".join(part.casefold().split()) in {
@@ -68,6 +68,16 @@ def description_experience_minimum(description):
             if _tenure_is_required(part, match, required):
                 minimums.append(minimum_experience_years(match[1]))
     return max(minimums) if minimums else None
+
+
+def _labelled_experience_minimums(description, duration):
+    from libs.common.resume_facts import minimum_experience_years
+
+    return [
+        minimum_experience_years(match[1])
+        for match in re.finditer(rf"\bexperience\s*:\s*({duration})", description, re.I)
+        if _tenure_is_required(description, match, True)
+    ]
 
 
 def _tenure_is_required(part, match, required_section):

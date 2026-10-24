@@ -231,7 +231,7 @@ class JobDetailSelectors:
     SAVE_BUTTON = 'button[aria-label*="Save" i], button:has-text("Save")'
 
     # Easy Apply modal selectors
-    EASY_APPLY_MODAL = 'div.jobs-easy-apply-modal, div[role="dialog"], div.artdeco-modal'
+    EASY_APPLY_MODAL = 'dialog, div.jobs-easy-apply-modal, div[role="dialog"], div.artdeco-modal'
     EASY_APPLY_FORM = 'form.jobs-easy-apply-modal, form[aria-label*="Apply" i]'
     MULTI_STEP_FORM = ".jobs-easy-apply-modal"
 

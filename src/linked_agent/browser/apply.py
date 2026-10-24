@@ -112,7 +112,7 @@ class LinkedInJobApplier:
                                         return {
                                             url: window.location.href,
                                             title: document.title,
-                                            hasDialog: !!document.querySelector('[role="dialog"]'),
+                                            hasDialog: !!document.querySelector('dialog, [role="dialog"]'),
                                             hasModal: !!document.querySelector('[class*="modal"]'),
                                             buttons: Array.from(document.querySelectorAll('button')).map(b => ({
                                                 text: (b.innerText || '').trim().substring(0, 50),
@@ -309,7 +309,7 @@ class LinkedInJobApplier:
                 # (pre-filled form or info-only step)
                 has_submit = await page.evaluate("""
                 () => {
-                    const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                    const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                     if (!modal) return false;
                     const btns = modal.querySelectorAll('button');
                     for (const b of btns) {
@@ -412,7 +412,7 @@ class LinkedInJobApplier:
             # AFTER filling questions, check for Review/Submit (end of form)
             has_submit = await page.evaluate("""
             () => {
-                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const btns = modal.querySelectorAll('button');
                 for (const b of btns) {
@@ -428,7 +428,7 @@ class LinkedInJobApplier:
 
             has_review = await page.evaluate("""
             () => {
-                const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                 if (!modal) return false;
                 const btns = modal.querySelectorAll('button');
                 for (const b of btns) {
@@ -449,7 +449,7 @@ class LinkedInJobApplier:
                 review_state = {}
                 try:
                     review_state = await page.evaluate("""() => {
-                        const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                        const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                         if (!modal) return {found: false};
                         const btns = [];
                         modal.querySelectorAll('button').forEach(b => {
@@ -485,7 +485,7 @@ class LinkedInJobApplier:
                         # Click Back to return to form
                         await page.evaluate("""
                         () => {
-                            const modal = [...document.querySelectorAll('div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                            const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
                             if (!modal) return;
                             const btns = modal.querySelectorAll('button');
                             for (const b of btns) {
