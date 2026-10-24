@@ -842,12 +842,16 @@ class LinkedInAgent:
 
     def _is_excluded(self, job: Job) -> bool:
         levels = set(self._settings.search.experience_level)
-        if levels and levels <= {"1", "2"} and re.search(
+        if set(self._settings.search.job_type) == {"F"} and re.search(
+            r"\bintern(?:ship)?\b", job.title or "", re.I,
+        ):
+            return True
+        if levels and levels <= {"1", "2", "3"} and re.search(
             r"\b(?:senior|sr\.?|lead|staff|principal|architect|director|vice[ -]president|vp)\b",
             job.title or "", re.I,
         ):
             return True
-        if levels and levels <= {"1", "2"} and re.search(
+        if levels and levels <= {"1", "2", "3"} and re.search(
             r"\b(?:act|serve) as (?:a )?technical lead\b|\b(?:demonstrated|proven) technical leadership\b",
             job.description or "", re.I,
         ):

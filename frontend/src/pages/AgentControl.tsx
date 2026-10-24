@@ -68,7 +68,7 @@ export default function AgentControl() {
   }, []);
   useEffect(() => {
     if (status?.running && status.platform) setPlatform(status.platform);
-    if (status?.running && status.target_progress?.target === 100) setTarget100(true);
+    if (status?.running && status.platform === 'naukri' && status.target_progress?.target === 100) setTarget100(true);
     if (!parallelMode && multiStatus && Object.values(multiStatus.agents).some(agent => agent.running && agent.pid !== status?.pid)) setParallelMode(true);
   }, [status, multiStatus, parallelMode]);
   const notify = (type: Notification['type'], message: string) => setNotification({ type, message });
@@ -344,7 +344,7 @@ export default function AgentControl() {
         </div>
       </div>
 
-      {!parallelMode && status?.target_progress && <section className="rounded-xl border p-5 space-y-2" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }} aria-label="Run application target">
+      {!parallelMode && platform === 'naukri' && status?.target_progress && <section className="rounded-xl border p-5 space-y-2" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }} aria-label="Run application target">
         <h2 className="font-semibold">This run’s application target</h2>
         <p className="text-2xl font-bold">{status.target_progress.submitted} / {status.target_progress.target} verified submissions</p>
         <progress className="w-full" value={status.target_progress.submitted} max={status.target_progress.target} aria-label="Verified submission progress" />

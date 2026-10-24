@@ -224,6 +224,8 @@ async def test_native_apply_link_opens_the_modal(search_page):
         ("Java Lead_ Vice President- Software Engineer", ["2"], True),
         ("Software Engineer I - Java", ["1", "2"], False),
         ("Senior Java Developer", ["4"], False),
+        ("Vice President Java Engineer", ["2", "3"], True),
+        ("Associate Software Engineer", ["2", "3"], False),
     ],
 )
 def test_entry_search_rejects_explicit_senior_titles(title, levels, excluded):
@@ -295,3 +297,51 @@ async def test_modern_city_wrapper_and_equivalent_suggestions(search_page):
     assert question["is_required"]
     assert await page.fill_answer(question, "Pune")
     assert await tab.locator("input").input_value() == "Pune City, Maharashtra, India"
+
+
+@pytest.mark.parametrize(
+    "title,types,excluded",
+    [
+        ("Software Engineer Intern", ["F"], True),
+        ("Java Internship", ["F"], True),
+        ("Associate Software Engineer", ["F"], False),
+        ("Java Intern", ["F", "I"], False),
+    ],
+)
+def test_full_time_search_excludes_internship_titles(title, types, excluded):
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job
+
+    agent = object.__new__(LinkedInAgent)
+    agent._settings = Settings(search={"job_type": types})
+    agent._exclusion_spec = None
+    assert (
+        agent._is_excluded(Job("1", title, "Company", "https://www.linkedin.com/jobs/view/1"))
+        is excluded
+    )
+
+
+@pytest.mark.asyncio
+async def test_modern_radio_group_uses_outer_question_heading(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<dialog open>
+      <div componentkey="easyApplyFieldFocus_employment"><p>Are you currently employed?*</p>
+        <div role="radiogroup"><label><input id="employed-yes" name="radio-group-1" type="radio">Yes</label>
+          <label><input id="employed-no" name="radio-group-1" type="radio">No</label></div></div>
+      <div componentkey="easyApplyFieldFocus_notice"><p>Are you serving notice?*</p>
+        <div role="radiogroup"><label><input id="notice-yes" name="radio-group-2" type="radio">Yes</label>
+          <label><input id="notice-no" name="radio-group-2" type="radio">No</label></div></div>
+      </dialog>"""
+    )
+    page = detail(tab)
+    employment, notice = await page.extract_screening_questions()
+    assert employment["question"] == "Are you currently employed?*"
+    assert notice["question"] == "Are you serving notice?*"
+    assert employment["is_required"] and notice["is_required"]
+    assert await page.fill_answer(employment, "Yes")
+    assert await page.fill_answer(notice, "No")
+    assert await tab.locator("#employed-yes").is_checked()
+    assert await tab.locator("#notice-no").is_checked()
+    assert not await tab.locator("#employed-no").is_checked()

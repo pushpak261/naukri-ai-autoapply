@@ -27,7 +27,7 @@ const path = el => {
 };
 const text = el => (el?.innerText || el?.textContent || '').trim().replace(/\s+/g, ' ');
 const ownLabel = el => [...(el.labels || [])].map(text).join(' ') || text(el.closest('label')) || el.getAttribute('aria-label') || '';
-const groupOf = el => el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping, [componentkey^="easyApplyFieldFocus_"]') || el.parentElement;
+const groupOf = el => el.closest('[componentkey^="easyApplyFieldFocus_"]') || el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping') || el.parentElement;
 const optionText = el => ownLabel(el) || text(el) || el.value || '';
 const seen = new Set(), result = [];
 for (const input of controls) {
@@ -139,27 +139,28 @@ async def _fill_choices(page, field, answer):
     return True
 
 
+async def _typeahead_matches(page, locator, answer):
+    controls = await locator.get_attribute("aria-controls") or await locator.get_attribute(
+        "aria-owns"
+    )
+    matches = []
+    wanted = normalized(answer)
+    for option in await page.locator('[role="option"]').all():
+        if controls and not await option.evaluate(
+            '(el, ids) => ids.includes(el.closest("[role=listbox]")?.id)', controls.split()
+        ):
+            continue
+        label = normalized(await option.inner_text())
+        label = re.sub(r"^" + re.escape(wanted) + r"\s+city(?=,|$)", wanted, label)
+        if await option.is_visible() and (label == wanted or label.startswith(wanted + ",")):
+            matches.append((label, option))
+    return matches
+
+
 async def _fill_typeahead(page, locator, answer):
     await locator.fill(str(answer))
     for _ in range(8):
-        controls = await locator.get_attribute("aria-controls") or await locator.get_attribute(
-            "aria-owns"
-        )
-        candidates = page.locator('[role="option"]')
-        matches = []
-        for option in await candidates.all():
-            if controls and not await option.evaluate(
-                '(el, ids) => ids.includes(el.closest("[role=listbox]")?.id)', controls.split()
-            ):
-                continue
-            label = normalized(await option.inner_text())
-            label = re.sub(
-                r"^" + re.escape(normalized(answer)) + r"\s+city(?=,|$)", normalized(answer), label
-            )
-            if await option.is_visible() and (
-                label == normalized(answer) or label.startswith(normalized(answer) + ",")
-            ):
-                matches.append((label, option))
+        matches = await _typeahead_matches(page, locator, answer)
         if matches and len({label for label, _ in matches}) == 1:
             await matches[0][1].click()
             return True

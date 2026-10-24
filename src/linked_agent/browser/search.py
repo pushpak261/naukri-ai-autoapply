@@ -163,6 +163,7 @@ class LinkedInJobSearcher:
 
         sort_by = "DD" if self._settings.search.sort_by == "date" else ""
         experience_str = ",".join(self._settings.search.experience_level)
+        job_type = ",".join(self._settings.search.job_type)
 
         empty_pages = 0
         use_click_pagination = False  # starts with URL-based
@@ -185,6 +186,7 @@ class LinkedInJobSearcher:
                     location=search_location,
                     freshness=freshness,
                     experience=experience_str,
+                    job_type=job_type,
                     sort_by=sort_by,
                     start=start,
                     work_type=work_type,
@@ -237,6 +239,7 @@ class LinkedInJobSearcher:
                             page1_url = LinkedInURLUtility.build_search_url(
                                 keywords=keyword, location=search_location,
                                 freshness=freshness, experience=experience_str,
+                                job_type=job_type,
                                 sort_by=sort_by, start=0, work_type=work_type,
                                 easy_apply_only=self._settings.application.easy_apply_only,
                             )

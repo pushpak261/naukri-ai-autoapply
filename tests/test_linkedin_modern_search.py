@@ -134,7 +134,14 @@ async def test_remote_target_applies_work_filter_with_configured_country():
     from src.linked_agent.browser.search import LinkedInJobSearcher
     from src.linked_agent.config.settings import Settings
 
-    settings = Settings(search={"remote_location": "India", "max_pages": 1})
+    settings = Settings(
+        search={
+            "remote_location": "India",
+            "max_pages": 1,
+            "experience_level": ["2", "3"],
+            "job_type": ["F"],
+        }
+    )
     search = AsyncMock()
     search.has_no_results.return_value = True
     searcher = LinkedInJobSearcher(search, AsyncMock(), MagicMock(), settings)
@@ -142,6 +149,37 @@ async def test_remote_target_applies_work_filter_with_configured_country():
     query = parse_qs(urlparse(search.navigate_to_search.call_args.args[0]).query)
     assert query["location"] == ["India"]
     assert query["f_WT"] == ["2"]
+    assert query["f_E"] == ["2,3"]
+    assert query["f_JT"] == ["F"]
+
+
+@pytest.mark.asyncio
+async def test_pagination_fallback_keeps_full_time_and_associate_filters(monkeypatch):
+    from urllib.parse import parse_qs, urlparse
+    from src.linked_agent.browser.search import LinkedInJobSearcher
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job
+
+    monkeypatch.setattr("src.linked_agent.browser.search.asyncio.sleep", AsyncMock())
+    settings = Settings(search={"max_pages": 2, "experience_level": ["2", "3"], "job_type": ["F"]})
+    search = AsyncMock()
+    search.has_no_results.return_value = False
+    search.get_total_result_count.return_value = 50
+    search.parse_job_cards.return_value = [
+        Job("1", "Java Developer", "Company", "https://www.linkedin.com/jobs/view/1")
+    ]
+    search.go_to_next_page.return_value = False
+    engine = MagicMock()
+    engine.page.url = "https://www.linkedin.com/jobs/search/?start=0"
+    worker = LinkedInJobSearcher(search, AsyncMock(), engine, settings)
+    worker._detect_rate_limiting = AsyncMock(return_value=False)
+    await worker._search_keyword("Java Developer", "Pune")
+    urls = [call.args[0] for call in search.navigate_to_search.call_args_list]
+    assert len(urls) == 3
+    for url in urls:
+        query = parse_qs(urlparse(url).query)
+        assert query["f_JT"] == ["F"]
+        assert query["f_E"] == ["2,3"]
 
 
 @pytest.mark.asyncio

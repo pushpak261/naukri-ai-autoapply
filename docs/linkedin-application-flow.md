@@ -6,9 +6,12 @@ prioritizes the shared company preference list before evaluating eligible jobs.
 An expired session, verification challenge or rate limit ends discovery for review.
 The selected listing URL must identify the job being evaluated.
 Its job-description content must also load before evaluation; a browser error
-page cannot qualify from the URL alone. Entry/intern searches reject explicitly
+page cannot qualify from the URL alone. Entry, associate and intern searches reject explicitly
 senior, lead, architect and vice-president titles even if LinkedIn labels them
 as entry level.
+Configured employment types are sent on every search and pagination fallback.
+Full-time-only searches also reject internship titles locally, even when LinkedIn
+returns them outside the selected filter.
 Verified location IDs persist across restarts and are checked against the visible
 destination label. Modern search cards exclude hidden copies and sidebar job
 recommendations, so discovery and card indices refer to the result list.
