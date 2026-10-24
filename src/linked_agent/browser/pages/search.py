@@ -9,7 +9,10 @@ rather than fragile CSS selectors.
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 import re
+from pathlib import Path
 from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
@@ -18,6 +21,7 @@ from src.linked_agent.browser.pages.base import BasePage
 from src.linked_agent.config.constants import SearchSelectors
 from src.linked_agent.models.entities import Job
 from src.linked_agent.utils.helpers import clean_text, extract_linkedin_job_id
+from src.linked_agent.utils.exceptions import LoginError, RateLimitError
 from src.linked_agent.utils.logger import get_logger
 import contextlib
 
@@ -27,11 +31,50 @@ logger = get_logger(__name__)
 class LinkedInSearchPage(BasePage):
     """Page Object representing the LinkedIn Job Search Results page."""
 
+    def _location_cache_path(self) -> Path | None:
+        root = getattr(getattr(self._engine, "_settings", None), "project_root", None)
+        return root / "data/linkedin/search_locations.json" if isinstance(root, Path) else None
+
+    def _location_ids(self) -> dict[str, str]:
+        if hasattr(self, "_resolved_location_ids"):
+            return self._resolved_location_ids
+        locations = {}
+        path = self._location_cache_path()
+        if path:
+            try:
+                saved = json.loads(path.read_text())
+                if isinstance(saved, dict):
+                    locations = {
+                        name: identifier for name, identifier in saved.items()
+                        if isinstance(name, str) and isinstance(identifier, str) and identifier.isdigit()
+                    }
+            except (OSError, ValueError):
+                pass
+        self._resolved_location_ids = locations
+        return locations
+
+    def _remember_location(self, requested: str, identifier: str) -> None:
+        if not identifier.isdigit():
+            return
+        locations = self._location_ids()
+        if locations.get(requested) == identifier:
+            return
+        locations[requested] = identifier
+        path = self._location_cache_path()
+        if path:
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = path.with_suffix(f".{os.getpid()}.tmp")
+                temporary.write_text(json.dumps(locations), encoding="utf-8")
+                temporary.replace(path)
+            except OSError as error:
+                logger.warning("Cannot persist verified LinkedIn locations: %s", error)
+
     async def navigate_to_search(self, search_url: str) -> None:
         """Navigate to a specific LinkedIn job search URL with retries."""
         page = self._engine.page
         requested = parse_qs(urlparse(search_url).query).get("location", [""])[0]
-        geo_ids = getattr(self, "_resolved_location_ids", {})
+        geo_ids = self._location_ids()
         if requested in geo_ids:
             parsed = urlparse(search_url)
             params = parse_qs(parsed.query)
@@ -44,7 +87,11 @@ class LinkedInSearchPage(BasePage):
                 logger.info(
                     f"Navigating to LinkedIn search (attempt {attempt}/{max_retries}): {search_url}"
                 )
-                await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                response = await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                if response and response.status == 429:
+                    raise RateLimitError("LinkedIn requested a pause (HTTP 429); stop and review before another run.")
+                if response and response.status in (401, 403):
+                    raise LoginError("LinkedIn requires sign-in or verification before searching.")
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
 
@@ -73,10 +120,11 @@ class LinkedInSearchPage(BasePage):
 
                 # Check for blocking pages
                 if "/login" in actual_url or "signup" in actual_url:
-                    raise RuntimeError("Navigated to login/signup page — session expired")
+                    raise LoginError("Navigated to login/signup page — session expired")
                 if "captcha" in actual_url.lower() or "challenge" in actual_url.lower():
-                    raise RuntimeError("CAPTCHA challenge detected")
+                    raise LoginError("LinkedIn verification requires your attention")
 
+                self._requested_search_params = intended_params
                 await self._ensure_search_location(requested)
                 if "2" in intended_params.get("f_WT", [""])[0].split(","):
                     await self._ensure_search_location("Remote")
@@ -97,7 +145,7 @@ class LinkedInSearchPage(BasePage):
         if not requested:
             return
         page = self._engine.page
-        label = page.locator('[aria-label^="Location "]').first
+        label = page.locator('[aria-label^="Location "]:visible').first
         if not await label.count():
             return  # Legacy layout still supports location= directly.
         if requested.casefold() == "remote":
@@ -114,12 +162,7 @@ class LinkedInSearchPage(BasePage):
 
         target = normalized(requested)
         if target not in normalized(await label.inner_text()):
-            button = page.locator('[role="button"]:has(> [aria-label^="Location "])').first
-            await button.click()
-            editor = page.locator('[contenteditable="true"][aria-label="Location"]')
-            await editor.click()
-            await editor.press("ControlOrMeta+a")
-            await page.keyboard.type(requested, delay=60)
+            await self._open_location_editor(label, requested)
             # Autocomplete can replace/close its popover before Playwright's
             # click actionability checks finish. Capture the actual suggested
             # search link while it is present, then follow that same link.
@@ -134,23 +177,56 @@ class LinkedInSearchPage(BasePage):
                 timeout=10000,
             )
             destination = await suggestion.json_value()
-            parsed = urlparse(destination)
-            if (
-                parsed.scheme != "https"
-                or parsed.hostname != "www.linkedin.com"
-                or not parsed.path.startswith("/jobs/search")
-                or not parse_qs(parsed.query).get("geoId", [""])[0].isdigit()
-            ):
-                raise RuntimeError("LinkedIn returned an invalid location suggestion")
+            destination = self._filtered_location_url(destination)
             await page.goto(destination, wait_until="domcontentloaded", timeout=60000)
             await page.wait_for_function(
-                "target => {const el=document.querySelector('[aria-label^=\"Location \"]'); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
+                "target => {const el=[...document.querySelectorAll('[aria-label^=\"Location \"]')].find(el=>el.getClientRects().length); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
                 arg=target,
                 timeout=10000,
             )
         geo_id = parse_qs(urlparse(page.url).query).get("geoId", [""])[0]
         if geo_id:
-            self._resolved_location_ids = {**getattr(self, "_resolved_location_ids", {}), requested: geo_id}
+            self._remember_location(requested, geo_id)
+
+    async def _open_location_editor(self, label, requested: str) -> None:
+        page = self._engine.page
+        await label.click(timeout=5000)
+        editor = page.locator('[contenteditable="true"][aria-label="Location"]:visible, input[role="combobox"][aria-label*="Location" i]:visible').first
+        try:
+            await editor.fill(requested, timeout=5000)
+        except PlaywrightTimeoutError:
+            controls = await page.evaluate("""() => [...document.querySelectorAll('input, [contenteditable], [aria-label^="Location "]')]
+                .filter(el=>el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+                .map(el=>({tag:el.tagName,role:el.getAttribute('role'),label:el.getAttribute('aria-label'),
+                    placeholder:el.getAttribute('placeholder'),editable:el.getAttribute('contenteditable'),
+                    id:el.id, parentTag:el.parentElement.tagName,parentRole:el.parentElement.getAttribute('role'),
+                    parentClass:el.parentElement.className}))""")
+            logger.warning("Visible LinkedIn location controls after opening picker: %s", controls)
+            root = getattr(getattr(self._engine, "_settings", None), "project_root", None)
+            if isinstance(root, Path):
+                diagnostic = root / "data/linkedin/location-picker.png"
+                diagnostic.parent.mkdir(parents=True, exist_ok=True)
+                with contextlib.suppress(PlaywrightError):
+                    await page.screenshot(path=str(diagnostic))
+            raise
+
+    def _filtered_location_url(self, destination: str) -> str:
+        parsed = urlparse(destination)
+        if (
+            parsed.scheme != "https"
+            or parsed.hostname != "www.linkedin.com"
+            or not parsed.path.startswith("/jobs/search")
+            or not parse_qs(parsed.query).get("geoId", [""])[0].isdigit()
+        ):
+            raise RuntimeError("LinkedIn returned an invalid location suggestion")
+        params = parse_qs(parsed.query)
+        intended = getattr(self, "_requested_search_params", {})
+        for key in ("keywords", "f_TPR", "f_E", "f_WT", "f_AL", "f_JT", "sortBy", "start"):
+            if key in intended:
+                params[key] = intended[key]
+        if intended:
+            destination = urlunparse(parsed._replace(query=urlencode(params, doseq=True)))
+        return destination
 
     async def has_no_results(self) -> bool:
         """Check if there are no search results or if the page shows an empty/error state."""
@@ -660,11 +736,14 @@ class LinkedInSearchPage(BasePage):
         """Count job cards safely, returning 0 on error."""
         try:
             return await page.evaluate("""
-                () => Math.max(
-                    document.querySelectorAll('[componentkey^="job-card-component-ref-"][role="button"]').length,
-                    document.querySelectorAll('[data-view-name="job-card"], li[data-view-name="job-card"]').length,
-                    document.querySelectorAll('a[href*="/jobs/view/"]').length
-                )
+                () => {
+                    const modern = Array.from(document.querySelectorAll('[componentkey^="job-card-component-ref-"][role="button"]'))
+                        .filter(card => card.getClientRects().length).length;
+                    return modern || Math.max(
+                        document.querySelectorAll('[data-view-name="job-card"], li[data-view-name="job-card"]').length,
+                        document.querySelectorAll('a[href*="/jobs/view/"]').length
+                    );
+                }
             """)
         except Exception:
             return 0
@@ -765,6 +844,7 @@ class LinkedInSearchPage(BasePage):
             // New LinkedIn search-results pages use clickable components with
             // stable job IDs instead of /jobs/view anchors and legacy CSS.
             for (const card of document.querySelectorAll('[componentkey^="job-card-component-ref-"][role="button"]')) {
+                if (!card.getClientRects().length) continue;
                 const key = card.getAttribute('componentkey') || '';
                 const id = key.match(/^job-card-component-ref-(\d+)$/)?.[1];
                 if (!id) continue;
@@ -785,6 +865,10 @@ class LinkedInSearchPage(BasePage):
                     applicant_count: 0, description: '', card_index: cardIdx++,
                     linkedin_job_id: id});
             }
+
+            // A modern result list is complete. Legacy anchors elsewhere belong
+            // to the selected job or recommendations, not additional results.
+            if (jobs.length) return jobs;
 
             // Collect all candidate card nodes (any element that might be a job card)
             const candidates = [];

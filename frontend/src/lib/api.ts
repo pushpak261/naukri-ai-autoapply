@@ -693,8 +693,8 @@ export const api = {
   },
 
   agent: {
-    start: (platform: 'naukri' | 'linkedin' = 'naukri', target: 0 | 100 = 0) =>
-      fetchJSON<{ status: string; message: string; pid?: number; command?: string }>(`/agent/start?platform=${platform}${target ? '&target=100' : ''}`, { method: 'POST' }),
+    start: (platform: 'naukri' | 'linkedin' = 'naukri', target: 0 | 100 = 0, jobIds?: number[]) =>
+      fetchJSON<{ status: string; message: string; pid?: number; command?: string }>(`/agent/start?platform=${platform}${target ? '&target=100' : ''}`, { method: 'POST', ...(jobIds ? { body: JSON.stringify(jobIds) } : {}) }),
     stop: () => fetchJSON<{ status: string; message: string }>('/agent/stop', { method: 'POST' }),
     status: () => fetchJSON<AgentStatus>('/agent/status'),
     output: (lines = 50000) => fetchText(`/agent/output?lines=${lines}`),

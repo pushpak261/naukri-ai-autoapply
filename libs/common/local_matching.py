@@ -123,6 +123,11 @@ def local_match(profile, job, threshold):
     from libs.common.resume_facts import minimum_experience_years
 
     required_years = minimum_experience_years(job.experience or "")
+    from libs.common.agent_reasoning import description_experience_minimum
+
+    labelled_minimum = description_experience_minimum(job.description or "")
+    if labelled_minimum is not None:
+        required_years = max(required_years or 0, labelled_minimum)
     stated = re.search(
         r"\b\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)\s+(?:of\s+)?(?:[a-z][\w+#./-]*\s+){0,4}(?:experience|development)\b",
         job.description or "",

@@ -1,11 +1,15 @@
 import { useQuery } from '@tanstack/react-query';
-import { useParams, Link } from 'react-router-dom';
+import { useState } from 'react';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { ArrowLeft, ExternalLink, Building2, MapPin, DollarSign, Clock, Award, AlertCircle } from 'lucide-react';
 import StatusBadge from '../components/StatusBadge';
 import CareerStudio from '../components/CareerStudio';
 import { api } from '../lib/api';
 
 export default function JobDetail() {
+  const navigate = useNavigate();
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState('');
   const { id } = useParams<{ id: string }>();
   const jobId = Number(id);
   const validId = Number.isSafeInteger(jobId) && jobId > 0;
@@ -75,6 +79,18 @@ export default function JobDetail() {
             ))}
           </div>
         )}
+        <button className="primary-button mt-4" disabled={starting || ['applied', 'applying', 'uncertain', 'skipped_already_applied'].includes(job.application?.status ?? '')}
+          onClick={async () => {
+            setStarting(true);
+            setStartError('');
+            try {
+              const result = await api.agent.start(job.source === 'linkedin' ? 'linkedin' : 'naukri', 0, [job.id]);
+              if (result.status !== 'started') throw new Error(result.message || 'An agent is already running. Stop it before starting this listing.');
+              navigate('/agent-control');
+            } catch (err) { setStartError(err instanceof Error ? err.message : 'Could not start this application'); }
+            finally { setStarting(false); }
+          }}>{starting ? 'Starting…' : 'Run agent for this job'}</button>
+        {startError && <p role="alert" className="text-red-400 mt-2">{startError}</p>}
       </div>
 
       <CareerStudio jobId={jobId} key={jobId} />

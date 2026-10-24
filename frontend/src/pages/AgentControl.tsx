@@ -68,7 +68,7 @@ export default function AgentControl() {
   }, []);
   useEffect(() => {
     if (status?.running && status.platform) setPlatform(status.platform);
-    if (status?.running && status.target_progress?.target === 100) setTarget100(true);
+    if (status?.running && status.platform === 'naukri' && status.target_progress?.target === 100) setTarget100(true);
     if (!parallelMode && multiStatus && Object.values(multiStatus.agents).some(agent => agent.running && agent.pid !== status?.pid)) setParallelMode(true);
   }, [status, multiStatus, parallelMode]);
   const notify = (type: Notification['type'], message: string) => setNotification({ type, message });
@@ -179,6 +179,23 @@ export default function AgentControl() {
   };
 
   const handleRefresh = async () => { await monitor.refresh(); };
+
+  const handleStopPlatform = async (target: 'naukri' | 'linkedin') => {
+    if (actionRef.current) return;
+    actionRef.current = true;
+    setActionLoading('stop');
+    setShowStopConfirm(false);
+    try {
+      await api.multi.stop(target);
+      notify('info', `Stopped ${target === 'linkedin' ? 'LinkedIn' : 'Naukri'}`);
+      await monitor.refresh();
+    } catch (err) {
+      notify('error', `Failed to stop ${target}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      actionRef.current = false;
+      setActionLoading(null);
+    }
+  };
 
   const successRate = metrics && (metrics.jobs_applied + metrics.jobs_failed) > 0
     ? Math.round((metrics.jobs_applied / (metrics.jobs_applied + metrics.jobs_failed)) * 100)
@@ -327,7 +344,7 @@ export default function AgentControl() {
         </div>
       </div>
 
-      {!parallelMode && status?.target_progress && <section className="rounded-xl border p-5 space-y-2" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }} aria-label="Run application target">
+      {!parallelMode && platform === 'naukri' && status?.target_progress && <section className="rounded-xl border p-5 space-y-2" style={{ borderColor: 'var(--color-border)', backgroundColor: 'var(--color-surface)' }} aria-label="Run application target">
         <h2 className="font-semibold">This run’s application target</h2>
         <p className="text-2xl font-bold">{status.target_progress.submitted} / {status.target_progress.target} verified submissions</p>
         <progress className="w-full" value={status.target_progress.submitted} max={status.target_progress.target} aria-label="Verified submission progress" />
@@ -448,6 +465,15 @@ export default function AgentControl() {
               Refresh
             </button>
           </div>
+          {parallelMode && <div className="flex gap-2 mt-3">
+            {(['naukri', 'linkedin'] as const).map(target => <button key={target}
+              onClick={() => handleStopPlatform(target)}
+              disabled={!multiStatus?.agents[target].running || actionLoading !== null || loading}
+              className="px-3 py-2 rounded-lg border text-sm disabled:opacity-40"
+              style={{ borderColor: 'var(--color-border)' }}>
+              Stop {target === 'linkedin' ? 'LinkedIn' : 'Naukri'}
+            </button>)}
+          </div>}
         </div>
       </div>
 
