@@ -52,8 +52,9 @@ export default function AgentControl() {
   const [target100, setTarget100] = useState(false);
   const [logPlatform, setLogPlatform] = useState<'naukri' | 'linkedin'>('naukri');
   const outputRef = useRef<HTMLPreElement>(null);
-  const monitor = useAgentMonitor(parallelMode, logPlatform, useSSE);
-  const { status, multiStatus, metrics, output, setOutput, loading, backendOnline, statusError, streamConnected } = monitor;
+  const monitor = useAgentMonitor(parallelMode, logPlatform, useSSE, platform);
+  const { status, multiStatus, metrics, applicationStats, output, setOutput, loading, backendOnline, statusError, streamConnected } = monitor;
+  const viewedPlatform = (parallelMode ? logPlatform : platform) === 'linkedin' ? 'LinkedIn' : 'Naukri';
   const [now, setNow] = useState(Date.now());
   const uptimeFor = (agent: {running: boolean; started_at?: string | null; uptime_seconds?: number | null} | null | undefined) => {
     if (!agent?.running) return null;
@@ -197,8 +198,8 @@ export default function AgentControl() {
     }
   };
 
-  const successRate = metrics && (metrics.jobs_applied + metrics.jobs_failed) > 0
-    ? Math.round((metrics.jobs_applied / (metrics.jobs_applied + metrics.jobs_failed)) * 100)
+  const successRate = applicationStats && (applicationStats.total_applied + applicationStats.total_failed) > 0
+    ? Math.round((applicationStats.total_applied / (applicationStats.total_applied + applicationStats.total_failed)) * 100)
     : null;
 
   const multiAnyRunning =
@@ -324,21 +325,21 @@ export default function AgentControl() {
         </div>
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>Applications submitted</h2>
-          <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{metrics?.jobs_applied ?? 0}</p>
-          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Applied / {metrics?.jobs_failed ?? 0} failed</p>
+          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>{viewedPlatform} applications submitted</h2>
+          <p className="text-2xl font-bold" style={{ color: 'var(--color-text)' }}>{applicationStats?.total_applied ?? '—'}</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>Applied / {applicationStats?.total_failed ?? '—'} failed</p>
         </div>
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>Submission Rate</h2>
+          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>{viewedPlatform} Submission Rate</h2>
           <p className={`text-2xl font-bold ${successRate != null && successRate >= 50 ? 'text-green-400' : successRate != null ? 'text-yellow-400' : ''}`} style={{ color: successRate == null ? 'var(--color-text-muted)' : undefined }}>
             {successRate != null ? `${successRate}%` : 'N/A'}
           </p>
-          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>{metrics?.total_runs ?? 0} total runs</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>{metrics?.total_runs ?? '—'} total runs across both platforms</p>
         </div>
 
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
-          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>API Calls</h2>
+          <h2 className="text-xs font-medium mb-3" style={{ color: 'var(--color-text-secondary)' }}>API Calls · Both platforms</h2>
           <p className="text-2xl font-bold" style={{ color: 'var(--color-primary)' }}>{metrics?.api_calls ?? 0}</p>
           <p className="text-xs mt-1" style={{ color: 'var(--color-text-muted)' }}>{metrics?.duration_seconds ? `${Math.round(metrics.duration_seconds / 60)} min runtime` : ''}</p>
         </div>
@@ -356,7 +357,7 @@ export default function AgentControl() {
         <div className="rounded-xl border p-5" style={{ backgroundColor: 'var(--color-surface)', borderColor: 'var(--color-border)' }}>
           <h2 className="text-sm font-medium mb-3 flex items-center gap-2" style={{ color: 'var(--color-text-secondary)' }}>
             <Clock className="w-4 h-4" />
-            Last Run
+            Last Naukri Run
           </h2>
           {status?.last_run ? (
             <div>

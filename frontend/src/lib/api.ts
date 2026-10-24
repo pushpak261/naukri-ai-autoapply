@@ -623,7 +623,7 @@ export const api = {
       fetchJSON<MeResponse>('/auth/me'),
   },
   health: () => fetchJSON<{ status: string }>('/health', {}, true),
-  stats: (days = 7) => fetchJSON<StatsResponse>(`/stats?days=${days}`),
+  stats: (days = 7, source?: 'naukri' | 'linkedin') => fetchJSON<StatsResponse>(`/stats?days=${days}${source ? `&source=${source}` : ''}`),
   jobs: (page = 1, perPage = 20, search = '', status = '', sort = 'newest', matchScoreMin = 0, matchScoreMax = 100, source = '') =>
     fetchJSON<PaginatedResponse<JobItem>>(`/jobs?page=${page}&per_page=${perPage}&search=${encodeURIComponent(search)}&status=${encodeURIComponent(status)}&sort=${sort}&match_score_min=${matchScoreMin}&match_score_max=${matchScoreMax}&source=${encodeURIComponent(source)}`),
   jobsInspector: (

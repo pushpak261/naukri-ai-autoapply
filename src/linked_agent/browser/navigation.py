@@ -24,10 +24,10 @@ class NetworkUnavailableError(BrowserAutomationError):
     """Connectivity stayed unavailable after bounded retries of the same listing."""
 
 
-async def navigate(page, url, timeout=30000):
+async def navigate(page, url, timeout_ms: int = 30000):
     for attempt in range(4):
         try:
-            return await page.goto(url, wait_until="domcontentloaded", timeout=timeout)
+            return await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
         except PlaywrightError as error:
             if not any(code in str(error) for code in NETWORK_ERRORS):
                 raise

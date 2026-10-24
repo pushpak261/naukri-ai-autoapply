@@ -76,3 +76,8 @@ another job's status, a recommendation or a closed dialog cannot establish a
 submission. Confirmation is allowed up to twenty seconds without clicking Submit
 again. `verify-application JOB_ID` inspects the configured LinkedIn session and
 saves a private screenshot without submitting or changing any application.
+
+Command center counts submitted and failed applications from saved application
+records for the selected platform, including verified receipts reconciled after
+a run. Shared telemetry and Naukri's run history are explicitly labelled so they
+cannot be mistaken for LinkedIn results. Unavailable statistics display a dash.

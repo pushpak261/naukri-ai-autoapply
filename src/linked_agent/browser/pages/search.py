@@ -88,7 +88,7 @@ class LinkedInSearchPage(BasePage):
                 logger.info(
                     f"Navigating to LinkedIn search (attempt {attempt}/{max_retries}): {search_url}"
                 )
-                response = await navigate(page, search_url, timeout=60000)
+                response = await navigate(page, search_url, timeout_ms=60000)
                 if response and response.status == 429:
                     raise RateLimitError("LinkedIn requested a pause (HTTP 429); stop and review before another run.")
                 if response and response.status in (401, 403):
@@ -179,7 +179,7 @@ class LinkedInSearchPage(BasePage):
             )
             destination = await suggestion.json_value()
             destination = self._filtered_location_url(destination)
-            await navigate(page, destination, timeout=60000)
+            await navigate(page, destination, timeout_ms=60000)
             await page.wait_for_function(
                 "target => {const el=[...document.querySelectorAll('[aria-label^=\"Location \"]')].find(el=>el.getClientRects().length); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
                 arg=target,

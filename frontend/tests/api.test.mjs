@@ -44,6 +44,19 @@ test('agent logs bound both giant lines and very long histories', async () => {
   assert.ok(bounded.endsWith('line 59999'));
 });
 
+test('Command Center requests confirmed application totals for the selected platform', async () => {
+  setAuthToken('platform-statistics-test');
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(url);
+    return json({ total_applied: url.includes('source=linkedin') ? 1 : 12 });
+  };
+  assert.equal((await api.stats(7, 'linkedin')).total_applied, 1);
+  assert.equal((await api.stats(7, 'naukri')).total_applied, 12);
+  assert.equal(new URL(requests[0]).searchParams.get('source'), 'linkedin');
+  assert.equal(new URL(requests[1]).searchParams.get('source'), 'naukri');
+});
+
 test('normalizes empty, origin, and /api deployment URLs', () => {
   assert.equal(normalizeApiBase(''), '/api');
   assert.equal(normalizeApiBase(' https://backend.example/// '), 'https://backend.example/api');

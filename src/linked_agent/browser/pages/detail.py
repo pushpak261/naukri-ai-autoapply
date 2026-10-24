@@ -374,9 +374,9 @@ class LinkedInJobDetailPage(BasePage):
         from src.linked_agent.browser.screening_form import extract
         return await extract(self._engine.page)
 
-    async def wait_for_apply_step(self, timeout: int = 30000) -> bool:
+    async def wait_for_apply_step(self, timeout_ms: int = 30000) -> bool:
         from src.linked_agent.browser.screening_form import wait_until_ready
-        return await wait_until_ready(self._engine.page, timeout)
+        return await wait_until_ready(self._engine.page, timeout_ms)
 
     async def fill_answer(self, question: dict[str, Any], answer: str) -> bool:
         from src.linked_agent.browser.screening_form import fill

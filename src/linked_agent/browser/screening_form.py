@@ -83,7 +83,7 @@ async def extract(page):
     return await page.evaluate(EXTRACT)
 
 
-async def wait_until_ready(page, timeout=30000):
+async def wait_until_ready(page, timeout_ms: int = 30000):
     """A dialog heading and spinner do not mean the application body has loaded."""
     script = (
         "() => {"
@@ -98,7 +98,7 @@ return /application (?:sent|submitted)|successfully applied|thank you for applyi
 }"""
     )
     try:
-        await page.wait_for_function(script, timeout=timeout)
+        await page.wait_for_function(script, timeout=timeout_ms)
         return True
     except PlaywrightTimeoutError:
         return False

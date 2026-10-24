@@ -122,10 +122,9 @@ async def test_sidebar_does_not_swallow_a_persistent_network_outage(monkeypatch)
     monkeypatch.setattr("src.linked_agent.bot.agent.navigate", navigate)
     agent = object.__new__(LinkedInAgent)
     agent._engine = SimpleNamespace(page=SimpleNamespace())
+    job = Job("1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1")
     with pytest.raises(NetworkUnavailableError, match="offline"):
-        await agent._navigate_to_job_sidebar(
-            Job("1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1")
-        )
+        await agent._navigate_to_job_sidebar(job)
     navigate.assert_awaited_once()
 
 
