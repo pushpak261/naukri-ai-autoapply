@@ -8,6 +8,8 @@ LAST_NAME_FACT = "name.last"
 EMAIL_FACT = "contact.email"
 PHONE_FACT = "contact.phone"
 CHANGE_REASON_FACT = "career.change_reason"
+MOTIVATION_INTENT = "motivation"
+PROJECT_INTENT = "project"
 PERSONAL_WORDS = frozenset(
     [
         "salary",
@@ -99,7 +101,7 @@ def _has_phrase(key, phrases):
 
 
 def _motivation(key, words):
-    if _has_phrase(key, ("motivation", "motivate", "motivates", "motivated", "cover letter")):
+    if _has_phrase(key, (MOTIVATION_INTENT, "motivate", "motivates", "motivated", "cover letter")):
         return True
     if "why" not in words:
         return False
@@ -158,19 +160,19 @@ def narrative_kind(text):
     ):
         return "introduction"
     if _motivation(key, words):
-        return "motivation"
+        return MOTIVATION_INTENT
     project = bool(
-        words & {"project", "projects"}
+        words & {PROJECT_INTENT, "projects"}
         and words & {"describe", "tell", "explain", "brief", "details"}
         and words & {"your", "recent", "previous"}
     )
     if project or _has_phrase(key, ("project description", "project details")):
-        return "project"
+        return PROJECT_INTENT
     return "fit" if _role_fit(key, words) else ""
 
 
 def job_specific_question(text):
-    return narrative_kind(text) in ("motivation", "fit", "project") or bool(
+    return narrative_kind(text) in (MOTIVATION_INTENT, "fit", PROJECT_INTENT) or bool(
         re.search(
             r"\b(?:our company|this company|this role|this position|our organization|consent|agreement|signature|declaration)\b",
             question_key(text),
