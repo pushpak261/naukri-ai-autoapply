@@ -143,14 +143,14 @@ class TestQuestionAnswererGating:
         """use_gemini=true, answer_questions_with_pdf=true → Gemini answers complex questions."""
         mock_llm = AsyncMock()
         mock_llm.generate_content.return_value = json.dumps(
-            [{"question": "Why do you want to join us?", "answer": "Great fit!", "confidence": "high"}]
+            [{"question": "Explain Java garbage collection", "answer": "GC reclaims unreachable heap objects.", "confidence": "high"}]
         )
         settings = _make_settings(use_gemini=True, answer_questions_with_pdf=True)
         qa = QuestionAnswerer(mock_llm, settings, _make_resume())
-        questions = [{"question": "Why do you want to join us?", "type": "text", "index": 0}]
+        questions = [{"question": "Explain Java garbage collection", "type": "text", "index": 0}]
         answers = await qa.answer_questions(questions, _make_job("qa1"))
         mock_llm.generate_content.assert_awaited()
-        assert answers[0]["answer"] == "Great fit!"
+        assert answers[0]["answer"] == "GC reclaims unreachable heap objects."
 
     @pytest.mark.asyncio
     async def test_use_gemini_true_pdf_false_skips_gemini(self):
@@ -158,7 +158,7 @@ class TestQuestionAnswererGating:
         mock_llm = AsyncMock()
         settings = _make_settings(use_gemini=True, answer_questions_with_pdf=False)
         qa = QuestionAnswerer(mock_llm, settings, _make_resume())
-        questions = [{"question": "Why do you want to join us?", "type": "text", "index": 0}]
+        questions = [{"question": "Explain Java garbage collection", "type": "text", "index": 0}]
         answers = await qa.answer_questions(questions, _make_job("qa2"))
         mock_llm.generate_content.assert_not_called()
         assert answers[0]["answer"] == ""
@@ -170,7 +170,7 @@ class TestQuestionAnswererGating:
         mock_llm = AsyncMock()
         settings = _make_settings(use_gemini=False, answer_questions_with_pdf=True)
         qa = QuestionAnswerer(mock_llm, settings, _make_resume())
-        questions = [{"question": "Why do you want to join us?", "type": "text", "index": 0}]
+        questions = [{"question": "Explain Java garbage collection", "type": "text", "index": 0}]
         answers = await qa.answer_questions(questions, _make_job("qa3"))
         mock_llm.generate_content.assert_not_called()
         assert answers[0]["answer"] == ""
@@ -183,7 +183,7 @@ class TestQuestionAnswererGating:
         mock_llm = AsyncMock()
         settings = _make_settings(use_gemini=False, answer_questions_with_pdf=False)
         qa = QuestionAnswerer(mock_llm, settings, _make_resume())
-        questions = [{"question": "Why do you want to join us?", "type": "text", "index": 0}]
+        questions = [{"question": "Explain Java garbage collection", "type": "text", "index": 0}]
         answers = await qa.answer_questions(questions, _make_job("qa4"))
         mock_llm.generate_content.assert_not_called()
         assert answers[0]["answer"] == ""

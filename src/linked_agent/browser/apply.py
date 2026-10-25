@@ -242,9 +242,12 @@ class LinkedInJobApplier:
         if not clicked:
             self._submission_attempted = False
             return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Submit is unavailable or disabled. Check required fields."}
-        for _ in range(6):
+        for _ in range(20):
             await asyncio.sleep(1)
             if await self._detail_page.has_submit_success():
+                return {"status": ApplicationStatus.APPLIED}
+            from src.linked_agent.browser.receipts import inline_submission_confirmed
+            if await inline_submission_confirmed(self._detail_page.page, getattr(self, '_active_job_id', '')):
                 return {"status": ApplicationStatus.APPLIED}
         return {"status": ApplicationStatus.UNCERTAIN, "error_message": "Submission was attempted once but platform confirmation is missing. Review before retrying."}
 
@@ -259,6 +262,7 @@ class LinkedInJobApplier:
         - Review
         """
         max_steps = 15
+        self._active_job_id = job.linkedin_job_id
         step = 0
         modal_found = False
         last_step_signatures = []
@@ -290,6 +294,10 @@ class LinkedInJobApplier:
                 logger.info(f"Successfully applied to (0-step): {job.title} @ {job.company}")
                 return {"status": ApplicationStatus.APPLIED}
 
+            if not await self._detail_page.wait_for_apply_step():
+                await self._detail_page.close_apply_modal()
+                return self._unfinished_form_result("Application form did not finish loading.")
+
             # Extract questions from current step FIRST
             questions = await self._detail_page.extract_screening_questions()
 
@@ -309,7 +317,7 @@ class LinkedInJobApplier:
                 # (pre-filled form or info-only step)
                 has_submit = await page.evaluate("""
                 () => {
-                    const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                    const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                     if (!modal) return false;
                     const btns = modal.querySelectorAll('button');
                     for (const b of btns) {
@@ -342,7 +350,7 @@ class LinkedInJobApplier:
             else:
                 stuck_count = 0
 
-            logger.info(f"Step {step} questions: {len(questions)} — {[(q.get('question','')[:40], q.get('field_type',''), q.get('current_value','')[:20]) for q in questions]}")
+            logger.info(f"Step {step} questions: {len(questions)} — {[(q.get('question','')[:40], q.get('field_type',''), 'prefilled' if q.get('current_value') else 'empty') for q in questions]}")
 
             # Only a resume/CV field may receive the selected resume.
             for fq in (q for q in questions if q.get('field_type') == 'file'):
@@ -367,7 +375,7 @@ class LinkedInJobApplier:
             non_file_questions = [
                 q for q in questions
                 if q.get("field_type") != "file"
-                and str(q.get('current_value') or '').strip().casefold() in ('', 'select', 'select an option', '--select--', 'choose')
+                and (q.get('validation_error') or str(q.get('current_value') or '').strip().casefold() in ('', 'select', 'select an option', '--select--', 'choose'))
                 and not any(q.get("question", "").lower().startswith(p) for p in SKIP_PATTERNS)
             ]
             if non_file_questions:
@@ -378,12 +386,7 @@ class LinkedInJobApplier:
                 form_changed = False
                 for q, a in zip(non_file_questions, answers, strict=True):
                     answer_text = a.get("answer", "")
-                    field_type = q.get("field_type", "text")
-                    # For radio buttons, only fill the "Yes" or best answer, skip if answer is empty
-                    if field_type == "radio" and not answer_text and not q.get("required", q.get("is_required", True)):
-                        logger.debug(f"Step {step}: Skipping radio with no answer: {q.get('question','')[:30]}")
-                        continue
-                    if not answer_text and q.get('required', q.get('is_required', True)):
+                    if not answer_text:
                         return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
                         filled = await self._detail_page.fill_answer(q, answer_text)
@@ -391,12 +394,10 @@ class LinkedInJobApplier:
                         if _question_identity(refreshed) != _question_identity(questions):
                             form_changed = True
                             break
-                        if not filled and q.get('required', q.get('is_required', True)):
-                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a required screening field. Review the application form."}
-                        logger.info(f"Step {step} fill '{q.get('question','')[:30]}' = '{answer_text[:30]}': {filled}")
+                        if not filled:
+                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a screening field. Review the application form."}
+                        logger.info(f"Step {step} fill '{q.get('question','')[:30]}': {filled}")
                         await asyncio.sleep(0.5)
-                    else:
-                        logger.warning(f"Step {step} empty answer for '{q.get('question','')[:30]}' — skipping")
                 if form_changed:
                     logger.info("Screening questions changed after filling; reading the new form before advancing.")
                     continue
@@ -412,7 +413,7 @@ class LinkedInJobApplier:
             # AFTER filling questions, check for Review/Submit (end of form)
             has_submit = await page.evaluate("""
             () => {
-                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                 if (!modal) return false;
                 const btns = modal.querySelectorAll('button');
                 for (const b of btns) {
@@ -428,7 +429,7 @@ class LinkedInJobApplier:
 
             has_review = await page.evaluate("""
             () => {
-                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                 if (!modal) return false;
                 const btns = modal.querySelectorAll('button');
                 for (const b of btns) {
@@ -441,7 +442,11 @@ class LinkedInJobApplier:
             """)
             if has_review:
                 logger.info(f"Step {step}: Review button found — clicking")
-                await self._detail_page.click_review()
+                review_clicked = await self._detail_page.click_review()
+                if not review_clicked:
+                    from src.linked_agent.browser.screening_form import validation_state
+                    logger.warning("Review blocked: %s", await validation_state(page))
+                    return self._unfinished_form_result("Review is unavailable or the form has validation errors.")
                 # Wait for review page to fully load
                 await asyncio.sleep(3)
 
@@ -449,7 +454,7 @@ class LinkedInJobApplier:
                 review_state = {}
                 try:
                     review_state = await page.evaluate("""() => {
-                        const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                        const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                         if (!modal) return {found: false};
                         const btns = [];
                         modal.querySelectorAll('button').forEach(b => {
@@ -463,7 +468,7 @@ class LinkedInJobApplier:
                         });
                         return {found: true, buttons: btns, text: (modal.innerText || '').substring(0, 300)};
                     }""")
-                    logger.info(f"Step {step}: Post-Review modal state: {review_state}")
+                    logger.info(f"Step {step}: Post-Review buttons: {review_state.get('buttons', [])}")
                 except Exception as e:
                     logger.debug(f"Could not dump review state: {e}")
 
@@ -485,7 +490,7 @@ class LinkedInJobApplier:
                         # Click Back to return to form
                         await page.evaluate("""
                         () => {
-                            const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden').at(-1);
+                            const modal = [...document.querySelectorAll('dialog, div[role="dialog"], .jobs-easy-apply-modal')].filter(el => el.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0').at(-1);
                             if (!modal) return;
                             const btns = modal.querySelectorAll('button');
                             for (const b of btns) {
@@ -518,7 +523,7 @@ class LinkedInJobApplier:
                     return {"status": ApplicationStatus.APPLIED}
                 modal_still = await self._detail_page.wait_for_apply_modal(timeout=3000)
                 if not modal_still:
-                    return {"status": ApplicationStatus.UNCERTAIN, "error_message": "No platform confirmation; review before retrying."}
+                    return self._unfinished_form_result("Application dialog closed before completion.")
                 logger.warning(f"No Next button at step {step} — form may be complete or stuck")
                 break
 
@@ -532,10 +537,14 @@ class LinkedInJobApplier:
             return {"status": ApplicationStatus.APPLIED}
         modal_open = await self._detail_page.wait_for_apply_modal(timeout=3000)
         if not modal_open:
-            return {"status": ApplicationStatus.UNCERTAIN, "error_message": "No platform confirmation; review before retrying."}
+            return self._unfinished_form_result("Application dialog closed before completion.")
 
         await self._detail_page.close_apply_modal()
-        return {
-            "status": ApplicationStatus.UNCERTAIN,
-            "error_message": f"Application flow completed {step} steps without clear result",
-        }
+        return self._unfinished_form_result(f"Application form stalled at step {step}.")
+
+    def _unfinished_form_result(self, reason):
+        if getattr(self, "_submission_attempted", False):
+            return {"status": ApplicationStatus.UNCERTAIN,
+                    "error_message": "Submission needs confirmation; review before retrying."}
+        return {"status": ApplicationStatus.FAILED,
+                "error_message": reason + " No submission was attempted; this job can be retried."}

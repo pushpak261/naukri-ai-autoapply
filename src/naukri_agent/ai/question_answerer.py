@@ -43,10 +43,10 @@ CANDIDATE DETAILS (from resume profile):
 - Phone: {candidate_phone}
 - Current Title: {current_title}
 - Current Location: {current_location}
-- Preferred Locations: {preferred_locations} (Willing to relocate: Yes)
-- Total Experience: 1 year ({total_experience})
+- Preferred Locations: {preferred_locations}
+- Total Experience: {total_experience}
 - Current CTC: {current_ctc}
-- Expected CTC: {expected_ctc} (negotiable)
+- Expected CTC: {expected_ctc}
 - Notice Period: {notice_period}
 - Languages: {languages}
 - GitHub: {github_url}
@@ -535,20 +535,13 @@ class QuestionAnswerer(IQuestionAnswerer):
 
         # First pass: try direct answers and CACHE
         offline_sources = {}
-        from libs.common.screening_memory import local_answer, memory_store, profile_context, remember_generated
+        from libs.common.screening_memory import local_answer, memory_store, remember_generated
         review_store = memory_store(self._settings)
         for index, original_question in enumerate(questions):
             q = {**original_question, "index": original_question.get("index", index)}
             question_text = q.get("question", "")
-            q_type = q.get("type", "text")
             options = q.get("options", [])
-            if self._settings.ai.use_gemini:
-                context = profile_context(self._settings, self._profile) if review_store else ""
-                direct = await asyncio.to_thread(review_store.answer_for, q, job, context) if review_store else ""
-                source = "confirmed_answer" if direct else "ai_or_facts"
-                direct = direct or self._try_direct_answer(question_text, q_type, options)
-            else:
-                direct, source = await asyncio.to_thread(local_answer, q, self._settings, self._profile, job)
+            direct, source = await asyncio.to_thread(local_answer, q, self._settings, self._profile, job)
             offline_sources[q["index"]] = source
             if not direct and review_store and not self._settings.ai.use_gemini:
                 await asyncio.to_thread(review_store.remember, q, job)

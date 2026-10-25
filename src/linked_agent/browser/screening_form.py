@@ -2,11 +2,18 @@
 
 import asyncio
 import re
+from datetime import datetime
+
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 
 FORM_SCOPE = r"""
-const visible = el => !!el?.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
+const visible = el => !!el?.getClientRects().length && !el.closest('[inert], [hidden], [aria-hidden="true"]') && getComputedStyle(el).visibility !== 'hidden' && getComputedStyle(el).opacity !== '0';
 const modal = [...document.querySelectorAll('dialog, [role="dialog"], .jobs-easy-apply-modal')].filter(visible).at(-1);
+const customInvalid = el => (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).some(id => {
+    const hint = document.getElementById(id);
+    return hint && visible(hint) && /invalid input|enter a valid (?:answer|number)|enter (?:a )?(?:whole|decimal) number/i.test(hint.innerText || '');
+}) || el.getAttribute('aria-invalid') === 'true';
 """
 
 EXTRACT = (
@@ -26,9 +33,19 @@ const path = el => {
     return 'body > ' + parts.join(' > ');
 };
 const text = el => (el?.innerText || el?.textContent || '').trim().replace(/\s+/g, ' ');
-const ownLabel = el => [...(el.labels || [])].map(text).join(' ') || text(el.closest('label')) || el.getAttribute('aria-label') || '';
+const labelText = el => {
+    if (!el) return '';
+    const copy = el.cloneNode(true);
+    for (const child of copy.querySelectorAll('input, select, textarea, button, script, style, [role="listbox"]')) child.remove();
+    return text(copy);
+};
+const ownLabel = el => [...(el.labels || [])].map(labelText).join(' ') || (el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => labelText(document.getElementById(id))).filter(Boolean).join(' ') || labelText(el.closest('label')) || el.getAttribute('aria-label') || '';
 const groupOf = el => el.closest('[componentkey^="easyApplyFieldFocus_"]') || el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping') || el.parentElement;
-const optionText = el => ownLabel(el) || text(el) || el.value || '';
+const optionText = (el, question) => {
+    const candidates = [ownLabel(el), el.getAttribute('aria-label'), text(el), el.value];
+    const option = candidates.find(value => value && value.trim() !== question.trim() && value !== 'on') || '';
+    return /^true$/i.test(option) ? 'Yes' : /^false$/i.test(option) ? 'No' : option;
+};
 const seen = new Set(), result = [];
 for (const input of controls) {
     if (seen.has(input) || input.disabled || input.type === 'hidden' || ['button', 'submit', 'reset'].includes(input.type)) continue;
@@ -53,7 +70,7 @@ for (const input of controls) {
     let value = input.value || '';
     let options = [];
     if (choice) {
-        options = members.map(el => ({text: optionText(el), value: el.value || optionText(el), selector: path(el), checked: el.checked || el.getAttribute('aria-checked') === 'true'}));
+        options = members.map(el => ({text: optionText(el, label), value: el.value || optionText(el, label), selector: path(el), checked: el.checked || el.getAttribute('aria-checked') === 'true'}));
         value = options.filter(o => o.checked).map(o => o.value).join(', ');
     } else if (input.tagName === 'SELECT') {
         options = [...input.options].filter(o => !o.disabled && !/^(select|choose|please select)( |$)/i.test(text(o))).map(o => ({text: text(o), value: o.value}));
@@ -64,6 +81,9 @@ for (const input of controls) {
     }
     result.push({question: label, field_type: fieldType, input_type: type || 'text', input_id: input.id || '', selector: path(input),
         group_selector: path(group), options: options.map(o => o.text), option_controls: options, current_value: value,
+        validation_error: customInvalid(input),
+        max_length: input.maxLength > 0 ? input.maxLength : null,
+        min_length: input.minLength > 0 ? input.minLength : null,
         is_required: members.some(el => el.required || el.getAttribute('aria-required') === 'true') || group.getAttribute('aria-required') === 'true' || /\*\s*$/.test(label)});
 }
 return result;
@@ -73,6 +93,27 @@ return result;
 
 async def extract(page):
     return await page.evaluate(EXTRACT)
+
+
+async def wait_until_ready(page, timeout_ms: int = 30000):
+    """A dialog heading and spinner do not mean the application body has loaded."""
+    script = (
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal || modal.getAttribute('aria-busy') === 'true' || [...modal.querySelectorAll('[aria-busy="true"]')].some(visible)) return false;
+const fields = [...modal.querySelectorAll('input, select, textarea, [role="radio"], [role="checkbox"]')];
+if (fields.some(el => visible(el) && el.type !== 'hidden' && !['button', 'submit', 'reset'].includes(el.type))) return true;
+const actions = [...modal.querySelectorAll('button')];
+if (actions.some(el => visible(el) && !el.disabled && /^(?:next(?: step)?|continue|review(?: application)?|submit(?: application)?)$/i.test((el.innerText || el.getAttribute('aria-label') || '').trim()))) return true;
+return /application (?:sent|submitted)|successfully applied|thank you for applying/i.test(modal.innerText || '');
+}"""
+    )
+    try:
+        await page.wait_for_function(script, timeout=timeout_ms)
+        return True
+    except PlaywrightTimeoutError:
+        return False
 
 
 def normalized(value):
@@ -180,7 +221,32 @@ async def _current_field(page, question):
     return matches[0] if len(matches) == 1 else None
 
 
-async def _fill_text(page, locator, answer):
+def _numeric_equivalent(field, answer):
+    """Change representation only after the platform rejects a known scalar value."""
+    from libs.common.screening import format_evidence
+
+    question = field.get("question", "")
+    if re.search(r"date of birth|\bdob\b", question, re.I):
+        try:
+            date = datetime.strptime(str(answer), "%d/%m/%Y")
+        except ValueError:
+            return ""
+        return date.strftime("%d%m%Y")
+    if re.search(r"\bctc\b|salary|compensation|notice period|experience", question, re.I):
+        return format_evidence(answer, {**field, "type": "number", "field_type": "number"})
+    return ""
+
+
+async def _text_accepted(locator, answer):
+    return await locator.input_value() == str(answer) and await locator.evaluate(
+        r"""el => el.checkValidity() && el.getAttribute('aria-invalid') !== 'true' && !(el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean).some(id => {
+            const hint = document.getElementById(id);
+            return hint && hint.getClientRects().length && /invalid input|enter a valid (?:answer|number)|enter (?:a )?(?:whole|decimal) number/i.test(hint.innerText || '');
+        })"""
+    )
+
+
+async def _fill_text(page, locator, answer, field):
     if (
         await locator.get_attribute("role") == "combobox"
         or await locator.get_attribute("aria-autocomplete") == "list"
@@ -189,10 +255,17 @@ async def _fill_text(page, locator, answer):
     await locator.fill(str(answer))
     if not await locator.count():
         return True
-    await locator.dispatch_event("blur")
-    return await locator.input_value() == str(answer) and await locator.evaluate(
-        "el => el.checkValidity()"
-    )
+    await locator.evaluate("el => el.blur()")
+    await asyncio.sleep(0.1)
+    if await _text_accepted(locator, answer):
+        return True
+    equivalent = _numeric_equivalent(field, answer)
+    if not equivalent or equivalent == str(answer):
+        return False
+    await locator.fill(equivalent)
+    await locator.evaluate("el => el.blur()")
+    await asyncio.sleep(0.1)
+    return await _text_accepted(locator, equivalent)
 
 
 async def fill(page, question, answer):
@@ -208,7 +281,7 @@ async def fill(page, question, answer):
             return False
         await locator.select_option(value=option["value"])
         return await locator.input_value() == option["value"]
-    return field["field_type"] == "text" and await _fill_text(page, locator, answer)
+    return field["field_type"] == "text" and await _fill_text(page, locator, answer, field)
 
 
 async def action(page, kind):
@@ -220,7 +293,7 @@ async def action(page, kind):
         + r"""
     if (!modal) return false;
     const fields = [...modal.querySelectorAll('input, select, textarea')];
-    if (fields.some(el => visible(el) && !el.disabled && el.willValidate && !el.checkValidity())) return false;
+    if (fields.some(el => visible(el) && !el.disabled && ((el.willValidate && !el.checkValidity()) || customInvalid(el)))) return false;
     if ([...modal.querySelectorAll('[aria-invalid="true"]')].some(visible)) return false;
     const patterns = {next: /^(next|continue)(\b|$)/i, review: /^review(\b|$)/i, submit: /^(submit|send application)(\b|$)/i};
     const button = [...modal.querySelectorAll('button')].find(b => visible(b) && !b.disabled &&
@@ -230,4 +303,21 @@ async def action(page, kind):
     return true;
     }""",
         kind,
+    )
+
+
+async def validation_state(page):
+    """Only labels and validation flags; never include candidate answer values."""
+    return await page.evaluate(
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return {modal: false};
+const fields = [...modal.querySelectorAll('input, select, textarea')].filter(visible);
+return {invalid: fields.filter(el => (el.willValidate && !el.validity.valid) || customInvalid(el)).map(el => ({
+    question: el.getAttribute('aria-label') || [...(el.labels || [])].map(x=>x.textContent).join(' ') || el.name || el.type,
+    nativeValid: el.validity.valid, ariaInvalid: el.getAttribute('aria-invalid'), customInvalid: customInvalid(el)
+})), markers: [...modal.querySelectorAll('[aria-invalid="true"]')].filter(visible).map(el => ({tag: el.tagName, id: el.id})),
+buttons: [...modal.querySelectorAll('button')].filter(visible).map(el => ({text: el.innerText || el.getAttribute('aria-label'), disabled: el.disabled}))};
+}"""
     )

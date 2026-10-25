@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
 from src.linked_agent.browser.pages.base import BasePage
+from src.linked_agent.browser.navigation import navigate
 from src.linked_agent.config.constants import SearchSelectors
 from src.linked_agent.models.entities import Job
 from src.linked_agent.utils.helpers import clean_text, extract_linkedin_job_id
@@ -87,7 +88,7 @@ class LinkedInSearchPage(BasePage):
                 logger.info(
                     f"Navigating to LinkedIn search (attempt {attempt}/{max_retries}): {search_url}"
                 )
-                response = await page.goto(search_url, wait_until="domcontentloaded", timeout=60000)
+                response = await navigate(page, search_url, timeout_ms=60000)
                 if response and response.status == 429:
                     raise RateLimitError("LinkedIn requested a pause (HTTP 429); stop and review before another run.")
                 if response and response.status in (401, 403):
@@ -178,7 +179,7 @@ class LinkedInSearchPage(BasePage):
             )
             destination = await suggestion.json_value()
             destination = self._filtered_location_url(destination)
-            await page.goto(destination, wait_until="domcontentloaded", timeout=60000)
+            await navigate(page, destination, timeout_ms=60000)
             await page.wait_for_function(
                 "target => {const el=[...document.querySelectorAll('[aria-label^=\"Location \"]')].find(el=>el.getClientRects().length); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
                 arg=target,

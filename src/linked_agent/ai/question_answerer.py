@@ -17,6 +17,7 @@ import contextlib
 from libs.common.screening_memory import local_answer, memory_store, remember_generated
 
 logger = get_logger(__name__)
+WHOLE_NUMBER_PATTERN = r'\b\d+\b'
 
 
 class LinkedInQuestionAnswerer:
@@ -196,6 +197,7 @@ Skills: {', '.join(self._resume.skills)}
 Experience: {self._resume.total_experience_years} years
 Education: {json.dumps(self._resume.education[:2], default=str)}
 Work history: {json.dumps(self._resume.work_experience[:5], default=str)}
+Projects: {json.dumps(self._resume.projects[:3], default=str)}
 Resume evidence: {self._resume.raw_text[:8000]}
 Current CTC: {self._settings.profile.current_ctc or 'Not specified'}
 Expected CTC: {self._settings.profile.expected_ctc or 'Not specified'}
@@ -258,6 +260,9 @@ Return ONLY the JSON array, no other text."""
         answer_str = str(answer).strip()
         if not answer_str:
             return ''
+        from libs.common.screening_intents import narrative_kind
+        if not options and narrative_kind(question_text):
+            return answer_str
         question_lower = question_text.lower()
 
         # 1. Handle radio/dropdown options matching
@@ -294,7 +299,7 @@ Return ONLY the JSON array, no other text."""
             elif any(w in question_lower for w in ["salary", "ctc", "compensation"]):
                 # Strip commas/dots/currency symbols and extract first number
                 cleaned_ans = re.sub(r'[\$,\s]', '', answer_str)
-                numbers = re.findall(r'\b\d+\b', cleaned_ans)
+                numbers = re.findall(r'\b\d+(?:\.\d+)?\b', cleaned_ans)
                 if numbers:
                     return numbers[0]
                 # Fallback to profile setting
@@ -304,20 +309,20 @@ Return ONLY the JSON array, no other text."""
 
             # C. Notice period / joining
             elif any(w in question_lower for w in ["notice period", "notice", "joining", "days"]):
-                numbers = re.findall(r'\b\d+\b', answer_str)
+                numbers = re.findall(WHOLE_NUMBER_PATTERN, answer_str)
                 if numbers:
                     return numbers[0]
                 raw_np = self._settings.profile.notice_period or ""
-                raw_np_numbers = re.findall(r'\b\d+\b', raw_np)
+                raw_np_numbers = re.findall(WHOLE_NUMBER_PATTERN, raw_np)
                 if raw_np_numbers:
                     return raw_np_numbers[0]
                 if "immediate" in raw_np.lower() or "0" in raw_np:
                     return "0"
                 return ""
 
-            # D. Hours per week
-            elif any(w in question_lower for w in ["hours per week", "hours/week", "weekly hours"]):
-                numbers = re.findall(r'\b\d+\b', answer_str)
+            # D. Weekly hours and explicit counts, including counts of contacts.
+            elif "how many" in question_lower or any(w in question_lower for w in ["hours per week", "hours/week", "weekly hours"]):
+                numbers = re.findall(WHOLE_NUMBER_PATTERN, answer_str)
                 if numbers:
                     return numbers[0]
                 return ""
@@ -329,13 +334,6 @@ Return ONLY the JSON array, no other text."""
                 if len(digits) >= 10:
                     return digits
                 return self._resume.phone or ""
-
-            # F. General count questions like "how many"
-            elif "how many" in question_lower:
-                numbers = re.findall(r'\b\d+\b', answer_str)
-                if numbers:
-                    return numbers[0]
-                return ""
 
             # G. Location / city questions
             elif any(w in question_lower for w in ["location", "city", "residence"]):

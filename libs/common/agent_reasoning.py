@@ -42,6 +42,8 @@ def description_experience_minimum(description):
     """Read required work tenure; optional sections and business ages are not tenure."""
     from libs.common.resume_facts import minimum_experience_years
 
+    description = re.sub(r"(?<=[a-z])(?=Experience\s*:)", " ", str(description or ""))
+
     duration = (
         r"\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)"
     )

@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type AgentStatus, type MultiAgentStatus, type MetricsResponse } from './api';
+import { api, type AgentStatus, type MultiAgentStatus, type MetricsResponse, type StatsResponse } from './api';
 import { boundAgentLog } from './agent-control';
 
 /** One cancellable monitor per view; late responses from an old view are ignored. */
-export function useAgentMonitor(parallel: boolean, logPlatform: 'naukri' | 'linkedin', useSSE: boolean) {
+export function useAgentMonitor(parallel: boolean, logPlatform: 'naukri' | 'linkedin', useSSE: boolean, platform: 'naukri' | 'linkedin') {
   const [status, setStatus] = useState<AgentStatus | null>(null);
   const [multiStatus, setMultiStatus] = useState<MultiAgentStatus | null>(null);
   const [metrics, setMetrics] = useState<MetricsResponse | null>(null);
+  const [applicationStats, setApplicationStats] = useState<StatsResponse | null>(null);
   const [output, setOutput] = useState('');
   const [loading, setLoading] = useState(true);
   const [backendOnline, setBackendOnline] = useState(false);
@@ -39,6 +40,7 @@ export function useAgentMonitor(parallel: boolean, logPlatform: 'naukri' | 'link
     };
     disconnectRef.current = close;
     setOutput('');
+    setApplicationStats(null);
     setLoading(true);
     setStatusError('');
     setStreamConnected(false);
@@ -89,10 +91,10 @@ export function useAgentMonitor(parallel: boolean, logPlatform: 'naukri' | 'link
         }
         if (Date.now() - lastMetrics > 30_000) {
           lastMetrics = Date.now();
-          try {
-            const value = await api.metrics();
-            if (active) setMetrics(value);
-          } catch { /* Optional telemetry must not block lifecycle controls. */ }
+          const results = await Promise.allSettled([api.metrics(), api.stats(7, parallel ? logPlatform : platform)]);
+          if (!active) return;
+          setMetrics(results[0].status === 'fulfilled' ? results[0].value : null);
+          setApplicationStats(results[1].status === 'fulfilled' ? results[1].value : null);
         }
       } catch (error) {
         if (active) {
@@ -122,8 +124,8 @@ export function useAgentMonitor(parallel: boolean, logPlatform: 'naukri' | 'link
       refreshRef.current = async () => {};
       disconnectRef.current = () => {};
     };
-  }, [parallel, logPlatform, useSSE]);
+  }, [parallel, logPlatform, useSSE, platform]);
 
-  return { status, setStatus, multiStatus, setMultiStatus, metrics, output, setOutput,
+  return { status, setStatus, multiStatus, setMultiStatus, metrics, applicationStats, output, setOutput,
     loading, backendOnline, statusError, streamConnected, refresh, disconnect };
 }

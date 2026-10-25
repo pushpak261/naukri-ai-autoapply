@@ -319,7 +319,7 @@ async def test_confirmed_answers_are_reused_after_restart_then_application_submi
 async def test_gemini_can_explain_general_technical_questions_but_not_invent_history(employer):
     worker, page, job = employer
     await page.set_content(
-        '<label>Explain Java garbage collection<textarea required></textarea></label><label>Explain your experience with Java<textarea required></textarea></label><button onclick="window.sent=1">Submit</button>'
+        '<label>Explain Java garbage collection<textarea required></textarea></label><label>Explain your experience with Rust<textarea required></textarea></label><button onclick="window.sent=1">Submit</button>'
     )
     explanation = "Java garbage collection reclaims heap memory that is no longer reachable."
     worker.provider.generate_content.return_value = json.dumps(

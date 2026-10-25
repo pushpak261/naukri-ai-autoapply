@@ -173,13 +173,15 @@ def format_evidence(value, question, *, experience_in_years=True):
 
 
 def evidence_answer(question, settings, candidate=None):
+    from libs.common.screening_intents import answer_identity, narrative_kind
+
     text = str(question.get("question", "")).casefold()
     profile = settings.profile
     confirmed = getattr(profile, "confirmed_answers", {})
     saved = [
         value
         for original, value in confirmed.items()
-        if question_key(original) == question_key(text)
+        if answer_identity(original) == answer_identity(text)
     ]
     if saved:
         # A confirmed answer is already expressed in the units of its exact
@@ -189,6 +191,8 @@ def evidence_answer(question, settings, candidate=None):
             if len(saved) == 1
             else ""
         )
+    if narrative_kind(text):
+        return ""  # Narrative experience questions must not become a tenure number.
     value = ""
     name = getattr(candidate, "name", "")
     employed = getattr(profile, "employment_status", "") == "employed"
@@ -332,6 +336,11 @@ def evidence_answer(question, settings, candidate=None):
         )
     ):
         value = getattr(profile, "current_ctc", "")
+    elif re.fullmatch(
+        r"(?:(?:what (?:are|is)|which (?:are|is)) )?(?:your )?preferred (?:work |job )?locations?",
+        question_key(text),
+    ):
+        value = ", ".join(getattr(profile, "preferred_locations", []))
     elif any(word in text for word in ("github", "linkedin")):
         value = getattr(profile, "github_url" if "github" in text else "linkedin_url", "")
     elif "reason for" in text and any(word in text for word in ("change", "leaving")):

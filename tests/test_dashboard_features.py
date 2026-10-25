@@ -163,6 +163,34 @@ async def test_queue_never_marks_unsubmitted_jobs_applied(dashboard):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize('protected_status', [None, 'applied', 'applying', 'uncertain', 'skipped_already_applied'])
+async def test_job_details_support_multiple_attempts_and_preserve_submission_guards(dashboard, protected_status):
+    async with state.db_manager.session_factory() as session:
+        job = Job(naukri_job_id='li_retry-history', title='Java Developer', company='Example',
+                  url='https://www.linkedin.com/jobs/view/123', source='linkedin')
+        session.add(job)
+        await session.flush()
+        job_id = job.id
+        session.add_all([
+            Application(job_id=job_id, source='linkedin', status=protected_status or 'failed',
+                        applied_at=datetime(2026, 10, 20, tzinfo=UTC), error_message='Older attempt'),
+            Application(job_id=job_id, source='linkedin', status='failed',
+                        applied_at=datetime(2026, 10, 21, tzinfo=UTC), error_message='Latest failed attempt'),
+        ])
+        await session.commit()
+    response = await dashboard.get(f'/api/jobs/{job_id}')
+    assert response.status_code == 200, response.text
+    application = response.json()['application']
+    assert application['status'] == (protected_status or 'failed')
+    if protected_status:
+        assert application['error_message'] == 'Older attempt'
+        queued = await dashboard.post('/api/jobs/apply-batch', json={'job_ids': [job_id]})
+        assert queued.json()['queued_count'] == 0
+    else:
+        assert application['error_message'] == 'Latest failed attempt'
+
+
+@pytest.mark.asyncio
 async def test_scheduler_dispatches_queue_and_runs_schedule_once(dashboard, monkeypatch):
     from unittest.mock import AsyncMock
     from api.scheduler import tick

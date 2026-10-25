@@ -2,13 +2,16 @@
 
 import hashlib
 import json
-import re
 import sqlite3
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 from libs.common.screening import format_evidence, question_key
+from libs.common.screening_intents import answer_identity, job_specific_question
+
+JOB_SCOPE_SEPARATOR = " | job "
+ADVANCE_MEMORY_REVISION = "UPDATE memory_version SET revision=revision+1 WHERE id=1"
 
 
 class ScreeningReviewStore:
@@ -59,6 +62,30 @@ class ScreeningReviewStore:
             connection.execute(
                 "ALTER TABLE answer_memory ADD COLUMN confirmed_revision INTEGER NOT NULL DEFAULT 0"
             )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS screening_schema (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)"
+        )
+        if connection.execute("SELECT 1 FROM screening_schema WHERE id=1").fetchone() is None:
+            changed = False
+            for row in connection.execute(
+                "SELECT id,question,question_key FROM questions"
+            ).fetchall():
+                _, separator, scope = row["question_key"].partition(JOB_SCOPE_SEPARATOR)
+                key = answer_identity(row["question"]) + (separator + scope if separator else "")
+                if key != row["question_key"]:
+                    connection.execute(
+                        "UPDATE questions SET question_key=? WHERE id=?", (key, row["id"])
+                    )
+                    changed = True
+            if changed:
+                connection.execute(ADVANCE_MEMORY_REVISION)
+            connection.execute("INSERT INTO screening_schema VALUES(1,1)")
+        if connection.execute("SELECT version FROM screening_schema WHERE id=1").fetchone()[0] < 2:
+            connection.execute(
+                "UPDATE questions SET resolved_from_facts=1 WHERE answer='' AND "
+                "(LOWER(question) LIKE 'save job%' OR LOWER(question) LIKE 'save this job%' OR LOWER(question) LIKE 'bookmark job%')"
+            )
+            connection.execute("UPDATE screening_schema SET version=2 WHERE id=1")
         try:
             with connection:
                 yield connection
@@ -67,15 +94,12 @@ class ScreeningReviewStore:
 
     @staticmethod
     def _key(question, job):
-        key = question_key(question.get("question", ""))
-        if re.search(
-            r"\b(?:our company|this company|this role|this position|our organization|why.*join|why.*interested|why should we hire|how.*(?:skills|experience).*match|cover letter|motivation|consent|agreement|signature|declaration)\b",
-            key,
-        ):
+        key = answer_identity(question.get("question", ""))
+        if job_specific_question(question.get("question", "")):
             identifier = getattr(job, "naukri_job_id", "")
             if not identifier and getattr(job, "linkedin_job_id", ""):
                 identifier = "linkedin:" + str(job.linkedin_job_id)
-            key += " | job " + str(identifier or getattr(job, "id", ""))
+            key += JOB_SCOPE_SEPARATOR + str(identifier or getattr(job, "id", ""))
         return key
 
     @staticmethod
@@ -99,11 +123,23 @@ class ScreeningReviewStore:
         rows = connection.execute(
             "SELECT id,options FROM questions WHERE question_key=? AND field_type=? ORDER BY updated_at DESC,id",
             (key, field),
-        )
-        return next(
-            (row["id"] for row in rows if sorted(json.loads(row["options"])) == sorted(options)),
-            identifier,
-        )
+        ).fetchall()
+        for row in rows:
+            previous = json.loads(row["options"])
+            if sorted(previous) == sorted(options):
+                return row["id"]
+            if (
+                len(options) > 1
+                and len(previous) == 1
+                and answer_identity(previous[0]) == key.partition(JOB_SCOPE_SEPARATOR)[0]
+            ):
+                # An older extractor mistook the question heading for its only
+                # option. Retain its ID/history, but retire that unusable prompt.
+                connection.execute(
+                    "UPDATE questions SET resolved_from_facts=1 WHERE id=? AND answer=''",
+                    (row["id"],),
+                )
+        return identifier
 
     def remember(self, question, job):
         identifier, text, field, options = self.metadata(question)
@@ -118,13 +154,33 @@ class ScreeningReviewStore:
                 "VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET updated_at=excluded.updated_at, resolved_from_facts=0",
                 (identifier, key, text, field, json.dumps(options), datetime.now(UTC).isoformat()),
             )
-            job_id = getattr(job, "id", None)
+            job_id = self._dashboard_job_id(job)
             if isinstance(job_id, int) and job_id > 0:
                 connection.execute(
                     "INSERT OR IGNORE INTO affected_jobs VALUES(?,?,?)",
                     (identifier, job_id, str(getattr(job, "title", ""))[:300]),
                 )
         return identifier
+
+    def _dashboard_job_id(self, job):
+        """LinkedIn's private database IDs must never queue unrelated dashboard jobs."""
+        linkedin_id = getattr(job, "linkedin_job_id", "")
+        if not linkedin_id:
+            return getattr(job, "id", None)
+        database = self.path.with_name("naukri_agent.db")
+        if not database.is_file():
+            return None
+        try:
+            with closing(
+                sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True)
+            ) as connection:
+                row = connection.execute(
+                    "SELECT id FROM jobs WHERE naukri_job_id=? AND source='linkedin'",
+                    ("li_" + str(linkedin_id),),
+                ).fetchone()
+                return row[0] if row else None
+        except sqlite3.DatabaseError:
+            return None
 
     def mark_resolved_from_facts(self, question, job):
         """Close a validated field's pending prompt without caching it as a user answer."""
@@ -194,6 +250,12 @@ class ScreeningReviewStore:
             }
             if len(answers) != 1 or not next(iter(answers)):
                 return ""
+            answer = next(iter(answers))
+            minimum, maximum = question.get("min_length"), question.get("max_length")
+            if (isinstance(minimum, int) and len(answer) < minimum) or (
+                isinstance(maximum, int) and maximum > 0 and len(answer) > maximum
+            ):
+                return ""
             row = latest[0]
             connection.execute(
                 "INSERT INTO answer_memory(question_id,answer,source,context_hash,updated_at,last_used_at,use_count) VALUES(?,?,?,?,?,?,1) "
@@ -207,7 +269,7 @@ class ScreeningReviewStore:
                     datetime.now(UTC).isoformat(),
                 ),
             )
-            return next(iter(answers))
+            return answer
 
     def observe(self, question, answer, job, source, context_hash):
         """Remember provenance without promoting a generated answer to user confirmation."""
@@ -259,7 +321,7 @@ class ScreeningReviewStore:
         items = []
         for row in rows:
             item = dict(row)
-            item["scope"] = "job" if " | job " in item.pop("question_key") else "profile"
+            item["scope"] = "job" if JOB_SCOPE_SEPARATOR in item.pop("question_key") else "profile"
             item["options"] = json.loads(item["options"])
             items.append(item)
         return {"items": items, "total": total}
@@ -281,7 +343,7 @@ class ScreeningReviewStore:
                 (row["question_key"],),
             )
             connection.execute("DELETE FROM questions WHERE question_key=?", (row["question_key"],))
-            connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
+            connection.execute(ADVANCE_MEMORY_REVISION)
 
     def revision(self):
         with self._connect() as connection:
@@ -352,7 +414,12 @@ class ScreeningReviewStore:
             for variant in variants:
                 # Keep format-specific records for validation, but a known
                 # compatible answer needs no second confirmation.
-                compatible = self._format_for_row(value, variant)
+                options = json.loads(variant["options"])
+                obsolete = (
+                    len(options) == 1
+                    and answer_identity(options[0]) == key.partition(JOB_SCOPE_SEPARATOR)[0]
+                )
+                compatible = obsolete or self._format_for_row(value, variant)
                 connection.execute(
                     "UPDATE questions SET resolved_from_facts=? WHERE id=?",
                     (int(bool(compatible)), variant["id"]),
@@ -390,7 +457,7 @@ class ScreeningReviewStore:
                 "ON CONFLICT(question_id) DO UPDATE SET answer=excluded.answer,source='confirmed',context_hash='',updated_at=excluded.updated_at,confirmed_revision=excluded.confirmed_revision",
                 [(identifier, value, now) for value, now, identifier in resolved],
             )
-            connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
+            connection.execute(ADVANCE_MEMORY_REVISION)
             self._resolve_compatible_variants(connection, confirmed_keys)
             # Queue only jobs whose entire known question set is resolved.
             return sorted(

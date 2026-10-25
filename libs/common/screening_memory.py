@@ -9,13 +9,26 @@ from libs.common.offline_screening import general_technical_question, offline_an
 from libs.common.screening_review import ScreeningReviewStore
 
 
-def profile_context(settings, candidate):
+def profile_context(settings, candidate, job=None):
     if dataclasses.is_dataclass(candidate):
         resume = dataclasses.asdict(candidate)
     else:
         resume = vars(candidate) if hasattr(candidate, "__dict__") else {}
     data = {"profile": settings.profile.model_dump(), "resume": resume}
+    if job is not None:
+        data["job"] = {
+            field: getattr(job, field, "")
+            for field in ("title", "company", "skills", "description")
+        }
     return hashlib.sha256(json.dumps(data, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def answer_context(question, settings, candidate, job):
+    from libs.common.screening_intents import job_specific_question
+
+    return profile_context(
+        settings, candidate, job if job_specific_question(question.get("question", "")) else None
+    )
 
 
 def memory_store(settings):
@@ -29,7 +42,7 @@ def local_answer(question, settings, candidate, job):
         **question,
     }
     store = memory_store(settings)
-    context = profile_context(settings, candidate) if store else ""
+    context = answer_context(question, settings, candidate, job) if store else ""
     answer = store.answer_for(question, job, context) if store else ""
     if answer:
         return answer, "confirmed_answer"
@@ -44,7 +57,9 @@ def remember_generated(question, answer, settings, candidate, job):
     store = memory_store(settings)
     if store and answer:
         source = "technical" if general_technical_question(question) else "ai_suggestion"
-        store.observe(question, answer, job, source, profile_context(settings, candidate))
+        store.observe(
+            question, answer, job, source, answer_context(question, settings, candidate, job)
+        )
 
 
 def filled_answer(field, answer):
