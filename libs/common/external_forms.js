@@ -75,9 +75,20 @@ export default function inspectExternalForm() {
         ].filter(Boolean);
         return ([...new Set(explicit)].join(' | ') || el.getAttribute('placeholder') || el.name || '').slice(0, 500);
     };
+    function unrelatedControl(el) {
+        // Career pages also contain search, subscriptions and chat. These are
+        // never application fields, and their Submit buttons must not be used.
+        if (el.closest('nav, header, footer, [role="search"], .phs-global-search-area, .phs-subscribe-jobs-area, #PhenomChatbotWidgetWindow')) return true;
+        const unrelatedName = /^(?:(?:global|job|site) search|search (?:for )?jobs|job alerts?|job notifications?|get notified for similar jobs|chat(?:bot)?|virtual assistant)$/i;
+        for (let scope = el.parentElement; scope && !scope.matches('body, main, html'); scope = scope.parentElement) {
+            const name = scope.getAttribute('aria-label') || '';
+            if (unrelatedName.test(name.trim())) return true;
+        }
+        return false;
+    }
     function ignored(el) {
         const type = (el.type || '').toLowerCase();
-        if (el.disabled || el.readOnly || el.closest('nav, header, footer, [role="search"]')) return true;
+        if (el.disabled || el.readOnly || unrelatedControl(el)) return true;
         if (['hidden', 'submit', 'button', 'reset', 'search'].includes(type)) return true;
         if (/^(?:save (?:this )?job|bookmark (?:this )?job)(?:\b|\s)/i.test(label(el, false))) return true;
         if (!visible(el) && !uploadControl(el)) return true;
@@ -137,7 +148,7 @@ export default function inspectExternalForm() {
     }
     function collectButtons() {
         return [...document.querySelectorAll('button, input[type="submit"], input[type="button"], a, [role="button"]')]
-            .filter(el => visible(el) && !el.disabled && !el.closest('nav, header, footer'))
+            .filter(el => visible(el) && !el.disabled && !unrelatedControl(el))
             .map((el, i) => {
                 el.dataset.applyosButton = String(i);
                 let formAction = el.form?.action || location.href;

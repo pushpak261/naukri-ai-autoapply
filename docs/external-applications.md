@@ -27,6 +27,11 @@ counts as `applied` only after an explicit employer receipt message. A Submit
 without confirmation is `uncertain` and stops the agent for review, preserving
 duplicate-submission protection.
 
+Career-page search, job-alert subscription and chat widgets are excluded from
+both field collection and application actions. Repeated Apply Now links to the
+same destination open one application form. Client-rendered employer forms have
+up to 30 seconds to become ready before being reported as unsupported.
+
 Recognized repeatable Education Details and Experience Details sections add
 one row per saved resume record (up to ten of each, within the form's 80-control
 limit). This includes Zoho's separate first-row and subsequent-row Add controls.

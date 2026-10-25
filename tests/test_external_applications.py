@@ -533,6 +533,82 @@ async def test_dry_run_and_cross_origin_action_do_not_submit(employer):
 
 
 @pytest.mark.asyncio
+async def test_company_landing_widgets_do_not_hide_the_real_application(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    await page.set_content(
+        """<form aria-label="Global search" onsubmit="event.preventDefault();window.bad=1">
+        <label>Search job title<input id="search"></label><button>Search</button></form>
+        <section role="region" aria-label="Get notified for similar jobs">
+        <form onsubmit="event.preventDefault();window.bad=1">
+        <label>Email<input id="alert-email" required type="email"></label><button>Submit</button>
+        </form></section>
+        <div id="PhenomChatbotWidgetWindow" role="dialog">
+        <input aria-label="Chat message"><button onclick="window.bad=1">Submit</button></div>
+        <div id="landing"><h1>Java Developer</h1>
+        <a href="/apply?job=123" onclick="openApplication(event)">Apply Now</a>
+        <a href="/apply?job=123" onclick="openApplication(event)">Apply Now</a></div>
+        <script>function openApplication(event){event.preventDefault();
+        window.opened=(window.opened||0)+1;
+        document.querySelector('#landing').remove();
+        document.body.insertAdjacentHTML('beforeend',
+        '<form aria-label="Job application" onsubmit="event.preventDefault();window.sent=1">'
+        +'<label>Email<input id="candidate-email" required type="email"></label>'
+        +'<button>Submit</button></form>');}</script>"""
+    )
+    initial = await worker.inspect(page.main_frame)
+    assert initial["fields"] == []
+    assert not any(button["text"] == "Submit" for button in initial["buttons"])
+
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_dry_run", result
+    assert await page.locator("#candidate-email").input_value() == "test@example.test"
+    assert await page.locator("#alert-email").input_value() == ""
+    assert await page.locator("#search").input_value() == ""
+    assert await page.locator('[aria-label="Chat message"]').input_value() == ""
+    assert await page.evaluate("window.opened") == 1
+    assert await page.evaluate("window.bad||window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_job_alert_subscription_is_never_submitted_as_an_application(employer):
+    worker, page, job = employer
+    await page.set_content(
+        """<form aria-label="Job alerts" onsubmit="event.preventDefault();window.bad=1">
+        <label>Email<input required type="email"></label><button>Submit</button></form>"""
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_external", result
+    assert not worker.submitted
+    assert await page.locator("input").input_value() == ""
+    assert await page.evaluate("window.bad||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_client_rendered_form_can_load_after_initial_readiness_polls(employer):
+    worker, page, _job = employer
+    await page.set_content("<h1>Loading application</h1>")
+    snapshot = worker.snapshot
+    polls = 0
+
+    async def delayed_form(target):
+        nonlocal polls
+        polls += 1
+        if polls == 15:
+            await page.set_content(
+                '<label>Email<input required type="email"></label><button>Next</button>'
+            )
+        return await snapshot(target)
+
+    with (
+        patch.object(worker, "snapshot", side_effect=delayed_form),
+        patch("libs.common.external_apply.asyncio.sleep", new=AsyncMock()),
+    ):
+        states = await worker.ready_states(page)
+    assert any(state["fields"] for _frame, state in states)
+
+
+@pytest.mark.asyncio
 async def test_dry_run_opens_zoho_landing_form_after_declining_optional_cookies(employer):
     worker, page, job = employer
     worker.settings.application.dry_run = True

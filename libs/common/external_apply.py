@@ -378,7 +378,7 @@ class ExternalJobApplier:
     async def ready_states(self, page):
         """Allow client-rendered ATS forms to load before declaring them unsupported."""
         states = []
-        for _ in range(12):
+        for _ in range(60):
             states = await self.snapshot(page)
             if any(
                 s["fields"]
