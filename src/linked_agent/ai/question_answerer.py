@@ -320,8 +320,8 @@ Return ONLY the JSON array, no other text."""
                     return "0"
                 return ""
 
-            # D. Hours per week
-            elif any(w in question_lower for w in ["hours per week", "hours/week", "weekly hours"]):
+            # D. Weekly hours and explicit counts, including counts of contacts.
+            elif "how many" in question_lower or any(w in question_lower for w in ["hours per week", "hours/week", "weekly hours"]):
                 numbers = re.findall(WHOLE_NUMBER_PATTERN, answer_str)
                 if numbers:
                     return numbers[0]
@@ -334,13 +334,6 @@ Return ONLY the JSON array, no other text."""
                 if len(digits) >= 10:
                     return digits
                 return self._resume.phone or ""
-
-            # F. General count questions like "how many"
-            elif "how many" in question_lower:
-                numbers = re.findall(WHOLE_NUMBER_PATTERN, answer_str)
-                if numbers:
-                    return numbers[0]
-                return ""
 
             # G. Location / city questions
             elif any(w in question_lower for w in ["location", "city", "residence"]):

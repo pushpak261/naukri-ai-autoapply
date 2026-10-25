@@ -79,6 +79,12 @@ def test_clean_and_validate_answer_notice_period(mock_settings, sample_resume):
     assert answerer._clean_and_validate_answer(q, "Immediate") == "30"  # fallback
 
 
+def test_contact_count_is_not_replaced_with_a_phone_number(mock_settings, sample_resume):
+    answerer = LinkedInQuestionAnswerer(AsyncMock(), mock_settings, sample_resume)
+    question = {"question": "How many phone numbers can we contact you on?", "field_type": "text"}
+    assert answerer._clean_and_validate_answer(question, "1") == "1"
+
+
 def test_clean_and_validate_answer_dropdown_radio(mock_settings, sample_resume):
     """Should validate choice answers against the available options list."""
     answerer = LinkedInQuestionAnswerer(AsyncMock(), mock_settings, sample_resume)
