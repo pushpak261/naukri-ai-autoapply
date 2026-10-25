@@ -386,12 +386,7 @@ class LinkedInJobApplier:
                 form_changed = False
                 for q, a in zip(non_file_questions, answers, strict=True):
                     answer_text = a.get("answer", "")
-                    field_type = q.get("field_type", "text")
-                    # For radio buttons, only fill the "Yes" or best answer, skip if answer is empty
-                    if field_type == "radio" and not answer_text and not q.get("required", q.get("is_required", True)):
-                        logger.debug(f"Step {step}: Skipping radio with no answer: {q.get('question','')[:30]}")
-                        continue
-                    if not answer_text and q.get('required', q.get('is_required', True)):
+                    if not answer_text:
                         return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
                         filled = await self._detail_page.fill_answer(q, answer_text)
@@ -399,12 +394,10 @@ class LinkedInJobApplier:
                         if _question_identity(refreshed) != _question_identity(questions):
                             form_changed = True
                             break
-                        if not filled and q.get('required', q.get('is_required', True)):
-                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a required screening field. Review the application form."}
+                        if not filled:
+                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a screening field. Review the application form."}
                         logger.info(f"Step {step} fill '{q.get('question','')[:30]}': {filled}")
                         await asyncio.sleep(0.5)
-                    else:
-                        logger.warning(f"Step {step} empty answer for '{q.get('question','')[:30]}' — skipping")
                 if form_changed:
                     logger.info("Screening questions changed after filling; reading the new form before advancing.")
                     continue

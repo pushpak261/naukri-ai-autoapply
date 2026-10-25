@@ -47,7 +47,7 @@ async def test_prefilled_answer_is_not_overwritten(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_optional_unknown_answer_does_not_block_submission(tmp_path):
+async def test_optional_unknown_answer_requires_review_before_submission(tmp_path):
     page = detail()
     page.extract_screening_questions = AsyncMock(return_value=[{'question':'Optional additional details', 'field_type':'text', 'current_value':'', 'is_required':False}])
     qa = MagicMock()
@@ -55,7 +55,8 @@ async def test_optional_unknown_answer_does_not_block_submission(tmp_path):
     applier = LinkedInJobApplier(page, Settings(project_root=tmp_path, ai={'use_gemini':True}), qa)
     with patch('src.linked_agent.browser.apply.asyncio.sleep', new=AsyncMock()):
         result = await applier._handle_easy_apply_flow(Job('test','Developer','Employer','https://example.invalid/job'))
-    assert result['status'] == 'applied'
+    assert result['status'] == 'skipped_screening'
+    page.submit_application.assert_not_awaited()
 
 
 @pytest.mark.asyncio

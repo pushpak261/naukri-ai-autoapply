@@ -99,3 +99,36 @@ async def test_radio_group_labels_do_not_replace_the_actual_boolean_choices(sear
     assert question["options"] == ["Yes", "No"]
     assert await page.fill_answer(question, "No")
     assert await tab.locator('[name="employment"]:checked').input_value() == "false"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["text", "radio"])
+async def test_optional_screening_question_requires_a_saved_answer_before_submit(
+    search_page, tmp_path, monkeypatch, kind
+):
+    _, tab = search_page
+    settings = Settings(project_root=tmp_path, ai={"use_gemini": False})
+    candidate = ResumeProfile(skills=["Java"], total_experience_years=1)
+    job = Job("987654", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/987654")
+    if kind == "radio":
+        control = '<fieldset><legend>Do you need visa sponsorship?</legend><label><input type="radio" name="sponsor" value="yes">Yes</label><label><input type="radio" name="sponsor" value="no">No</label></fieldset>'
+    else:
+        control = '<label>Do you need visa sponsorship?<input type="text"></label>'
+    markup = (
+        "<dialog open>"
+        + control
+        + "<button onclick=\"window.submissions++;document.querySelector('dialog').innerHTML='Application sent'\">Submit application</button></dialog><script>window.submissions=0;</script>"
+    )
+    await tab.set_content(markup)
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    worker = LinkedInJobApplier(detail(tab), settings, SimpleNamespace(_resume=candidate))
+    assert (await worker._handle_easy_apply_flow(job))["status"] == "skipped_screening"
+    assert await tab.evaluate("window.submissions") == 0
+    store = ScreeningReviewStore(tmp_path)
+    (prompt,) = store.pending()
+    assert prompt["question"] == "Do you need visa sponsorship?"
+    store.save_answers({prompt["id"]: "No"})
+    await tab.set_content(markup)
+    restarted = LinkedInJobApplier(detail(tab), settings, SimpleNamespace(_resume=candidate))
+    assert (await restarted._handle_easy_apply_flow(job))["status"] == "applied"
+    assert await tab.evaluate("window.submissions") == 1

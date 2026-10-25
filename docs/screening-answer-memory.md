@@ -23,7 +23,8 @@ radio prompts are retired when a corrected question is observed, preserving the
 original records while allowing confirmed applications to resume.
 
 Unknown qualifications, availability, declarations and personal facts appear in
-Screening answers for confirmation. They are never changed to a positive answer
+Screening answers for confirmation, including optional native screening fields.
+They are never changed to a positive answer
 simply to complete a form. Confirmed answers are reused on compatible future
 forms. The bot checks form validity and a submission receipt before counting an
 application. Memory improves retrieval and drafting; it does not fine-tune the
