@@ -1,4 +1,16 @@
 // Visible employer controls only; never expose scripts or account credentials.
+function unrelatedControl(el) {
+    // Career pages also contain search, subscriptions and chat. These are
+    // never application fields, and their Submit buttons must not be used.
+    if (el.closest('nav, header, footer, [role="search"], [role="navigation"], [role="tablist"], .navigation-summary[role="toolbar"], .phs-global-search-area, .phs-subscribe-jobs-area, #PhenomChatbotWidgetWindow')) return true;
+    const unrelatedName = /^(?:(?:global|job|site) search|search (?:for )?jobs|job alerts?|job notifications?|get notified for similar jobs|chat(?:bot)?|virtual assistant)$/i;
+    for (let scope = el.parentElement; scope && !scope.matches('body, main, html'); scope = scope.parentElement) {
+        const name = scope.getAttribute('aria-label') || '';
+        if (unrelatedName.test(name.trim())) return true;
+    }
+    return false;
+}
+
 export default function inspectExternalForm() {
     // Conditional fields and cloned rows must not retain reused locator IDs.
     for (const name of ['field', 'skills', 'button', 'history', 'history-row', 'history-owner', 'history-add']) {
@@ -16,7 +28,7 @@ export default function inspectExternalForm() {
     const historyRows = '.innerElem, [data-history-row], .education-entry, .experience-entry, fieldset[id^="experienceData["], fieldset[id^="educationData["]';
     const historyRow = el => !el.id?.match(/^(?:experienceData|educationData)\[/) || /^(?:experienceData|educationData)\[\d+\]$/.test(el.id);
     function historyKind(el) {
-        const name = (el.getAttribute('data-l') || el.querySelector(':scope > legend')?.textContent || '').replace(/[\s:]+$/g, '');
+        const name = (el.dataset.l || el.querySelector(':scope > legend')?.textContent || '').trim().replace(/:$/, '').trim();
         if (/^(?:education(?:al)?|academic)(?: details| history)?$/i.test(name.trim())) return 'education';
         if (/^(?:experience|employment|work experience|work history)(?: details| history)?$/i.test(name.trim())) return 'experience';
         return '';
@@ -70,7 +82,7 @@ export default function inspectExternalForm() {
         const linked = [...(el.labels || []), el.closest('a, [role="button"]')].find(x => x && visible(x));
         if (linked) return linked;
         const parent = el.parentElement;
-        if (!parent || parent.querySelectorAll('input[type="file"]').length !== 1) return null;
+        if (parent?.querySelectorAll('input[type="file"]').length !== 1) return null;
         const controls = [...parent.querySelectorAll('button, [role="button"]')].filter(x => visible(x) && /^(?:upload|browse|choose|attach)(?: (?:a|your|my))? (?:resume|cv|curriculum vitae)$/i.test(text(x)));
         return controls.length === 1 ? controls[0] : null;
     }
@@ -85,22 +97,11 @@ export default function inspectExternalForm() {
         const explicit = [
             ...(el.labels ? [...el.labels].map(labelText) : []), el.getAttribute('aria-label'),
             ...(el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(id => !id.endsWith('-live-region')).map(id => labelText(document.getElementById(id))),
-            el.type === 'file' ? el.getAttribute('data-l') || uploadControl(el)?.getAttribute('aria-label') || text(uploadControl(el)) : ''
+            el.type === 'file' ? el.dataset.l || uploadControl(el)?.getAttribute('aria-label') || text(uploadControl(el)) : ''
         ].filter(Boolean);
-        const unique = [...new Map(explicit.map(value => [value.replace(/[\s*]+$/g, '').toLowerCase(), value])).values()];
+        const unique = [...new Map(explicit.map(value => [value.trim().replace(/\*$/, '').trimEnd().toLowerCase(), value])).values()];
         return (unique.join(' | ') || (legend ? groupLabel(el) : '') || el.getAttribute('placeholder') || el.name || '').slice(0, 1000);
     };
-    function unrelatedControl(el) {
-        // Career pages also contain search, subscriptions and chat. These are
-        // never application fields, and their Submit buttons must not be used.
-        if (el.closest('nav, header, footer, [role="search"], [role="navigation"], [role="tablist"], .navigation-summary[role="toolbar"], .phs-global-search-area, .phs-subscribe-jobs-area, #PhenomChatbotWidgetWindow')) return true;
-        const unrelatedName = /^(?:(?:global|job|site) search|search (?:for )?jobs|job alerts?|job notifications?|get notified for similar jobs|chat(?:bot)?|virtual assistant)$/i;
-        for (let scope = el.parentElement; scope && !scope.matches('body, main, html'); scope = scope.parentElement) {
-            const name = scope.getAttribute('aria-label') || '';
-            if (unrelatedName.test(name.trim())) return true;
-        }
-        return false;
-    }
     function ignored(el) {
         const type = (el.type || '').toLowerCase();
         if (el.disabled || el.readOnly || unrelatedControl(el)) return true;
@@ -197,5 +198,6 @@ export default function inspectExternalForm() {
     const body = document.body?.innerText || '';
     const blocked = [...document.querySelectorAll('input[type="password"], iframe[src*="recaptcha"], iframe[src*="hcaptcha"], [data-sitekey]')].some(visible) || /verify (?:you are|you're) human|access denied|sign in to apply|create an account to apply/i.test(body);
     const agreement = /by (?:clicking|submitting|continuing)[^.!\n]{0,180}\b(?:agree|accept|consent)\b/i.test(body);
-    return {fields:collectFields(), historySections, buttons:collectButtons(), blocked, confirmation:confirmed(), agreement};
+    const busy = [...document.querySelectorAll('[aria-busy="true"], [role="progressbar"]:not([aria-valuenow]), .widget-loader[aria-label="loading"][role="alert"]')].some(el => visible(el) && !unrelatedControl(el));
+    return {fields:collectFields(), historySections, buttons:collectButtons(), blocked, confirmation:confirmed(), agreement, busy};
 }

@@ -43,6 +43,8 @@ new fields appear. Navigation progress bars are excluded from Next/Review
 actions. Named radio groups and hidden file inputs beside a visible Upload
 Resume button are supported. Phone extensions, device types and calling codes
 require their own evidence; the full contact number is never reused for them.
+Resume processing indicators are awaited for up to 60 seconds before filling
+contact fields, preventing late parser results from overwriting saved facts.
 Phenom-style repeatable employment and education fieldsets keep every record
 separate. Employment month/year controls and education year pickers retain the
 precision requested by the employer. Explicit degree categories, locations and

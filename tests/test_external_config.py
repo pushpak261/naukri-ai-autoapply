@@ -92,4 +92,5 @@ async def test_enabling_gemini_restores_external_ai_after_linkedin_offline_fallb
         response = await user.put("/api/config", json={"use_gemini": True, "gemini_api_key": "fixture-only-key"})
         assert response.status_code == 200
         settings = LinkedInSettings(**load_linkedin_workspace_config(root))
-        assert settings.ai.use_gemini and settings.application.external_ai_enabled
+        assert settings.ai.use_gemini
+        assert settings.application.external_ai_enabled

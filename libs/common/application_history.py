@@ -122,6 +122,21 @@ def date_component(parts, component, field):
     return matches[0] if len(matches) == 1 else ""
 
 
+def degree_subject(degree):
+    match = re.search(r"\bin ", degree, re.I)
+    if match:
+        return degree[match.end() :].partition("(")[0].strip()
+    match = re.search(r"\bof ", degree, re.I)
+    if match:
+        subject = degree[match.end() :].partition("(")[0].strip()
+        if subject.casefold().endswith("engineering"):
+            return subject
+    abbreviation, separator, subject = degree.partition(",")
+    if separator and abbreviation.replace(".", "").casefold() in ("be", "btech"):
+        return subject.strip()
+    return ""
+
+
 def record_value(record, kind, label):
     label = re.sub(r"[^a-z ]", " ", label.casefold())
     if re.search(r"institute|institution|school|university|college", label):
@@ -132,14 +147,7 @@ def record_value(record, kind, label):
         return first(record, "grade", "gpa", "result")
     if re.search(r"major|department|field of study|stream", label):
         explicit = first(record, "major", "field_of_study", "department", "stream")
-        degree = first(record, "degree")
-        match = re.search(r"\bin (.+?)(?:\s*\(|$)|\bof (.+? Engineering)(?:\s*\(|$)", degree, re.I)
-        abbreviation = re.fullmatch(r"(?:B\.?E\.?|B\.?Tech\.?),\s*(.+)", degree, re.I)
-        return (
-            explicit
-            or (next(v for v in match.groups() if v).strip() if match else "")
-            or (abbreviation[1] if abbreviation else "")
-        )
+        return explicit or degree_subject(first(record, "degree"))
     if kind == "experience" and re.search(r"location|city", label):
         return first(record, "location", "city")
     if re.search(r"company|employer|organization", label):
@@ -150,6 +158,17 @@ def record_value(record, kind, label):
         explicit = first(record, "summary", "description")
         highlights = record.get("highlights", [])
         return explicit or "\n".join(h for h in highlights if isinstance(h, str))
+    return ""
+
+
+def education_category(value, label):
+    if re.search(r"degree|qualification", label, re.I):
+        if re.search(r"\bdiploma\b", value, re.I):
+            return "Diploma"
+        if re.match(r"(?:B\.?E\.?|B\.?Tech\.?|Bachelor(?:s| of)?)\b", value, re.I):
+            return "Bachelors"
+    elif value.casefold() == "advanced computing":
+        return "Computing"
     return ""
 
 
@@ -171,14 +190,7 @@ def history_answer(field, profile):
     if answer or field["type"] != "dropdown" or history["kind"] != "education":
         return answer
     # Common ATS categories are broader than the full degree name on a resume.
-    category = ""
-    if re.search(r"degree|qualification", history["label"], re.I):
-        if re.search(r"\bdiploma\b", value, re.I):
-            category = "Diploma"
-        elif re.match(r"(?:B\.?E\.?|B\.?Tech\.?|Bachelor(?:s| of)?)\b", value, re.I):
-            category = "Bachelors"
-    elif value.casefold() == "advanced computing":
-        category = "Computing"
+    category = education_category(value, history["label"])
     return format_evidence(category, field, experience_in_years=False) if category else ""
 
 
@@ -197,7 +209,9 @@ def identity_conflict(field, profile):
     def normalize(text):
         value = " ".join(text.casefold().split())
         if re.search(r"title|position", history["label"], re.I):
-            value = re.sub(r"\s*\((?:contract|full[ -]time|part[ -]time)\)$", "", value)
+            title, _, qualifier = value.rpartition("(")
+            if qualifier in ("contract)", "full time)", "full-time)", "part time)", "part-time)"):
+                value = title.rstrip()
         return value
 
     return bool(expected) and normalize(field["value"]) != normalize(expected)

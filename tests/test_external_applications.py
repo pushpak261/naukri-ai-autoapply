@@ -514,6 +514,25 @@ async def test_required_local_name_cannot_reuse_an_optional_not_applicable_choic
 
 
 @pytest.mark.asyncio
+async def test_resume_processing_finishes_before_saved_contact_fields_are_filled(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    resume = worker.settings.resumes_dir / "synthetic.pdf"
+    resume.parent.mkdir(parents=True, exist_ok=True)
+    resume.write_bytes(b"%PDF-1.4 local test only")
+    worker.settings.resume.path = str(resume)
+    await page.set_content(
+        """<div role="progressbar" aria-valuenow="2" aria-valuemax="6">Application step 2 of 6</div>
+        <label>Resume<input type="file" onchange="document.body.setAttribute('aria-busy','true');setTimeout(()=>{document.querySelector('#email').value='incorrect-parser@example.test';document.body.removeAttribute('aria-busy')},100)"></label>
+        <label>Email<input id="email" type="email" required></label><button>Submit</button>"""
+    )
+    result = await run(worker, page, job)
+    await page.wait_for_timeout(150)
+    assert result["status"] == "skipped_dry_run", result
+    assert await page.locator("#email").input_value() == "test@example.test"
+
+
+@pytest.mark.asyncio
 async def test_known_contact_fields_submit_without_a_gemini_request(employer):
     worker, page, job = employer
     await page.set_content(

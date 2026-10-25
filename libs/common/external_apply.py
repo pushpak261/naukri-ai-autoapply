@@ -30,11 +30,11 @@ from libs.common.screening_review import ScreeningReviewStore
 from libs.common.screening_memory import answer_context, filled_answer
 
 logger = logging.getLogger(__name__)
+_FORM_SOURCE = Path(__file__).with_name("external_forms.js").read_text(encoding="utf-8")
 FORM_SCRIPT = (
-    Path(__file__)
-    .with_name("external_forms.js")
-    .read_text(encoding="utf-8")
-    .split("export default ", 1)[1]
+    "() => {\n"
+    + _FORM_SOURCE.replace("export default ", "", 1)
+    + "\nreturn inspectExternalForm();\n}"
 )
 LEGAL = re.compile(
     r"\bterms\b|agreement|privacy (?:policy|notice)|\bconsent\b|\b(?:I|you) (?:certify|declare)\b|declaration|signature",
@@ -405,7 +405,7 @@ class ExternalJobApplier:
         states = []
         for _ in range(60):
             states = await self.snapshot(page)
-            if any(
+            if not any(state.get("busy") for _, state in states) and any(
                 s["fields"]
                 or s["blocked"]
                 or s["confirmation"]
@@ -586,6 +586,8 @@ class ExternalJobApplier:
             await self.fill_skill_tags(frame, field, answer)
         elif kind == "file":
             await locator.set_input_files(str(answer))
+            await self.wait_for_resume_upload(frame)
+            return  # File changes are committed by change events, not text blur.
         elif kind == "dropdown":
             await locator.select_option(label=answer)
         elif kind == "radio":
@@ -602,6 +604,16 @@ class ExternalJobApplier:
         else:
             await locator.fill(answer)
         await locator.first.evaluate("el => el.blur()")
+
+    async def wait_for_resume_upload(self, frame):
+        # Allow asynchronous resume parsing to finish before correcting its
+        # populated fields, or a late parser response can overwrite our answers.
+        await asyncio.sleep(0.5)
+        for _ in range(120):
+            if not (await self.inspect(frame)).get("busy"):
+                return
+            await asyncio.sleep(0.5)
+        raise ExternalReview("Employer is still processing the resume; review before continuing.")
 
     async def fill_skill_tags(self, frame, field, answer):
         container = frame.locator(f'[data-applyos-skills="{field["id"]}"]')
@@ -638,6 +650,8 @@ class ExternalJobApplier:
 
     @staticmethod
     def check_states(states):
+        if any(state.get("busy") for _, state in states):
+            raise ExternalReview("Employer form is still loading; review before continuing.")
         if any(state.get("agreement") for _, state in states):
             raise ExternalReview(
                 "Employer action includes an agreement or consent; complete it directly on the employer website."
@@ -790,27 +804,28 @@ class ExternalJobApplier:
             current = await self.current_field(frame, field)
             if current is None:
                 return False  # Replan the changed form before assigning answers.
-            if self.optional_auxiliary_blank(current, answers[field["id"]]):
-                if current["value"]:
-                    await self.fill(frame, current, "")
-                continue
-            if current["value"] and (
-                current["type"] == "file" or str(answers[field["id"]]) == current["value"]
-            ):
-                continue
-            if urlsplit(current["action"]).netloc != urlsplit(frame.url).netloc:
-                raise ExternalReview(
-                    "Employer form posts to another origin; review the destination directly."
-                )
-            try:
-                await self.fill(frame, current, answers[field["id"]])
-            except BrowserError as error:
-                self.review.remember(field, job)
-                raise ExternalReview(
-                    "Employer field could not accept its saved answer: " + field["question"],
-                    "skipped_screening",
-                ) from error
+            await self.fill_current_answer(frame, current, answers[field["id"]], job)
         return True
+
+    async def fill_current_answer(self, frame, field, answer, job):
+        if self.optional_auxiliary_blank(field, answer):
+            if field["value"]:
+                await self.fill(frame, field, "")
+            return
+        if field["value"] and (field["type"] == "file" or str(answer) == field["value"]):
+            return
+        if urlsplit(field["action"]).netloc != urlsplit(frame.url).netloc:
+            raise ExternalReview(
+                "Employer form posts to another origin; review the destination directly."
+            )
+        try:
+            await self.fill(frame, field, answer)
+        except BrowserError as error:
+            self.review.remember(field, job)
+            raise ExternalReview(
+                "Employer field could not accept its saved answer: " + field["question"],
+                "skipped_screening",
+            ) from error
 
     @staticmethod
     def optional_auxiliary_blank(field, answer):
@@ -903,6 +918,20 @@ class ExternalJobApplier:
             page.url,
         )
 
+    async def fill_current_form(self, frame, fields, job):
+        answers = await self.prepare_answers(fields, job)
+        if not await self.fill_answers(frame, fields, answers, job):
+            return None
+        fresh = await self.inspect(frame)
+        before = [(f["signature"], f["required"]) for f in fields]
+        after = [(f["signature"], f["required"]) for f in fresh["fields"]]
+        if before != after:
+            return None
+        self.remember_completed_answers(fresh["fields"], answers, job)
+        self.require_answers(fresh["fields"], answers, job)
+        self.validate_fields(fresh["fields"], job)
+        return fresh
+
     async def run_form(self, page, job):
         """Bounded multi-step forms; a final submit is never retried automatically."""
         self.submitted = False
@@ -925,17 +954,9 @@ class ExternalJobApplier:
                     await self.open_application_form(frame, state)
                     continue
                 had_form = had_form or bool(fields)
-                answers = await self.prepare_answers(fields, job)
-                if not await self.fill_answers(frame, fields, answers, job):
+                fresh = await self.fill_current_form(frame, fields, job)
+                if fresh is None:
                     continue
-                fresh = await self.inspect(frame)
-                before = [(f["signature"], f["required"]) for f in fields]
-                after = [(f["signature"], f["required"]) for f in fresh["fields"]]
-                if before != after:
-                    continue
-                self.remember_completed_answers(fresh["fields"], answers, job)
-                self.require_answers(fresh["fields"], answers, job)
-                self.validate_fields(fresh["fields"], job)
                 action, final = await self.select_action(frame, fresh, had_form)
                 result = await self.advance(page, frame, action, final, job)
                 if result:
