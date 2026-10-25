@@ -65,7 +65,7 @@ class TestQuestionAnswerer:
         assert len(answers) == 3
         assert answers[0]["answer"] == "10 LPA"
         assert answers[1]["answer"] == "15 LPA"
-        assert answers[2]["answer"] == "3 years"
+        assert answers[2]["answer"] == "3"
 
         # Verify LLM was not called
         mock_llm.generate_content.assert_not_called()
@@ -74,19 +74,11 @@ class TestQuestionAnswerer:
     async def test_sorting_and_index_mapping(self, mock_settings, sample_resume):
         """Should correctly preserve question index order and sort compiled answers."""
         mock_llm = AsyncMock()
-        # Mock LLM to return response for the single AI question
-        ai_response = [
-            {
-                "question": "Why do you want to join us?",
-                "answer": "I love Python and FastAPI.",
-                "confidence": "high",
-            }
-        ]
-        mock_llm.generate_content.return_value = json.dumps(ai_response)
+        mock_llm.generate_content.side_effect = AssertionError("Known facts and grounded drafts need no AI")
 
         answerer = QuestionAnswerer(mock_llm, mock_settings, sample_resume)
 
-        # Q0 is answered directly (Notice period), Q1 goes to AI, Q2 is answered directly (Location)
+        # A grounded draft must preserve its position between factual answers.
         questions = [
             {"question": "Your notice period?", "type": "text", "index": 0},
             {"question": "Why do you want to join us?", "type": "text", "index": 1},
@@ -107,9 +99,10 @@ class TestQuestionAnswerer:
         assert answers[0]["answer"] == "30 days"
         assert answers[0]["index"] == 0
 
-        # AI response should be index 1 (correctly mapped and sorted)
+        # The grounded motivation should be index 1 (correctly mapped and sorted).
         assert answers[1]["question"] == "Why do you want to join us?"
-        assert answers[1]["answer"] == "I love Python and FastAPI."
+        assert "Python" in answers[1]["answer"]
+        assert "Tech Corp" in answers[1]["answer"]
         assert answers[1]["index"] == 1
 
         # Direct location answer should be index 2
@@ -1225,9 +1218,11 @@ class TestAskAiPrompt:
         assert "- Email: jane@example.com" in prompt
         assert "- Phone: 9998887776" in prompt
         assert "- Current Title: Software Engineer" in prompt
-        assert "- Preferred Locations: Bangalore, Pune (Willing to relocate: Yes)" in prompt
+        assert "- Preferred Locations: Bangalore, Pune" in prompt
+        assert "Willing to relocate: Yes" not in prompt
         assert "- Current CTC: 10 LPA" in prompt
-        assert "- Expected CTC: 15 LPA (negotiable)" in prompt
+        assert "- Expected CTC: 15 LPA" in prompt
+        assert "(negotiable)" not in prompt
         assert "- Notice Period: 30 days" in prompt
         assert "- Languages: English, Hindi" in prompt
         assert "- GitHub: https://github.com/tester" in prompt
@@ -1277,11 +1272,12 @@ class TestAskAiPrompt:
         assert "- Phone: Not specified" in prompt
         assert "- Current Title: Not specified" in prompt
         assert "- Current CTC: Not specified" in prompt
-        assert "- Expected CTC: Not specified (negotiable)" in prompt
+        assert "- Expected CTC: Not specified" in prompt
         assert "- Notice Period: Not specified" in prompt
-        assert "- Total Experience: 1 year (Not specified)" in prompt
+        assert "- Total Experience: Not specified" in prompt
         assert "- Current Location: Not specified" in prompt
-        assert "- Preferred Locations: Not specified (Willing to relocate: Yes)" in prompt
+        assert "- Preferred Locations: Not specified" in prompt
+        assert "Willing to relocate: Yes" not in prompt
         assert "- Languages: Not provided" in prompt
         assert "- Title: Unknown" in prompt
         assert "- Company: Unknown" in prompt

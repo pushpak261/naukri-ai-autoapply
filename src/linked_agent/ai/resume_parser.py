@@ -80,6 +80,7 @@ Return a JSON object with these fields:
 - "job_titles_held": array of strings (all job titles in chronological order)
 - "education": array of objects with "degree", "institution", "year"
 - "work_experience": array of objects with "title", "company", "duration", "description"
+- "projects": array of supported project objects with "name", "description" and "highlights"
 - "certifications": array of strings
 - "languages": array of strings
 - "key_achievements": array of strings
@@ -118,6 +119,7 @@ Return ONLY the JSON, no other text."""
                 certifications=data.get("certifications", []),
                 languages=data.get("languages", []),
                 key_achievements=data.get("key_achievements", []),
+                projects=data.get("projects", []),
                 file_hash=file_hash,
                 raw_text=raw_text,
             )
@@ -172,6 +174,7 @@ Return ONLY the JSON, no other text."""
                 certifications=data.get("certifications", []),
                 languages=data.get("languages", []),
                 key_achievements=data.get("key_achievements", []),
+                projects=data.get("projects", []),
             )
         except Exception as e:
             logger.error(f"Failed to reconstruct profile from cache: {e}")

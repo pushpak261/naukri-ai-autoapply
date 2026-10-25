@@ -2,13 +2,13 @@
 
 import hashlib
 import json
-import re
 import sqlite3
 from contextlib import closing, contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 
 from libs.common.screening import format_evidence, question_key
+from libs.common.screening_intents import answer_identity, job_specific_question
 
 
 class ScreeningReviewStore:
@@ -59,6 +59,30 @@ class ScreeningReviewStore:
             connection.execute(
                 "ALTER TABLE answer_memory ADD COLUMN confirmed_revision INTEGER NOT NULL DEFAULT 0"
             )
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS screening_schema (id INTEGER PRIMARY KEY, version INTEGER NOT NULL)"
+        )
+        if connection.execute("SELECT 1 FROM screening_schema WHERE id=1").fetchone() is None:
+            changed = False
+            for row in connection.execute(
+                "SELECT id,question,question_key FROM questions"
+            ).fetchall():
+                _, separator, scope = row["question_key"].partition(" | job ")
+                key = answer_identity(row["question"]) + (separator + scope if separator else "")
+                if key != row["question_key"]:
+                    connection.execute(
+                        "UPDATE questions SET question_key=? WHERE id=?", (key, row["id"])
+                    )
+                    changed = True
+            if changed:
+                connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
+            connection.execute("INSERT INTO screening_schema VALUES(1,1)")
+        if connection.execute("SELECT version FROM screening_schema WHERE id=1").fetchone()[0] < 2:
+            connection.execute(
+                "UPDATE questions SET resolved_from_facts=1 WHERE answer='' AND "
+                "(LOWER(question) LIKE 'save job%' OR LOWER(question) LIKE 'save this job%' OR LOWER(question) LIKE 'bookmark job%')"
+            )
+            connection.execute("UPDATE screening_schema SET version=2 WHERE id=1")
         try:
             with connection:
                 yield connection
@@ -67,11 +91,8 @@ class ScreeningReviewStore:
 
     @staticmethod
     def _key(question, job):
-        key = question_key(question.get("question", ""))
-        if re.search(
-            r"\b(?:our company|this company|this role|this position|our organization|why.*join|why.*interested|why should we hire|how.*(?:skills|experience).*match|cover letter|motivation|consent|agreement|signature|declaration)\b",
-            key,
-        ):
+        key = answer_identity(question.get("question", ""))
+        if job_specific_question(question.get("question", "")):
             identifier = getattr(job, "naukri_job_id", "")
             if not identifier and getattr(job, "linkedin_job_id", ""):
                 identifier = "linkedin:" + str(job.linkedin_job_id)
@@ -99,11 +120,23 @@ class ScreeningReviewStore:
         rows = connection.execute(
             "SELECT id,options FROM questions WHERE question_key=? AND field_type=? ORDER BY updated_at DESC,id",
             (key, field),
-        )
-        return next(
-            (row["id"] for row in rows if sorted(json.loads(row["options"])) == sorted(options)),
-            identifier,
-        )
+        ).fetchall()
+        for row in rows:
+            previous = json.loads(row["options"])
+            if sorted(previous) == sorted(options):
+                return row["id"]
+            if (
+                len(options) > 1
+                and len(previous) == 1
+                and answer_identity(previous[0]) == key.partition(" | job ")[0]
+            ):
+                # An older extractor mistook the question heading for its only
+                # option. Retain its ID/history, but retire that unusable prompt.
+                connection.execute(
+                    "UPDATE questions SET resolved_from_facts=1 WHERE id=? AND answer=''",
+                    (row["id"],),
+                )
+        return identifier
 
     def remember(self, question, job):
         identifier, text, field, options = self.metadata(question)
@@ -214,6 +247,12 @@ class ScreeningReviewStore:
             }
             if len(answers) != 1 or not next(iter(answers)):
                 return ""
+            answer = next(iter(answers))
+            minimum, maximum = question.get("min_length"), question.get("max_length")
+            if (isinstance(minimum, int) and len(answer) < minimum) or (
+                isinstance(maximum, int) and maximum > 0 and len(answer) > maximum
+            ):
+                return ""
             row = latest[0]
             connection.execute(
                 "INSERT INTO answer_memory(question_id,answer,source,context_hash,updated_at,last_used_at,use_count) VALUES(?,?,?,?,?,?,1) "
@@ -227,7 +266,7 @@ class ScreeningReviewStore:
                     datetime.now(UTC).isoformat(),
                 ),
             )
-            return next(iter(answers))
+            return answer
 
     def observe(self, question, answer, job, source, context_hash):
         """Remember provenance without promoting a generated answer to user confirmation."""
@@ -372,7 +411,11 @@ class ScreeningReviewStore:
             for variant in variants:
                 # Keep format-specific records for validation, but a known
                 # compatible answer needs no second confirmation.
-                compatible = self._format_for_row(value, variant)
+                options = json.loads(variant["options"])
+                obsolete = (
+                    len(options) == 1 and answer_identity(options[0]) == key.partition(" | job ")[0]
+                )
+                compatible = obsolete or self._format_for_row(value, variant)
                 connection.execute(
                     "UPDATE questions SET resolved_from_facts=? WHERE id=?",
                     (int(bool(compatible)), variant["id"]),

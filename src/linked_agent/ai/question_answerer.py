@@ -196,6 +196,7 @@ Skills: {', '.join(self._resume.skills)}
 Experience: {self._resume.total_experience_years} years
 Education: {json.dumps(self._resume.education[:2], default=str)}
 Work history: {json.dumps(self._resume.work_experience[:5], default=str)}
+Projects: {json.dumps(self._resume.projects[:3], default=str)}
 Resume evidence: {self._resume.raw_text[:8000]}
 Current CTC: {self._settings.profile.current_ctc or 'Not specified'}
 Expected CTC: {self._settings.profile.expected_ctc or 'Not specified'}
@@ -258,6 +259,9 @@ Return ONLY the JSON array, no other text."""
         answer_str = str(answer).strip()
         if not answer_str:
             return ''
+        from libs.common.screening_intents import narrative_kind
+        if not options and narrative_kind(question_text):
+            return answer_str
         question_lower = question_text.lower()
 
         # 1. Handle radio/dropdown options matching
@@ -294,7 +298,7 @@ Return ONLY the JSON array, no other text."""
             elif any(w in question_lower for w in ["salary", "ctc", "compensation"]):
                 # Strip commas/dots/currency symbols and extract first number
                 cleaned_ans = re.sub(r'[\$,\s]', '', answer_str)
-                numbers = re.findall(r'\b\d+\b', cleaned_ans)
+                numbers = re.findall(r'\b\d+(?:\.\d+)?\b', cleaned_ans)
                 if numbers:
                     return numbers[0]
                 # Fallback to profile setting

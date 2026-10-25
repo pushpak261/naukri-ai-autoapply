@@ -7,6 +7,12 @@ export default function inspectExternalForm() {
     }
     const visible = el => !!el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden';
     const text = el => (el?.innerText || el?.textContent || '').replace(/\s+/g, ' ').trim();
+    const labelText = el => {
+        if (!el) return '';
+        const copy = el.cloneNode(true);
+        for (const child of copy.querySelectorAll('input,select,textarea,button,script,style,[role="combobox"],[role="listbox"]')) child.remove();
+        return text(copy);
+    };
     const historyRows = '.innerElem, [data-history-row], .education-entry, .experience-entry';
     function historyKind(el) {
         const name = el.getAttribute('data-l') || el.querySelector(':scope > legend')?.textContent || '';
@@ -62,17 +68,18 @@ export default function inspectExternalForm() {
     }
     const label = (el, legend = true) => {
         const explicit = [
-            ...(el.labels ? [...el.labels].map(text) : []), el.getAttribute('aria-label'),
-            ...(el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => text(document.getElementById(id))),
+            ...(el.labels ? [...el.labels].map(labelText) : []), el.getAttribute('aria-label'),
+            ...(el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => labelText(document.getElementById(id))),
             legend ? el.closest('fieldset')?.querySelector('legend')?.textContent : '',
             el.type === 'file' ? el.getAttribute('data-l') || uploadControl(el)?.getAttribute('aria-label') : ''
-        ].filter(Boolean).join(' | ');
-        return (explicit || el.getAttribute('placeholder') || el.name || '').slice(0, 500);
+        ].filter(Boolean);
+        return ([...new Set(explicit)].join(' | ') || el.getAttribute('placeholder') || el.name || '').slice(0, 500);
     };
     function ignored(el) {
         const type = (el.type || '').toLowerCase();
         if (el.disabled || el.readOnly || el.closest('nav, header, footer, [role="search"]')) return true;
         if (['hidden', 'submit', 'button', 'reset', 'search'].includes(type)) return true;
+        if (/^(?:save (?:this )?job|bookmark (?:this )?job)(?:\b|\s)/i.test(label(el, false))) return true;
         if (!visible(el) && !uploadControl(el)) return true;
         return el.getAttribute('role') === 'combobox' && !!el.querySelector('input');
     }
@@ -110,6 +117,7 @@ export default function inspectExternalForm() {
         }
         if (el.type === 'radio') question = text(el.closest('fieldset')?.querySelector('legend')) || question;
         return {id, selector, question, type:fieldKind(el),
+            max_length:el.maxLength > 0 ? el.maxLength : null, min_length:el.minLength > 0 ? el.minLength : null,
             required:members.some(x => x.required || x.getAttribute('aria-required') === 'true') || label(el).includes('*') || uploadControl(el)?.getAttribute('aria-required') === 'true',
             options:optionsFor(el, members), multiple:!!el.multiple, action:form?.action || location.href,
             signature:[el.tagName, el.type, el.name, label(el)].join(':'),

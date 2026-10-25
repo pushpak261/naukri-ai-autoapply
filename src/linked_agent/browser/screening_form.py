@@ -33,9 +33,19 @@ const path = el => {
     return 'body > ' + parts.join(' > ');
 };
 const text = el => (el?.innerText || el?.textContent || '').trim().replace(/\s+/g, ' ');
-const ownLabel = el => [...(el.labels || [])].map(text).join(' ') || text(el.closest('label')) || el.getAttribute('aria-label') || '';
+const labelText = el => {
+    if (!el) return '';
+    const copy = el.cloneNode(true);
+    for (const child of copy.querySelectorAll('input, select, textarea, button, script, style, [role="listbox"]')) child.remove();
+    return text(copy);
+};
+const ownLabel = el => [...(el.labels || [])].map(labelText).join(' ') || (el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => labelText(document.getElementById(id))).filter(Boolean).join(' ') || labelText(el.closest('label')) || el.getAttribute('aria-label') || '';
 const groupOf = el => el.closest('[componentkey^="easyApplyFieldFocus_"]') || el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping') || el.parentElement;
-const optionText = el => ownLabel(el) || text(el) || el.value || '';
+const optionText = (el, question) => {
+    const candidates = [ownLabel(el), el.getAttribute('aria-label'), text(el), el.value];
+    const option = candidates.find(value => value && value.trim() !== question.trim() && value !== 'on') || '';
+    return /^true$/i.test(option) ? 'Yes' : /^false$/i.test(option) ? 'No' : option;
+};
 const seen = new Set(), result = [];
 for (const input of controls) {
     if (seen.has(input) || input.disabled || input.type === 'hidden' || ['button', 'submit', 'reset'].includes(input.type)) continue;
@@ -60,7 +70,7 @@ for (const input of controls) {
     let value = input.value || '';
     let options = [];
     if (choice) {
-        options = members.map(el => ({text: optionText(el), value: el.value || optionText(el), selector: path(el), checked: el.checked || el.getAttribute('aria-checked') === 'true'}));
+        options = members.map(el => ({text: optionText(el, label), value: el.value || optionText(el, label), selector: path(el), checked: el.checked || el.getAttribute('aria-checked') === 'true'}));
         value = options.filter(o => o.checked).map(o => o.value).join(', ');
     } else if (input.tagName === 'SELECT') {
         options = [...input.options].filter(o => !o.disabled && !/^(select|choose|please select)( |$)/i.test(text(o))).map(o => ({text: text(o), value: o.value}));
@@ -72,6 +82,8 @@ for (const input of controls) {
     result.push({question: label, field_type: fieldType, input_type: type || 'text', input_id: input.id || '', selector: path(input),
         group_selector: path(group), options: options.map(o => o.text), option_controls: options, current_value: value,
         validation_error: customInvalid(input),
+        max_length: input.maxLength > 0 ? input.maxLength : null,
+        min_length: input.minLength > 0 ? input.minLength : null,
         is_required: members.some(el => el.required || el.getAttribute('aria-required') === 'true') || group.getAttribute('aria-required') === 'true' || /\*\s*$/.test(label)});
 }
 return result;

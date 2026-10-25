@@ -2,7 +2,6 @@
 
 import re
 
-from libs.common.local_matching import contains_skill, normalize_skill
 from libs.common.screening import evidence_answer, format_evidence
 
 
@@ -28,9 +27,17 @@ def general_technical_question(question):
 
 
 def offline_answer(question, settings, candidate, job):
+    from libs.common.screening_drafts import draft_answer
+    from libs.common.screening_intents import narrative_kind
+
     direct = evidence_answer(question, settings, candidate)
     if direct:
         return direct, "saved_facts"
+    if narrative_kind(question.get("question", "")):
+        if question.get("options") or question.get("type") in ("number", "date", "file"):
+            return "", "needs_input"
+        draft = draft_answer(question, settings, candidate, job)
+        return draft, "resume" if draft else "needs_input"
     text = str(question.get("question", "")).casefold().strip()
     if question.get("options") or question.get("type") in ("number", "date", "file"):
         return "", "needs_input"
@@ -39,50 +46,9 @@ def offline_answer(question, settings, candidate, job):
             [*getattr(candidate, "skills", []), *getattr(candidate, "technical_skills", [])]
         )
     )
-    relevant = [
-        skill
-        for skill in skills
-        if contains_skill(f"{job.title} {job.skills} {job.description}", normalize_skill(skill))
-    ]
     value = ""
     if re.fullmatch(r"(?:add |key |technical )?skills?(?: set)?[?*:.\s]*", text):
         value = ", ".join(skills)
-    elif re.search(
-        r"tell (?:me|us) about yourself|introduce yourself|brief (?:introduction|profile)|professional summary",
-        text,
-    ):
-        years = getattr(candidate, "total_experience_years", 0)
-        title = getattr(candidate, "current_title", "")
-        parts = [f"I work as a {title}." if title else ""]
-        if years:
-            parts.append(
-                f"I have {years:g} {'year' if years == 1 else 'years'} of professional experience."
-            )
-        if skills:
-            parts.append("My skills include " + ", ".join(skills[:6]) + ".")
-        value = " ".join(part for part in parts if part)
-    elif re.search(
-        r"why should we hire|what makes you (?:a good|suitable)|how (?:do|does) your (?:skills|experience).*match",
-        text,
-    ):
-        if relevant:
-            value = (
-                "My resume supports skills in "
-                + ", ".join(relevant[:6])
-                + ". I can bring these skills to the role."
-            )
-    elif re.search(
-        r"(?:describe|tell|explain|brief|details).*(?:your|recent|previous).*(?:project)|project (?:description|details)",
-        text,
-    ):
-        projects = getattr(candidate, "projects", [])
-        if projects and isinstance(projects[0], dict):
-            project = projects[0]
-            pieces = [project.get("name", ""), project.get("description", "")]
-            highlights = project.get("highlights", [])
-            if isinstance(highlights, list):
-                pieces.extend(highlights[:2])
-            value = ". ".join(str(piece).strip().rstrip(".") for piece in pieces if piece)
     # General technical questions do not make claims about the candidate's
     # employment history. Personal project/experience questions require facts.
     elif re.match(

@@ -27,7 +27,7 @@ from libs.common.application_history import (
 from libs.common.offline_screening import general_technical_question, offline_answer
 from libs.common.screening import format_evidence
 from libs.common.screening_review import ScreeningReviewStore
-from libs.common.screening_memory import filled_answer, profile_context
+from libs.common.screening_memory import answer_context, filled_answer
 
 logger = logging.getLogger(__name__)
 FORM_SCRIPT = (
@@ -396,11 +396,12 @@ class ExternalJobApplier:
         facts = candidate_facts(self.settings, self.profile, job)
         known = {}
         self._memory_sources = {}
-        context = profile_context(self.settings, self.profile)
         for field in fields:
             if field["type"] == "file" or LEGAL.search(field["question"]):
                 continue
-            saved = self.review.answer_for(field, job, context)
+            saved = self.review.answer_for(
+                field, job, answer_context(field, self.settings, self.profile, job)
+            )
             if field.get("history"):
                 answer = history_answer(field, self.profile)
             else:
@@ -701,7 +702,6 @@ class ExternalJobApplier:
         return answers
 
     def remember_completed_answers(self, fields, answers, job):
-        context = profile_context(self.settings, self.profile)
         for field in fields:
             answer = answers.get(field["id"])
             source = self._memory_sources.get(field["id"])
@@ -715,7 +715,13 @@ class ExternalJobApplier:
                 continue
             accepted = filled_answer(field, answer)
             if accepted:
-                self.review.observe(field, accepted, job, source, context)
+                self.review.observe(
+                    field,
+                    accepted,
+                    job,
+                    source,
+                    answer_context(field, self.settings, self.profile, job),
+                )
 
     def require_answers(self, fields, answers, job):
         missing = []
