@@ -63,13 +63,7 @@ def _fit_length(parts, question):
     return "" if isinstance(minimum, int) and len(result) < minimum else result
 
 
-def draft_answer(question, settings, candidate, job):
-    """Write only supported narratives; personal declarations still need facts."""
-    kind = narrative_kind(question.get("question", ""))
-    if not kind:
-        return ""
-    skills = _skills(candidate)
-    job_text = f"{job.title} {job.skills} {job.description}"
+def _relevant_skills(question, skills, job_text):
     relevant = [s for s in skills if contains_skill(job_text, normalize_skill(s))]
     from src.naukri_agent.ai.resume_parser import DEFAULT_TECH_SKILLS
 
@@ -80,7 +74,7 @@ def draft_answer(question, settings, candidate, job):
     }
     supported = {normalize_skill(s) for s in skills}
     if requested - supported:
-        return ""
+        return None
     explicit = re.search(
         r"your (?:professional )?experience (?:working )?(?:with|in|using) (.+)",
         str(question.get("question", "")).casefold(),
@@ -90,14 +84,26 @@ def draft_answer(question, settings, candidate, job):
         if any(
             not any(contains_skill(subject, skill) for skill in supported) for subject in subjects
         ):
-            return ""
+            return None
         if (
             re.search(r"\d", explicit[1])
             and normalize_skill(explicit[1].strip(" ?.")) not in supported
         ):
-            return ""
+            return None
     if requested:
         relevant = [s for s in skills if normalize_skill(s) in requested]
+    return relevant
+
+
+def draft_answer(question, settings, candidate, job):
+    """Write only supported narratives; personal declarations still need facts."""
+    kind = narrative_kind(question.get("question", ""))
+    if not kind:
+        return ""
+    skills = _skills(candidate)
+    relevant = _relevant_skills(question, skills, f"{job.title} {job.skills} {job.description}")
+    if relevant is None:
+        return ""
     experience = _experience(settings, candidate)
     if kind == "project":
         return _fit_length(_project(candidate, job), question)

@@ -51,8 +51,11 @@ async def test_different_linkedin_forms_are_fully_filled_before_one_submission(
     )._handle_easy_apply_flow(first)
     assert result["status"] == "applied", result
     values = await tab.evaluate("window.answers")
-    assert all(values) and "Java" in values[0] and "1 year" in values[0]
-    assert len(values[0]) <= 350 and values[1] == "No"
+    assert all(values)
+    assert "Java" in values[0]
+    assert "1 year" in values[0]
+    assert len(values[0]) <= 350
+    assert values[1] == "No"
     assert await tab.evaluate("window.submissions") == 1
     assert not store.pending()
 
@@ -74,7 +77,9 @@ async def test_external_employer_form_reuses_paraphrased_fact_and_writes_motivat
     result = await run(worker, page, job)
     assert result["status"] == "applied", result
     values = await page.evaluate("window.answers")
-    assert all(values) and "Java" in values[0] and values[1] == "No"
+    assert all(values)
+    assert "Java" in values[0]
+    assert values[1] == "No"
     assert len(values[0]) <= 350
     assert await page.evaluate("window.submissions") == 1
     worker.provider.generate_content.assert_not_called()

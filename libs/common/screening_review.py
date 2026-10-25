@@ -10,6 +10,9 @@ from pathlib import Path
 from libs.common.screening import format_evidence, question_key
 from libs.common.screening_intents import answer_identity, job_specific_question
 
+JOB_SCOPE_SEPARATOR = " | job "
+ADVANCE_MEMORY_REVISION = "UPDATE memory_version SET revision=revision+1 WHERE id=1"
+
 
 class ScreeningReviewStore:
     def __init__(self, project_root):
@@ -67,7 +70,7 @@ class ScreeningReviewStore:
             for row in connection.execute(
                 "SELECT id,question,question_key FROM questions"
             ).fetchall():
-                _, separator, scope = row["question_key"].partition(" | job ")
+                _, separator, scope = row["question_key"].partition(JOB_SCOPE_SEPARATOR)
                 key = answer_identity(row["question"]) + (separator + scope if separator else "")
                 if key != row["question_key"]:
                     connection.execute(
@@ -75,7 +78,7 @@ class ScreeningReviewStore:
                     )
                     changed = True
             if changed:
-                connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
+                connection.execute(ADVANCE_MEMORY_REVISION)
             connection.execute("INSERT INTO screening_schema VALUES(1,1)")
         if connection.execute("SELECT version FROM screening_schema WHERE id=1").fetchone()[0] < 2:
             connection.execute(
@@ -96,7 +99,7 @@ class ScreeningReviewStore:
             identifier = getattr(job, "naukri_job_id", "")
             if not identifier and getattr(job, "linkedin_job_id", ""):
                 identifier = "linkedin:" + str(job.linkedin_job_id)
-            key += " | job " + str(identifier or getattr(job, "id", ""))
+            key += JOB_SCOPE_SEPARATOR + str(identifier or getattr(job, "id", ""))
         return key
 
     @staticmethod
@@ -128,7 +131,7 @@ class ScreeningReviewStore:
             if (
                 len(options) > 1
                 and len(previous) == 1
-                and answer_identity(previous[0]) == key.partition(" | job ")[0]
+                and answer_identity(previous[0]) == key.partition(JOB_SCOPE_SEPARATOR)[0]
             ):
                 # An older extractor mistook the question heading for its only
                 # option. Retain its ID/history, but retire that unusable prompt.
@@ -318,7 +321,7 @@ class ScreeningReviewStore:
         items = []
         for row in rows:
             item = dict(row)
-            item["scope"] = "job" if " | job " in item.pop("question_key") else "profile"
+            item["scope"] = "job" if JOB_SCOPE_SEPARATOR in item.pop("question_key") else "profile"
             item["options"] = json.loads(item["options"])
             items.append(item)
         return {"items": items, "total": total}
@@ -340,7 +343,7 @@ class ScreeningReviewStore:
                 (row["question_key"],),
             )
             connection.execute("DELETE FROM questions WHERE question_key=?", (row["question_key"],))
-            connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
+            connection.execute(ADVANCE_MEMORY_REVISION)
 
     def revision(self):
         with self._connect() as connection:
@@ -413,7 +416,8 @@ class ScreeningReviewStore:
                 # compatible answer needs no second confirmation.
                 options = json.loads(variant["options"])
                 obsolete = (
-                    len(options) == 1 and answer_identity(options[0]) == key.partition(" | job ")[0]
+                    len(options) == 1
+                    and answer_identity(options[0]) == key.partition(JOB_SCOPE_SEPARATOR)[0]
                 )
                 compatible = obsolete or self._format_for_row(value, variant)
                 connection.execute(
@@ -453,7 +457,7 @@ class ScreeningReviewStore:
                 "ON CONFLICT(question_id) DO UPDATE SET answer=excluded.answer,source='confirmed',context_hash='',updated_at=excluded.updated_at,confirmed_revision=excluded.confirmed_revision",
                 [(identifier, value, now) for value, now, identifier in resolved],
             )
-            connection.execute("UPDATE memory_version SET revision=revision+1 WHERE id=1")
+            connection.execute(ADVANCE_MEMORY_REVISION)
             self._resolve_compatible_variants(connection, confirmed_keys)
             # Queue only jobs whose entire known question set is resolved.
             return sorted(

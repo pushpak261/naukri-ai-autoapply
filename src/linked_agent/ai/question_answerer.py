@@ -17,6 +17,7 @@ import contextlib
 from libs.common.screening_memory import local_answer, memory_store, remember_generated
 
 logger = get_logger(__name__)
+WHOLE_NUMBER_PATTERN = r'\b\d+\b'
 
 
 class LinkedInQuestionAnswerer:
@@ -308,11 +309,11 @@ Return ONLY the JSON array, no other text."""
 
             # C. Notice period / joining
             elif any(w in question_lower for w in ["notice period", "notice", "joining", "days"]):
-                numbers = re.findall(r'\b\d+\b', answer_str)
+                numbers = re.findall(WHOLE_NUMBER_PATTERN, answer_str)
                 if numbers:
                     return numbers[0]
                 raw_np = self._settings.profile.notice_period or ""
-                raw_np_numbers = re.findall(r'\b\d+\b', raw_np)
+                raw_np_numbers = re.findall(WHOLE_NUMBER_PATTERN, raw_np)
                 if raw_np_numbers:
                     return raw_np_numbers[0]
                 if "immediate" in raw_np.lower() or "0" in raw_np:
@@ -321,7 +322,7 @@ Return ONLY the JSON array, no other text."""
 
             # D. Hours per week
             elif any(w in question_lower for w in ["hours per week", "hours/week", "weekly hours"]):
-                numbers = re.findall(r'\b\d+\b', answer_str)
+                numbers = re.findall(WHOLE_NUMBER_PATTERN, answer_str)
                 if numbers:
                     return numbers[0]
                 return ""
@@ -336,7 +337,7 @@ Return ONLY the JSON array, no other text."""
 
             # F. General count questions like "how many"
             elif "how many" in question_lower:
-                numbers = re.findall(r'\b\d+\b', answer_str)
+                numbers = re.findall(WHOLE_NUMBER_PATTERN, answer_str)
                 if numbers:
                     return numbers[0]
                 return ""

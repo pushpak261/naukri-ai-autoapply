@@ -4,6 +4,31 @@ import re
 
 from libs.common.screening import question_key
 
+LAST_NAME_FACT = "name.last"
+EMAIL_FACT = "contact.email"
+PHONE_FACT = "contact.phone"
+CHANGE_REASON_FACT = "career.change_reason"
+PERSONAL_WORDS = frozenset(
+    [
+        "salary",
+        "compensation",
+        "ctc",
+        "notice",
+        "birth",
+        "visa",
+        "sponsorship",
+        "legal",
+        "authorized",
+        "citizenship",
+        "relocation",
+        "disability",
+        "gender",
+        "criminal",
+        "terminated",
+        "leaving",
+    ]
+)
+
 
 def answer_identity(text):
     """Collapse only complete, equivalent questions; retain entities and units."""
@@ -16,18 +41,18 @@ def answer_identity(text):
         "name as per resume": "name.full",
         "first name": "name.first",
         "given name": "name.first",
-        "last name": "name.last",
-        "surname": "name.last",
-        "family name": "name.last",
-        "email": "contact.email",
-        "email address": "contact.email",
-        "e mail address": "contact.email",
-        "mobile number": "contact.phone",
-        "phone number": "contact.phone",
-        "contact number": "contact.phone",
-        "reason for change": "career.change_reason",
-        "reason for job change": "career.change_reason",
-        "reason for leaving": "career.change_reason",
+        "last name": LAST_NAME_FACT,
+        "surname": LAST_NAME_FACT,
+        "family name": LAST_NAME_FACT,
+        "email": EMAIL_FACT,
+        "email address": EMAIL_FACT,
+        "e mail address": EMAIL_FACT,
+        "mobile number": PHONE_FACT,
+        "phone number": PHONE_FACT,
+        "contact number": PHONE_FACT,
+        "reason for change": CHANGE_REASON_FACT,
+        "reason for job change": CHANGE_REASON_FACT,
+        "reason for leaving": CHANGE_REASON_FACT,
     }
     if label in aliases:
         return "fact:" + aliases[label]
@@ -69,34 +94,79 @@ def answer_identity(text):
     return f"fact:experience.{skill}.{unit.rstrip('s')}"
 
 
+def _has_phrase(key, phrases):
+    return any(f" {phrase} " in f" {key} " for phrase in phrases)
+
+
+def _motivation(key, words):
+    if _has_phrase(key, ("motivation", "motivate", "motivates", "motivated", "cover letter")):
+        return True
+    if "why" not in words:
+        return False
+    return bool(words & {"interested", "join", "apply", "applying"}) or _has_phrase(
+        key, ("work here", "work with", "work for")
+    )
+
+
+def _role_fit(key, words):
+    if _has_phrase(
+        key,
+        (
+            "why should we hire",
+            "relevant experience",
+            "suitable experience",
+            "relevant skills",
+            "suitable skills",
+            "key strengths",
+            "greatest strengths",
+            "professional strengths",
+            "additional information",
+            "additional comments",
+            "what can you bring",
+            "what would you bring",
+            "what can you contribute",
+            "what would you contribute",
+        ),
+    ):
+        return True
+    if _has_phrase(key, ("what makes you",)) and words & {"good", "suitable", "fit"}:
+        return True
+    if "your" not in words or "experience" not in words and "skills" not in words:
+        return False
+    return bool(words & {"describe", "summarize", "tell", "explain"}) or {"how", "match"} <= words
+
+
 def narrative_kind(text):
     key = question_key(text)
-    if re.search(
-        r"\b(?:salary|compensation|ctc|notice|birth|visa|sponsorship|legal|authorized|citizenship|relocation|disability|gender|criminal|terminated|employment gap|leaving)\b|why (?:did|have|were|was)\b",
-        key,
+    words = set(key.split())
+    if (
+        words & PERSONAL_WORDS
+        or "employment gap" in key
+        or re.match(r"why (?:did|have|were|was)\b", key)
     ):
         return ""
-    if re.search(
-        r"tell (?:me|us) about yourself|introduce yourself|brief (?:introduction|profile)|professional summary",
+    if _has_phrase(
         key,
+        (
+            "tell me about yourself",
+            "tell us about yourself",
+            "introduce yourself",
+            "brief introduction",
+            "brief profile",
+            "professional summary",
+        ),
     ):
         return "introduction"
-    if re.search(
-        r"why.*(?:interested|join|apply|applying|work (?:here|with|for))|(?:motivat(?:ion|es?|ed)|cover letter)",
-        key,
-    ):
+    if _motivation(key, words):
         return "motivation"
-    if re.search(
-        r"(?:describe|tell|explain|brief|details).*(?:your|recent|previous).*project|project (?:description|details)",
-        key,
-    ):
+    project = bool(
+        words & {"project", "projects"}
+        and words & {"describe", "tell", "explain", "brief", "details"}
+        and words & {"your", "recent", "previous"}
+    )
+    if project or _has_phrase(key, ("project description", "project details")):
         return "project"
-    if re.search(
-        r"why should we hire|what makes you.*(?:good|suitable|fit)|how.*your (?:skills|experience).*match|(?:relevant|suitable) (?:experience|skills)|(?:describe|summarize|tell|explain).*your.*experience|(?:key|greatest|professional) strengths|what (?:can|would) you (?:bring|contribute)|additional (?:information|comments)",
-        key,
-    ):
-        return "fit"
-    return ""
+    return "fit" if _role_fit(key, words) else ""
 
 
 def job_specific_question(text):

@@ -141,7 +141,8 @@ def test_positive_narratives_use_confirmed_experience_and_matching_skills(tmp_pa
     question = {"question": wording, "type": "textarea"}
     answer, source = local_answer(question, settings, candidate(), listing())
     assert source == "resume"
-    assert "Java" in answer and len(answer) > 35
+    assert "Java" in answer
+    assert len(answer) > 35
     assert "1 year" in answer
     assert "expert" not in answer.lower()
     assert "3 years" not in answer
@@ -158,11 +159,14 @@ def test_drafts_are_job_specific_and_profile_changes_refresh_reused_answers(tmp_
         candidate(),
         listing("999999999999", company="Second employer", skill="SQL"),
     )
-    assert "First employer" in first and "Second employer" not in first
-    assert "Second employer" in second and "First employer" not in second
+    assert "First employer" in first
+    assert "Second employer" not in first
+    assert "Second employer" in second
+    assert "First employer" not in second
     settings.profile.total_experience = "2 years"
     refreshed, _ = local_answer(question, settings, candidate(), listing(company="First employer"))
-    assert "2 years" in refreshed and "1 year" not in refreshed
+    assert "2 years" in refreshed
+    assert "1 year" not in refreshed
 
 
 def test_updated_job_requirements_and_shorter_fields_refresh_a_generated_draft(tmp_path):
@@ -175,15 +179,18 @@ def test_updated_job_requirements_and_shorter_fields_refresh_a_generated_draft(t
     second, _ = local_answer(question, settings, candidate(), job)
     assert "My relevant skills include SQL." in second
     shorter, _ = local_answer({**question, "max_length": 100}, settings, candidate(), job)
-    assert shorter and len(shorter) <= 100
+    assert shorter
+    assert len(shorter) <= 100
 
 
 def test_project_answer_selects_a_supported_relevant_project_and_respects_length(tmp_path):
     settings = Settings(project_root=tmp_path)
     question = {"question": "Describe your recent project", "type": "textarea", "max_length": 100}
     answer, _ = local_answer(question, settings, candidate(), listing())
-    assert "Service API" in answer and "Spring Boot" in answer
-    assert "Data explorer" not in answer and len(answer) <= 100
+    assert "Service API" in answer
+    assert "Spring Boot" in answer
+    assert "Data explorer" not in answer
+    assert len(answer) <= 100
     short = {"question": "Why should we hire you?", "type": "text", "max_length": 100}
     assert 0 < len(local_answer(short, settings, candidate(), listing())[0]) <= 100
 
@@ -231,7 +238,9 @@ async def test_both_agents_write_and_reuse_grounded_answers_without_calling_ai(
     answerer = Answerer(provider, settings, candidate())
     first = (await answerer.answer_questions([question], listing()))[0]["answer"]
     second = (await answerer.answer_questions([question], listing()))[0]["answer"]
-    assert first == second and "Java" in first and "1 year" in first
+    assert first == second
+    assert "Java" in first
+    assert "1 year" in first
     provider.generate_content.assert_not_called()
     assert ScreeningReviewStore(tmp_path).memory()["total"] == 1
 
