@@ -74,3 +74,22 @@ async def test_confirmed_address_is_saved_and_shared_by_both_platforms(dashboard
         root = root_state.settings.project_root / "data" / "users" / record["id"]
         linked = LinkedInSettings(**load_linkedin_workspace_config(root))
         assert {key: getattr(linked.profile, key) for key in address} == address
+
+
+@pytest.mark.asyncio
+async def test_enabling_gemini_restores_external_ai_after_linkedin_offline_fallback(dashboard):
+    from api import identity
+    from api.deps import root_state
+    from libs.common.workspace_config import load_linkedin_workspace_config
+    from src.linked_agent.config.settings import Settings as LinkedInSettings
+
+    async with register_client("offline-external-fixture@example.invalid") as user:
+        await user.get("/api/config")
+        record = identity.find_user("offline-external-fixture@example.invalid")
+        root = root_state.settings.project_root / "data" / "users" / record["id"]
+        path = root / "linkedin_config.yaml"
+        path.write_text(yaml.safe_dump({"ai": {"use_gemini": False}, "application": {"external_ai_enabled": False}}))
+        response = await user.put("/api/config", json={"use_gemini": True, "gemini_api_key": "fixture-only-key"})
+        assert response.status_code == 200
+        settings = LinkedInSettings(**load_linkedin_workspace_config(root))
+        assert settings.ai.use_gemini and settings.application.external_ai_enabled

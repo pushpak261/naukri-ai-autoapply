@@ -78,8 +78,8 @@ Return a JSON object with these fields:
 - "technical_skills": array of strings (programming languages, frameworks, tools)
 - "soft_skills": array of strings
 - "job_titles_held": array of strings (all job titles in chronological order)
-- "education": array of objects with "degree", "institution", "year"
-- "work_experience": array of objects with "title", "company", "duration", "description"
+- "education": array of objects with "degree", "institution", "year", "start_date", "end_date", "major", "grade". Preserve stated month/year precision and grade scales/percentages without converting units; leave missing facts empty.
+- "work_experience": array of objects with "title", "company", "duration", "location", "description". Copy each role's stated location; never substitute the candidate's current city.
 - "projects": array of supported project objects with "name", "description" and "highlights"
 - "certifications": array of strings
 - "languages": array of strings

@@ -921,6 +921,11 @@ class LinkedInAgent:
                 await self._engine.close()
 
     def _print_banner(self) -> None:
+        external_mode = "Disabled"
+        if not self._settings.application.skip_external_apply:
+            external_mode = "Gemini employer forms"
+            if not self._settings.application.external_ai_enabled:
+                external_mode = "Saved profile and confirmed answers"
         console.print(
             Panel(
                 "[bold cyan]LinkedIn Auto-Apply Agent[/bold cyan]\n\n"
@@ -930,7 +935,7 @@ class LinkedInAgent:
                 f"  Match Threshold: {self._settings.application.match_score_threshold}%\n"
                 f"  Matching: {'Gemini' if self._settings.ai.use_gemini and self._settings.ai.enable_matching else 'Local resume rules'}\n"
                 f"  Easy Apply Only: {'Yes' if self._settings.application.easy_apply_only else 'No'}\n"
-                f"  External Apply: {'Disabled' if self._settings.application.skip_external_apply else 'Gemini employer forms'}\n"
+                f"  External Apply: {external_mode}\n"
                 f"  Dry Run: {'Yes' if self._settings.application.dry_run else 'No'}\n"
                 f"  AI Model: {self._settings.ai.model if self._settings.ai.use_gemini else 'Disabled (offline rules)'}\n"
                 f"  Freshness: {self._settings.search.freshness}\n"

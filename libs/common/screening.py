@@ -34,13 +34,18 @@ def _basic_answer(question, settings, candidate=None):
     text = str(question.get("question", "")).casefold()
     profile = settings.profile
     value = ""
+    if re.search(r"\b(?:local|native|preferred)\b.*\bnames?\b", text):
+        return ""  # These names require their own confirmation, not the resume name.
     address = _address_answer(text, profile)
     if address is not None:
         value = address
     elif "email" in text:
         value = getattr(profile, "email", "") or getattr(candidate, "email", "")
     elif any(word in text for word in ("phone", "mobile", "contact number")):
-        value = getattr(profile, "phone", "") or getattr(candidate, "phone", "")
+        # A full phone number cannot answer a separate extension, device type
+        # or dialing-code field. Those require their own confirmed evidence.
+        if not re.search(r"\b(?:extension|device|type|country|dial(?:ing)?|code)\b", text):
+            value = getattr(profile, "phone", "") or getattr(candidate, "phone", "")
     elif any(label in text for label in ("first name", "given name", "forename")):
         names = str(getattr(candidate, "name", "") or "").split()
         value = getattr(profile, "first_name", "") or (names[0] if names else "")
@@ -58,7 +63,7 @@ def _basic_answer(question, settings, candidate=None):
         for word in ("current location", "current city", "where do you live", "where are you based")
     ):
         value = profile.current_location
-    elif any(word in text for word in ("expected salary", "expected ctc")):
+    elif any(word in text for word in ("expected salary", "expected ctc", "desired salary")):
         value = profile.expected_ctc
     elif any(word in text for word in ("current salary", "current ctc")):
         value = profile.current_ctc

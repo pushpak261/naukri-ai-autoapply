@@ -119,6 +119,7 @@ class ApplicationSettings(BaseModel):
     delay_between_actions_min: float = 1.0
     delay_between_actions_max: float = 3.0
     skip_external_apply: bool = True
+    external_ai_enabled: bool = True
     collect_external_jobs: bool = True
     email_recipient: str = ""
     dry_run: bool = False

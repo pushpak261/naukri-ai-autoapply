@@ -269,6 +269,251 @@ async def test_semantic_education_section_fills_native_month_inputs(employer):
 
 
 @pytest.mark.asyncio
+async def test_phenom_history_rows_use_their_own_resume_records_and_month_years(employer):
+    worker, page, job = employer
+    worker.settings.application.dry_run = True
+    worker.profile.work_experience = [
+        {"title": "Engineer", "company": "First", "duration": "Jun 2026 - Present", "location": "Pune"},
+        {"title": "Developer (Contract)", "company": "Second", "duration": "Jul 2026 - Present", "location": "Remote"},
+    ]
+    worker.profile.education = [
+        {"degree": "Post Graduate Diploma in Advanced Computing", "institution": "CDAC", "start_date": "Feb 2024", "end_date": "Aug 2024", "year": "Aug 2024", "grade": "75%"},
+        {"degree": "B.E., Mechanical Engineering", "institution": "College", "start_date": "Aug 2019", "end_date": "Aug 2023", "year": "Aug 2023", "grade": "82%"},
+    ]
+    sections = []
+    for kind, heading in (("experienceData", "Work experience :"), ("educationData", "Education :")):
+        rows = []
+        for index in range(2):
+            prefix = f"{kind}[{index}]"
+            controls = (
+                '<label>Job title<input></label><label>Company<input></label><label>Location<input></label><label>I currently work here<input type="checkbox"></label>'
+                if kind == "experienceData"
+                else '<label>School or University<input></label><label>Degree<select><option value="">Choose</option><option>Diploma</option><option>Bachelors</option></select></label><label>Field of study<select><option value="">Choose</option><option>Computing</option><option>Mechanical Engineering</option></select></label><label>Overall Result (GPA)<input></label>'
+            )
+            dates = "".join(
+                f'<div class="react-datepicker-wrapper"><label for="{prefix}.fromTo.{endpoint}Date">{label}</label><input id="{prefix}.fromTo.{endpoint}Date"></div>'
+                for endpoint, label in (("start", "From"), ("end", "To"))
+                if endpoint == "start" or kind == "educationData"
+            )
+            rows.append(f'<fieldset id="{prefix}">{controls}{dates}</fieldset>')
+        sections.append(f'<fieldset id="{kind}"><legend>{heading}</legend>{"".join(rows)}</fieldset>')
+    await page.set_content("".join(sections) + '<button onclick="window.sent=1">Submit</button>')
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_dry_run", result
+    for index, expected in enumerate(("Pune", "Remote")):
+        assert await page.locator(f'[id="experienceData[{index}]"]').get_by_label("Location", exact=True).input_value() == expected
+    assert await page.locator('[id="experienceData[0].fromTo.startDate"]').input_value() == "06/2026"
+    assert await page.locator('[id="educationData[0].fromTo.startDate"]').input_value() == "2024"
+    assert await page.locator('[id="educationData[1].fromTo.endDate"]').input_value() == "2023"
+    assert await page.locator('[id="educationData[1]"] select').first.input_value() == "Bachelors"
+    assert await page.locator('[id="educationData[0]"]').get_by_label("Overall Result (GPA)", exact=True).input_value() == "75%"
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_confirmed_inapplicable_optional_phone_extension_stays_empty(employer):
+    worker, page, job = employer
+    worker.settings.profile.confirmed_answers["Phone Extension"] = "Not applicable"
+    await page.set_content(
+        '<label>Email<input required type=email></label><label>Phone Extension<input type=number value=123></label><button onclick="window.sent=1;document.body.innerHTML=\'<h1>Application received.</h1>\'">Submit</button>'
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "applied", result
+    assert await page.evaluate("window.sent") == 1
+
+
+@pytest.mark.asyncio
+async def test_progress_toolbar_review_is_not_the_next_form_action(employer):
+    worker, page, job = employer
+    await page.set_content(
+        """<div role="toolbar" class="navigation-summary">
+        <a role="button" onclick="window.bad=1">Review</a></div>
+        <div id="step"><label>Email<input required type="email"></label>
+        <button onclick="document.querySelector('#step').innerHTML='<h2>Review application</h2><button onclick=submitApplication()>Submit application</button>'">Next</button></div>
+        <script>function submitApplication(){window.sent=(window.sent||0)+1;
+        document.body.innerHTML='<h1>Application received.</h1>';}</script>"""
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "applied", result
+    assert await page.evaluate("window.bad||0") == 0
+    assert await page.evaluate("window.sent") == 1
+
+
+@pytest.mark.asyncio
+async def test_country_change_replaces_email_control_without_losing_its_answer(employer):
+    worker, page, job = employer
+    worker.settings.profile.current_country = "India"
+    worker.settings.application.dry_run = True
+    await page.set_content(
+        """<label>Country<select id="country" onchange="document.querySelector('#details').innerHTML='<label>Email<input id=email required type=email></label>'">
+        <option value="">Choose</option><option>India</option></select></label>
+        <div id="details"><label>Email<input id="email" required type="email"></label></div>
+        <button onclick="window.sent=1">Submit</button>"""
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_dry_run", result
+    assert await page.locator("#email").input_value() == "test@example.test"
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_inserted_country_fields_are_replanned_without_misassigning_answers(employer):
+    worker, page, job = employer
+    worker.settings.profile.current_country = "India"
+    await page.set_content(
+        """<label>Country<select onchange="document.querySelector('#details').innerHTML='<label>Postal Code<input></label><label>Email<input required type=email></label>'">
+        <option value="">Choose</option><option>India</option></select></label>
+        <div id="details"><label>Email<input required type="email"></label></div>
+        <button onclick="window.sent=1">Submit</button>"""
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_screening", result
+    assert await page.locator('input[type="email"]').input_value() == "test@example.test"
+    assert await page.locator('#details input:not([type="email"])').input_value() == ""
+    assert any(q["question"] == "Postal Code" for q in worker.review.pending())
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_button_backed_resume_upload_and_named_radio_group_submit_once(employer):
+    worker, page, job = employer
+    resume = worker.settings.resumes_dir / "test.pdf"
+    resume.parent.mkdir(parents=True, exist_ok=True)
+    resume.write_bytes(b"%PDF-1.4 synthetic local upload fixture")
+    worker.settings.resume.path = str(resume)
+    question = "Have you ever worked for Example?"
+    worker.settings.profile.confirmed_answers[question] = "No"
+    await page.set_content(
+        """<form onsubmit="event.preventDefault();window.sent=(window.sent||0)+1;window.file=this.querySelector('input[type=file]').files[0].name;document.body.innerHTML='<h1>Application received.</h1>'">
+        <fieldset><legend>You are applying for -</legend>
+        <div><input type="file" style="display:none"><button type="button">Upload Resume</button></div>
+        <label>Email address*<input id="email" required type="email" aria-label="Email address"></label>
+        <div role="radiogroup" aria-label="Have you ever worked for Example?">
+        <label><input type="radio" name="previous" value="Yes" required>Yes</label>
+        <label><input type="radio" name="previous" value="No">No</label></div>
+        <button>Submit application</button></fieldset></form>"""
+    )
+    state = await worker.inspect(page.main_frame)
+    assert next(f for f in state["fields"] if f["type"] == "file")["question"] == "Upload Resume"
+    assert next(f for f in state["fields"] if f["type"] == "radio")["question"] == question
+    assert all("You are applying" not in f["question"] for f in state["fields"])
+    result = await run(worker, page, job)
+    assert result["status"] == "applied", result
+    assert await page.evaluate("window.file") == "test.pdf"
+    assert await page.evaluate("window.sent") == 1
+
+
+@pytest.mark.parametrize("label", ["Phone Extension", "Phone Device Type", "Location Phone Code"])
+def test_phone_metadata_never_receives_the_full_contact_number(tmp_path, label):
+    from libs.common.offline_screening import offline_answer
+
+    settings = Settings(project_root=tmp_path, profile={"phone": "9999999999"})
+    question = {"question": label, "type": "text"}
+    answer, _source = offline_answer(question, settings, ResumeProfile(), None)
+    assert answer == ""
+
+
+@pytest.mark.asyncio
+async def test_gemini_cannot_bind_a_contact_number_to_a_phone_extension(employer):
+    worker, page, job = employer
+    worker.profile.phone = "9999999999"
+    worker.provider.generate_content.return_value = json.dumps(
+        {"bindings": [{"id": "1", "fact": "phone"}]}
+    )
+    await page.set_content(
+        '<label>Email<input required type="email"></label><label>Phone Extension<input id="extension"></label><button onclick="window.sent=1">Submit</button>'
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_screening", result
+    assert await page.locator("#extension").input_value() == ""
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_confirmed_prior_agreement_question_is_not_new_contract_acceptance(employer):
+    worker, page, job = employer
+    question = "Have you entered into any restrictive covenant, non-compete agreement, or non-disclosure agreement which could restrict you from performing this role?"
+    worker.settings.profile.confirmed_answers[question] = "No"
+    await page.set_content(
+        f'<label>{question}<select required><option value="">Choose</option><option>Yes</option><option>No</option></select></label><button onclick="window.sent=(window.sent||0)+1;document.body.innerHTML=\'<h1>Application received.</h1>\'">Submit</button>'
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "applied", result
+    assert await page.evaluate("window.sent") == 1
+
+
+@pytest.mark.asyncio
+async def test_contract_acceptance_cannot_hide_behind_a_prior_agreement_question(employer):
+    worker, page, job = employer
+    question = "Have you signed a non-disclosure agreement and do you agree to our terms?"
+    worker.settings.profile.confirmed_answers[question] = "Yes"
+    await page.set_content(
+        f'<label>{question}<select required><option value="">Choose</option><option>Yes</option><option>No</option></select></label><button onclick="window.sent=1">Submit</button>'
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_screening", result
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_personal_boolean_cannot_borrow_an_unrelated_no_fact(employer):
+    worker, page, job = employer
+    worker.settings.profile.serving_notice = False
+    worker.provider.generate_content.return_value = json.dumps(
+        {"bindings": [{"id": "0", "fact": "serving_notice"}]}
+    )
+    await page.set_content(
+        '<label>Do you have a close personal relationship with an employee?<select required><option value="">Choose</option><option>Yes</option><option>No</option></select></label><button onclick="window.sent=1">Submit</button>'
+    )
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_screening", result
+    assert await page.locator("select").input_value() == ""
+    assert await page.evaluate("window.sent||0") == 0
+
+
+@pytest.mark.asyncio
+async def test_offline_external_forms_submit_known_answers_and_hold_unknowns(employer):
+    worker, page, job = employer
+    worker.settings.ai.gemini_api_key = ""
+    worker.settings.application.external_ai_enabled = False
+    assert worker.unavailable_reason(page.url) == ""
+    await page.set_content(
+        '<label>Email<input required type="email"></label><button onclick="window.sent=1;document.body.innerHTML=\'<h1>Application received.</h1>\'">Submit</button>'
+    )
+    assert (await run(worker, page, job))["status"] == "applied"
+    assert await page.evaluate("window.sent") == 1
+    await page.set_content(
+        '<label>Custom screening answer<input required></label><button onclick="window.bad=1">Submit</button>'
+    )
+    assert (await run(worker, page, job))["status"] == "skipped_screening"
+    assert await page.evaluate("window.bad||0") == 0
+    worker.provider.generate_content.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_long_questions_preserve_the_qualifier_and_stay_distinct_in_memory(employer):
+    worker, page, job = employer
+    prefix = "Please consider the stated responsibilities and the circumstances of this role. " * 8
+    questions = [prefix + "Are you available on weekdays?", prefix + "Are you available on weekends?"]
+    await page.set_content("".join(f'<label>{question}<input></label>' for question in questions))
+    state = await worker.inspect(page.main_frame)
+    assert [field["question"] for field in state["fields"]] == questions
+    identifiers = [worker.review.remember(field, job) for field in state["fields"]]
+    assert len(set(identifiers)) == 2
+
+
+@pytest.mark.asyncio
+async def test_required_local_name_cannot_reuse_an_optional_not_applicable_choice(employer):
+    worker, page, job = employer
+    worker.settings.profile.confirmed_answers["Local Given Name(s)"] = "Not applicable"
+    worker.settings.application.external_ai_enabled = False
+    await page.set_content('<label>Local Given Name(s)<input required></label><button>Submit</button>')
+    result = await run(worker, page, job)
+    assert result["status"] == "skipped_screening", result
+    assert await page.locator("input").input_value() == ""
+
+
+@pytest.mark.asyncio
 async def test_known_contact_fields_submit_without_a_gemini_request(employer):
     worker, page, job = employer
     await page.set_content(

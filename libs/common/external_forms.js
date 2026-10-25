@@ -13,9 +13,10 @@ export default function inspectExternalForm() {
         for (const child of copy.querySelectorAll('input,select,textarea,button,script,style,[role="combobox"],[role="listbox"]')) child.remove();
         return text(copy);
     };
-    const historyRows = '.innerElem, [data-history-row], .education-entry, .experience-entry';
+    const historyRows = '.innerElem, [data-history-row], .education-entry, .experience-entry, fieldset[id^="experienceData["], fieldset[id^="educationData["]';
+    const historyRow = el => !el.id?.match(/^(?:experienceData|educationData)\[/) || /^(?:experienceData|educationData)\[\d+\]$/.test(el.id);
     function historyKind(el) {
-        const name = el.getAttribute('data-l') || el.querySelector(':scope > legend')?.textContent || '';
+        const name = (el.getAttribute('data-l') || el.querySelector(':scope > legend')?.textContent || '').replace(/[\s:]+$/g, '');
         if (/^(?:education(?:al)?|academic)(?: details| history)?$/i.test(name.trim())) return 'education';
         if (/^(?:experience|employment|work experience|work history)(?: details| history)?$/i.test(name.trim())) return 'experience';
         return '';
@@ -33,7 +34,7 @@ export default function inspectExternalForm() {
         return [...document.querySelectorAll('div[data-l], fieldset')].filter(el => historyKind(el) && visible(el) && el.querySelector(historyRows)).map((section, i) => {
             const id = String(i);
             section.dataset.applyosHistory = id;
-            const rows = [...document.querySelectorAll(historyRows)].filter(row => visible(row) && (section.contains(row) || (section.id && row.classList.contains(section.id))));
+            const rows = [...document.querySelectorAll(historyRows)].filter(row => historyRow(row) && visible(row) && (section.contains(row) || (section.id && row.classList.contains(section.id))));
             rows.forEach((row, index) => { row.dataset.applyosHistoryRow = String(index); row.dataset.applyosHistoryOwner = id; });
             const add = [...document.querySelectorAll('a,button,[role="button"]')].find(el => historyAdd(el, section));
             if (add) add.dataset.applyosHistoryAdd = id;
@@ -57,6 +58,8 @@ export default function inspectExternalForm() {
         else if (/(?:\bto\b|\bend\b|_to_|_end_)/.test(key)) endpoint = 'end';
         if (!endpoint) return '';
         if (['month', 'date'].includes(el.type)) return `${endpoint}_date`;
+        if (/^experienceData\[\d+\]\.fromTo\.(?:start|end)Date$/.test(el.id) && el.closest('.react-datepicker-wrapper')) return `${endpoint}_month_year`;
+        if (/^educationData\[\d+\]\.fromTo\.(?:start|end)Date$/.test(el.id) && el.closest('.react-datepicker-wrapper')) return `${endpoint}_year`;
         let component = 'date';
         if (/month/.test(key)) component = 'month';
         else if (/year/.test(key)) component = 'year';
@@ -64,21 +67,33 @@ export default function inspectExternalForm() {
     }
     function uploadControl(el) {
         if (el.type !== 'file') return null;
-        return [...(el.labels || []), el.closest('a, [role="button"]')].find(x => x && visible(x));
+        const linked = [...(el.labels || []), el.closest('a, [role="button"]')].find(x => x && visible(x));
+        if (linked) return linked;
+        const parent = el.parentElement;
+        if (!parent || parent.querySelectorAll('input[type="file"]').length !== 1) return null;
+        const controls = [...parent.querySelectorAll('button, [role="button"]')].filter(x => visible(x) && /^(?:upload|browse|choose|attach)(?: (?:a|your|my))? (?:resume|cv|curriculum vitae)$/i.test(text(x)));
+        return controls.length === 1 ? controls[0] : null;
+    }
+    function groupLabel(el) {
+        const group = el.closest('[role="radiogroup"], fieldset');
+        if (!group) return '';
+        return group.getAttribute('aria-label') ||
+            (group.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => labelText(document.getElementById(id))).filter(Boolean).join(' ') ||
+            text(group.querySelector(':scope > legend'));
     }
     const label = (el, legend = true) => {
         const explicit = [
             ...(el.labels ? [...el.labels].map(labelText) : []), el.getAttribute('aria-label'),
-            ...(el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => labelText(document.getElementById(id))),
-            legend ? el.closest('fieldset')?.querySelector('legend')?.textContent : '',
-            el.type === 'file' ? el.getAttribute('data-l') || uploadControl(el)?.getAttribute('aria-label') : ''
+            ...(el.getAttribute('aria-labelledby') || '').split(/\s+/).filter(id => !id.endsWith('-live-region')).map(id => labelText(document.getElementById(id))),
+            el.type === 'file' ? el.getAttribute('data-l') || uploadControl(el)?.getAttribute('aria-label') || text(uploadControl(el)) : ''
         ].filter(Boolean);
-        return ([...new Set(explicit)].join(' | ') || el.getAttribute('placeholder') || el.name || '').slice(0, 500);
+        const unique = [...new Map(explicit.map(value => [value.replace(/[\s*]+$/g, '').toLowerCase(), value])).values()];
+        return (unique.join(' | ') || (legend ? groupLabel(el) : '') || el.getAttribute('placeholder') || el.name || '').slice(0, 1000);
     };
     function unrelatedControl(el) {
         // Career pages also contain search, subscriptions and chat. These are
         // never application fields, and their Submit buttons must not be used.
-        if (el.closest('nav, header, footer, [role="search"], .phs-global-search-area, .phs-subscribe-jobs-area, #PhenomChatbotWidgetWindow')) return true;
+        if (el.closest('nav, header, footer, [role="search"], [role="navigation"], [role="tablist"], .navigation-summary[role="toolbar"], .phs-global-search-area, .phs-subscribe-jobs-area, #PhenomChatbotWidgetWindow')) return true;
         const unrelatedName = /^(?:(?:global|job|site) search|search (?:for )?jobs|job alerts?|job notifications?|get notified for similar jobs|chat(?:bot)?|virtual assistant)$/i;
         for (let scope = el.parentElement; scope && !scope.matches('body, main, html'); scope = scope.parentElement) {
             const name = scope.getAttribute('aria-label') || '';
@@ -122,11 +137,14 @@ export default function inspectExternalForm() {
         const form = el.form || el.closest('form');
         let question = label(el);
         let selector = `[data-applyos-field="${id}"]`;
+        // Frameworks can replace inputs after resume parsing or country changes.
+        // A unique DOM identity survives those replacements; numeric tags do not.
+        if (el.type !== 'radio' && el.id && document.querySelectorAll(`#${CSS.escape(el.id)}`).length === 1) selector = `#${CSS.escape(el.id)}`;
         if (fieldKind(el) === 'skill_tags') {
             el.closest('skills-tag').dataset.applyosSkills = id;
             selector = `[data-applyos-skills="${id}"] input.skillset-input`;
         }
-        if (el.type === 'radio') question = text(el.closest('fieldset')?.querySelector('legend')) || question;
+        if (el.type === 'radio') question = groupLabel(el) || question;
         return {id, selector, question, type:fieldKind(el),
             max_length:el.maxLength > 0 ? el.maxLength : null, min_length:el.minLength > 0 ? el.minLength : null,
             required:members.some(x => x.required || x.getAttribute('aria-required') === 'true') || label(el).includes('*') || uploadControl(el)?.getAttribute('aria-required') === 'true',

@@ -174,7 +174,7 @@ def narrative_kind(text):
 def job_specific_question(text):
     return narrative_kind(text) in (MOTIVATION_INTENT, "fit", PROJECT_INTENT) or bool(
         re.search(
-            r"\b(?:our company|this company|this role|this position|our organization|consent|agreement|signature|declaration)\b",
+            r"\b(?:our company|this company|this role|this position|our organization|consent|agreement|signature|declaration|country where|country in which|country of employment)\b",
             question_key(text),
         )
     )
