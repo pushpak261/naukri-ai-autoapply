@@ -1,0 +1,55 @@
+name: OpenCode
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: "Task for OpenCode (also used by the CI autofix workflow)"
+        required: true
+        type: string
+
+concurrency:
+  group: opencode-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  opencode:
+    # Only the repository owner, members, and collaborators can trigger a run.
+    # This prevents drive-by comments on a public repository from consuming the
+    # model or asking OpenCode to change code.
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (
+        (github.event_name == 'issue_comment' || github.event_name == 'pull_request_review_comment') &&
+        (contains(github.event.comment.body, '/oc') || contains(github.event.comment.body, '/opencode')) &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      # Exchange the GitHub Actions OIDC token for an OpenCode GitHub App token.
+      id-token: write
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Optional. The free model works without a key; add this secret to
+          # use a paid OpenCode Zen model or to raise rate limits.
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode/deepseek-v4.1-flash-free
+          agent: build
+          share: false
+          prompt: ${{ github.event_name == 'workflow_dispatch' && inputs.prompt || '' }}
