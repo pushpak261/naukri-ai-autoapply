@@ -285,6 +285,8 @@ async def update_config(update: ConfigUpdate):
         if isinstance(platform_config.get('ai'), dict):
             for key in ai_changes:
                 platform_config['ai'].pop(key, None)
+        if update.use_gemini is True:
+            platform_config.get('application', {}).pop('external_ai_enabled', None)
         if update.skip_external_apply is not None:
             platform_config.setdefault('application', {})['skip_external_apply'] = update.skip_external_apply
             if not update.skip_external_apply:

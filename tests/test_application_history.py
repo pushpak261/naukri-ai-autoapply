@@ -51,6 +51,19 @@ def test_explicit_degree_subject_is_used_but_hsc_stream_is_not_invented():
     assert history_answer(field("Major / Department", kind="education", index=1), profile) == ""
 
 
+@pytest.mark.parametrize(
+    "degree,expected",
+    [
+        ("Bachelor of Science in Computer Science", "Computer Science"),
+        ("Bachelor of mechanical engineering", "mechanical engineering"),
+        ("B.E., Mechanical Engineering", "Mechanical Engineering"),
+    ],
+)
+def test_degree_subject_preserves_explicit_named_and_abbreviated_subjects(degree, expected):
+    profile = SimpleNamespace(education=[{"degree": degree}])
+    assert history_answer(field("Field of study", kind="education"), profile) == expected
+
+
 def test_confirmed_answers_are_scoped_to_record_identity_when_resume_order_changes():
     first = {"institution": "College A", "degree": "BSc", "year": "May 2023"}
     second = {"institution": "College B", "degree": "MSc", "year": "Aug 2024"}

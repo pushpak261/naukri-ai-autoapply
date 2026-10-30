@@ -7,6 +7,12 @@ A saved Gemini API key is required. Native matching and screening can continue
 with `ai.use_gemini: false`; the external form planner uses Gemini independently.
 Changes apply to the next agent run.
 
+During a Gemini outage or exhausted quota, `application.external_ai_enabled: false`
+keeps company-site applications available from saved facts and confirmed answers
+without making Gemini requests. Native `ai.use_gemini: false` selects local
+matching and screening. Unknown answers remain in review. Re-enabling **Use
+Gemini AI** in Preferences clears LinkedIn's temporary external-AI override.
+
 After a listing passes the existing targeting and match checks, the external
 handler opens the employer link in a separate browser context. Platform cookies
 and passwords are not copied. Gemini maps visible field labels to an allowlisted
@@ -26,6 +32,28 @@ required values, and advances through bounded Next/Review steps. The application
 counts as `applied` only after an explicit employer receipt message. A Submit
 without confirmation is `uncertain` and stops the agent for review, preserving
 duplicate-submission protection.
+
+Career-page search, job-alert subscription and chat widgets are excluded from
+both field collection and application actions. Repeated Apply Now links to the
+same destination open one application form. Client-rendered employer forms have
+up to 30 seconds to become ready before being reported as unsupported.
+Dynamic country and resume-parser updates re-identify each question before
+filling it, preserving answers when controls are replaced and replanning when
+new fields appear. Navigation progress bars are excluded from Next/Review
+actions. Named radio groups and hidden file inputs beside a visible Upload
+Resume button are supported. Phone extensions, device types and calling codes
+require their own evidence; the full contact number is never reused for them.
+Resume processing indicators are awaited for up to 60 seconds before filling
+contact fields, preventing late parser results from overwriting saved facts.
+Phenom-style repeatable employment and education fieldsets keep every record
+separate. Employment month/year controls and education year pickers retain the
+precision requested by the employer. Explicit degree categories, locations and
+grades come from the resume or confirmed answers; grade percentages retain
+their units. Optional local-name and phone-extension controls can stay empty
+only after an explicit not-applicable answer. Country-dependent authorization
+and sponsorship questions are scoped to their position. A confirmed factual
+question about an existing restrictive agreement is distinct from accepting a
+new agreement, which still requires direct consent.
 
 Recognized repeatable Education Details and Experience Details sections add
 one row per saved resume record (up to ten of each, within the form's 80-control

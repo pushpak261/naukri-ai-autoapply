@@ -39,12 +39,14 @@ class EducationEntry(BaseModel):
     start_date: str = ""
     end_date: str = ""
     major: str = ""
+    grade: str = ""
 
 
 class WorkExperienceEntry(BaseModel):
     title: str
     company: str
     duration: str
+    location: str = ""
     highlights: list[str]
 
 
@@ -94,7 +96,8 @@ Return a valid JSON object with EXACTLY this structure (no markdown, no code fen
             "year": "Graduation year or empty string",
             "start_date": "Stated start date, preserving month/year precision, or empty string",
             "end_date": "Stated completion date, preserving month/year precision, or empty string",
-            "major": "Stated major, department or stream, or empty string"
+            "major": "Stated major, department or stream, or empty string",
+            "grade": "Stated grade with its scale or percentage, without converting units, or empty string"
         }}
     ],
     "work_experience": [
@@ -102,6 +105,7 @@ Return a valid JSON object with EXACTLY this structure (no markdown, no code fen
             "title": "Job title",
             "company": "Company name",
             "duration": "Duration string (e.g., 'Jan 2020 - Present')",
+            "location": "Location stated for this role, or empty string",
             "highlights": ["Key achievement 1", "Key achievement 2"]
         }}
     ],

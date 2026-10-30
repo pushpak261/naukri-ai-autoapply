@@ -32,6 +32,23 @@ def candidate():
 
 
 @pytest.mark.parametrize(
+    "text",
+    [
+        "Are you legally authorized to work in the country where the position is located?",
+        "Will you require visa sponsorship in the country where the position is located?",
+    ],
+)
+def test_role_country_answers_are_not_reused_for_another_position(tmp_path, text):
+    store = ScreeningReviewStore(tmp_path)
+    question = {"question": text, "options": ["Yes", "No"]}
+    first, second = listing(), listing("999999999999")
+    identifier = store.remember(question, first)
+    store.save_answers({identifier: "Yes"})
+    assert store.answer_for(question, first) == "Yes"
+    assert store.answer_for(question, second) == ""
+
+
+@pytest.mark.parametrize(
     "first,second",
     [
         ("Are you willing to relocate?", "Are you open to relocation?"),
