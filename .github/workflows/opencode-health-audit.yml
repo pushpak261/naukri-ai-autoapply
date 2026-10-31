@@ -1,0 +1,125 @@
+name: OpenCode Health Audit
+
+on:
+  schedule:
+    # 09:00 IST every day, after the early scheduled agent runs.
+    - cron: '30 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: opencode-health-audit
+  cancel-in-progress: false
+
+permissions:
+  # Dispatch the OpenCode workflow after a failed audit.
+  actions: write
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Install Chromium
+        run: python -m playwright install --with-deps chromium
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run whole-repository audit
+        id: audit
+        continue-on-error: true
+        run: bash scripts/opencode_audit.sh opencode-audit.md
+
+      - name: Upload audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: opencode-audit
+          path: opencode-audit.md
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Dispatch OpenCode fix
+        # Also covers a failure before the audit runs, such as a broken
+        # requirements file, a lockfile mismatch, or a Playwright install error.
+        if: failure() || steps.audit.outcome == 'failure'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+
+            const reportPath = 'opencode-audit.md';
+            const fullReport = fs.existsSync(reportPath)
+              ? fs.readFileSync(reportPath, 'utf8')
+              : 'The audit script did not create a report. Check the workflow logs for the failing step.';
+            const limit = 30000;
+            const report = fullReport.length > limit
+              ? `${fullReport.slice(0, limit)}\n\n[Report truncated at ${limit} characters.]`
+              : fullReport;
+
+            const prompt = [
+              'The scheduled whole-repository health audit failed on main. Investigate and fix every hard failure.',
+              '',
+              `Repository: ${owner}/${repo}`,
+              `Commit: ${context.sha}`,
+              `Workflow run: ${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`,
+              '',
+              'Audit report:',
+              '',
+              report,
+              '',
+              'Instructions:',
+              '1. Reproduce each hard failure locally before changing code. If the report is missing or the failure happened during setup, inspect the workflow run and fix the dependency or installation failure.',
+              '2. Fix the root cause; do not disable, skip, or weaken tests, lint rules, the build, or the Sonar quality gate.',
+              '3. The full-repository ruff and mypy sections are advisory pre-existing debt. Do not try to clean them up unless they directly cause a hard failure.',
+              '4. Do not change secrets, credentials, or deployment configuration.',
+              '5. Install dependencies and run the relevant tests and `bash scripts/opencode_audit.sh` after the fix.',
+              '6. Commit the fixes to a new branch and open one pull request that explains each root cause and the verification you ran.',
+              '7. If a failure is external (credentials, service outage, flaky network test), do not change code; explain the finding instead.',
+            ].join('\n');
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: 'opencode.yml',
+              ref: 'main',
+              inputs: { prompt },
+            });
+
+            await core.summary
+              .addHeading('OpenCode health audit failed')
+              .addRaw(`\nOpenCode was dispatched to fix the failures.\n\n`)
+              .addRaw(report)
+              .write();
+
+      - name: Fail the workflow
+        if: failure() || steps.audit.outcome == 'failure'
+        run: |
+          echo "The health audit found failures; OpenCode was dispatched to fix them."
+          exit 1
