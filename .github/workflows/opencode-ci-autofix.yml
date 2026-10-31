@@ -1,8 +1,12 @@
-name: OpenCode CI Autofix
+name: OpenCode Failure Autofix
 
 on:
   workflow_run:
-    workflows: ["CI"]
+    workflows:
+      - CI
+      - SonarCloud Analysis
+      - Naukri Auto Apply Cron
+      - Naukri Profile Refresh Cron
     types: [completed]
     branches: [main]
 
@@ -18,8 +22,8 @@ permissions:
 jobs:
   dispatch-fix:
     if: |
-      github.event.workflow_run.conclusion == 'failure' &&
-      github.event.workflow_run.event == 'push' &&
+      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') &&
+      (github.event.workflow_run.event == 'push' || github.event.workflow_run.event == 'schedule') &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -53,7 +57,7 @@ jobs:
             const commitMessage = (run.head_commit?.message || 'unknown').slice(0, 500);
 
             const prompt = [
-              'CI failed on the main branch. Investigate the root cause and fix it.',
+              `${run.name} failed on the main branch. Investigate the root cause and fix it.`,
               '',
               `Repository: ${owner}/${repo}`,
               `Branch: ${run.head_branch}`,
@@ -67,11 +71,12 @@ jobs:
               'Instructions:',
               '1. Reproduce the failure locally by running the failing tests or commands.',
               '2. Make the smallest safe change that fixes the root cause.',
-              '3. Do not disable, skip, or weaken tests, lint rules, or CI checks.',
+              '3. Do not disable, skip, or weaken tests, lint rules, CI checks, or the Sonar quality gate.',
               '4. Do not change secrets, credentials, or deployment configuration.',
               '5. Run the relevant test suite after the fix.',
               '6. Commit the fix to a new branch and open a pull request that explains the root cause and the verification you ran.',
               '7. If the failure is caused by missing credentials, an external service outage, or is clearly flaky, do not change code. Explain the finding in a pull request or comment instead.',
+              '8. For a scheduled Naukri or LinkedIn run, check whether the failure is a login, OTP, captcha, session expiry, or platform block. Those are not code bugs; report the finding instead of changing code.',
             ].join('\n');
 
             await github.rest.actions.createWorkflowDispatch({

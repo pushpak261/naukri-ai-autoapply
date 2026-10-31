@@ -118,6 +118,10 @@ For the same-origin local dashboard build, set `VERCEL=1` before `npm run build`
 
 The CLI remains available through `python -m src.naukri_agent.main`; use `--help` for commands. For a scoring preview, use `run --dry-run` with the intended configuration.
 
+## Automated bug fixing
+
+OpenCode runs in GitHub Actions and can fix CI, SonarCloud, and scheduled-agent failures, `bug`-labeled issues, failures found by a daily whole-repository health audit, a failed production health endpoint, and exception reports from an external monitor. It opens pull requests for review. See [OpenCode on GitHub](docs/OPENCODE_GITHUB.md) for setup and usage.
+
 ## Hosting
 
 The local desktop workflow, the API-only `Dockerfile`, and the multi-service `docker-compose.yml` are distinct deployment paths. Validate the intended deployment before promising client compatibility. Hosted operation requires appropriate secrets, HTTPS, persistent storage, backups, and enough memory for Chromium. Ephemeral hosting can lose SQLite data on restart.
