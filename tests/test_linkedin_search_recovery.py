@@ -105,6 +105,35 @@ def test_workspace_search_experience_bounds_reach_linkedin_settings(tmp_path):
     assert (settings.search.experience_min, settings.search.experience_max) == (0, 2)
 
 
+def test_entry_level_bounds_exclude_senior_titles_without_explicit_levels(tmp_path):
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.models.entities import Job
+
+    settings = Settings(
+        project_root=tmp_path,
+        search={"experience_min": 0, "experience_max": 2},
+    )
+    agent = object.__new__(LinkedInAgent)
+    agent._settings = settings
+    agent._exclusion_spec = None
+
+    senior = Job(
+        linkedin_job_id="1",
+        title="Senior Java Developer",
+        company="Employer",
+        url="https://www.linkedin.com/jobs/view/1",
+    )
+    junior = Job(
+        linkedin_job_id="2",
+        title="Java Developer",
+        company="Employer",
+        url="https://www.linkedin.com/jobs/view/2",
+    )
+
+    assert agent._is_excluded(senior) is True
+    assert agent._is_excluded(junior) is False
+
+
 def test_linkedin_file_logging_is_added_once_when_shared_logger_exists(tmp_path):
     import logging
     from src.linked_agent.utils.logger import setup_logging

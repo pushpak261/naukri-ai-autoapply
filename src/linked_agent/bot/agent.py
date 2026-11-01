@@ -58,7 +58,11 @@ from src.linked_agent.bot.interfaces import (
     IResumeParser,
 )
 from src.linked_agent.bot.factory import LinkedInDependencyFactory
-from src.linked_agent.utils.helpers import TimeUtility, is_linkedin_host
+from src.linked_agent.utils.helpers import (
+    TimeUtility,
+    experience_filter_codes,
+    is_linkedin_host,
+)
 from src.linked_agent.utils.logger import (
     console,
     get_logger,
@@ -905,6 +909,12 @@ class LinkedInAgent:
 
     def _is_excluded(self, job: Job) -> bool:
         levels = set(self._settings.search.experience_level)
+        if not levels:
+            codes = experience_filter_codes(
+                self._settings.search.experience_min,
+                self._settings.search.experience_max,
+            )
+            levels = {code for code in codes.split(",") if code}
         if set(self._settings.search.job_type) == {"F"} and re.search(
             r"\bintern(?:ship)?\b", job.title or "", re.I,
         ):
