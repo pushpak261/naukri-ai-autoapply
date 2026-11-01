@@ -83,6 +83,28 @@ def test_search_settings_read_the_configured_experience_bounds(tmp_path):
     assert (settings.search.experience_min, settings.search.experience_max) == (0, 2)
 
 
+def test_workspace_search_experience_bounds_reach_linkedin_settings(tmp_path):
+    import yaml
+
+    from libs.common.workspace_config import load_linkedin_workspace_config
+
+    (tmp_path / "config.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "search": {
+                    "keywords": ["Java Developer"],
+                    "experience_min": 0,
+                    "experience_max": 2,
+                }
+            }
+        )
+    )
+
+    settings = Settings(project_root=tmp_path, **load_linkedin_workspace_config(tmp_path))
+
+    assert (settings.search.experience_min, settings.search.experience_max) == (0, 2)
+
+
 def test_linkedin_file_logging_is_added_once_when_shared_logger_exists(tmp_path):
     import logging
     from src.linked_agent.utils.logger import setup_logging

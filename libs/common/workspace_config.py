@@ -22,7 +22,15 @@ def load_linkedin_workspace_config(root: Path) -> dict:
     if isinstance(shared_search, dict):
         config["search"] = {
             key: shared_search[key]
-            for key in ("keywords", "locations", "max_pages", "sort_by", "enable_heuristics")
+            for key in (
+                "keywords",
+                "locations",
+                "max_pages",
+                "sort_by",
+                "enable_heuristics",
+                "experience_min",
+                "experience_max",
+            )
             if key in shared_search
         }
     platform_path = root / "linkedin_config.yaml"
