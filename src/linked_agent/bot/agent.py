@@ -19,7 +19,7 @@ import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlunsplit, urlsplit
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -81,6 +81,18 @@ def _matches_job_url(url, identifier):
     if direct:
         return direct[1] == str(identifier)
     return parsed.path.startswith("/jobs/search") and parse_qs(parsed.query).get("currentJobId") == [str(identifier)]
+
+
+def _search_results_job_url(search_url: str, identifier: str) -> str:
+    """Return a search-results URL whose currentJobId selects ``identifier``."""
+    parsed = urlsplit(search_url)
+    params = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key != "currentJobId"
+    ]
+    params.append(("currentJobId", str(identifier)))
+    return urlunsplit(parsed._replace(query=urlencode(params)))
 
 
 class LinkedInAgent:
@@ -784,20 +796,12 @@ class LinkedInAgent:
             logger.warning(f"No linkedin_job_id for {job.title} @ {job.company}")
             return False
 
-        # Strategy 1: Append currentJobId to the search URL
-        target_url = None
-        if "/jobs/search-results" in job.search_url:
-            # The apply flow only initializes from the results layout; a bare
-            # /jobs/view/<id> page renders an Easy Apply button that does
-            # nothing when clicked, so keep the currentJobId selection.
-            base_url = re.sub(r'[&?]currentJobId=\d+', '', job.search_url)
-            separator = "&" if "?" in base_url else "?"
-            target_url = f"{base_url}{separator}currentJobId={job_id}"
-        elif job.search_url:
-            separator = "&" if "?" in job.search_url else "?"
-            # Remove any existing currentJobId from the search_url
-            base_url = re.sub(r'[&?]currentJobId=\d+', '', job.search_url)
-            target_url = f"{base_url}{separator}currentJobId={job_id}"
+        # Strategy 1: Append currentJobId to the search URL.
+        # The apply flow only initializes from the results layout; a bare
+        # /jobs/view/<id> page renders an Easy Apply button that does
+        # nothing when clicked, so keep the currentJobId selection.
+        if job.search_url:
+            target_url = _search_results_job_url(job.search_url, job_id)
         else:
             # Fallback: construct a minimal search URL with just currentJobId
             target_url = f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}"

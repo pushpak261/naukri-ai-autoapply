@@ -33,6 +33,56 @@ def test_selected_listing_must_match_the_job_being_evaluated(url, expected):
     assert _matches_job_url(url, "123") is expected
 
 
+@pytest.mark.parametrize(
+    "search_url,expected",
+    [
+        (
+            "https://www.linkedin.com/jobs/search-results/?currentJobId=999&keywords=Java%20Developer&f_AL=true",
+            "https://www.linkedin.com/jobs/search-results/?keywords=Java+Developer&f_AL=true&currentJobId=123",
+        ),
+        (
+            "https://www.linkedin.com/jobs/search-results/?keywords=Java%20Developer",
+            "https://www.linkedin.com/jobs/search-results/?keywords=Java+Developer&currentJobId=123",
+        ),
+        (
+            "https://www.linkedin.com/jobs/search/?keywords=Java%20Developer",
+            "https://www.linkedin.com/jobs/search/?keywords=Java+Developer&currentJobId=123",
+        ),
+    ],
+)
+def test_sidebar_url_keeps_search_filters_and_exactly_one_current_job_id(search_url, expected):
+    from src.linked_agent.bot.agent import _search_results_job_url
+
+    built = _search_results_job_url(search_url, "123")
+    assert built == expected
+    assert parse_qs(urlsplit(built).query)["currentJobId"] == ["123"]
+
+
+@pytest.mark.parametrize(
+    "min_years,max_years,expected",
+    [
+        (0, 2, "2,3"),
+        (1, 4, "2,3,4"),
+        (0, 0, ""),
+        (6, 10, "5,6"),
+        (0, 8, ""),
+    ],
+)
+def test_experience_years_map_to_linkedin_levels(min_years, max_years, expected):
+    from src.linked_agent.utils.helpers import experience_filter_codes
+
+    assert experience_filter_codes(min_years, max_years) == expected
+
+
+def test_search_settings_read_the_configured_experience_bounds(tmp_path):
+    settings = Settings(
+        project_root=tmp_path,
+        search={"experience_min": 0, "experience_max": 2},
+    )
+
+    assert (settings.search.experience_min, settings.search.experience_max) == (0, 2)
+
+
 def test_linkedin_file_logging_is_added_once_when_shared_logger_exists(tmp_path):
     import logging
     from src.linked_agent.utils.logger import setup_logging

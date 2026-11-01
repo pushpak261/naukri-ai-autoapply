@@ -125,6 +125,24 @@ class RetryUtility:
         return decorator
 
 
+def experience_filter_codes(min_years: int, max_years: int) -> str:
+    """Map a candidate's years range to LinkedIn ``f_E`` experience codes.
+
+    LinkedIn codes: 1 internship, 2 entry level, 3 associate, 4 mid-senior,
+    5 director, 6 executive. Untranslatable ranges return an empty string so
+    the search keeps every level rather than silently excluding jobs.
+    """
+    if max_years <= 0:
+        return ""
+    if min_years >= 6:
+        return "5,6"
+    if max_years <= 2:
+        return "2,3"
+    if max_years <= 4:
+        return "2,3,4"
+    return ""
+
+
 class LinkedInURLUtility:
     """Namespace for generating and parsing LinkedIn URLs and IDs."""
 

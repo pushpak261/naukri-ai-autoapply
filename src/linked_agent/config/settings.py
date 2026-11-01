@@ -80,6 +80,8 @@ class SearchSettings(BaseModel):
 
     keywords: list[str] = Field(default_factory=lambda: ["Software Engineer"])
     locations: list[str] = Field(default_factory=lambda: ["United States"])
+    experience_min: int = 0
+    experience_max: int = 0
     experience_level: list[str] = Field(default_factory=list)
     job_type: list[str] = Field(default_factory=list)
     work_type: str = ""  # on_site, remote, hybrid

@@ -24,7 +24,7 @@ from src.linked_agent.config.constants import LINKEDIN_RATE_LIMIT_DELAY
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.bot.interfaces import IBrowserEngine
 from src.linked_agent.models.entities import Job
-from src.linked_agent.utils.helpers import LinkedInURLUtility
+from src.linked_agent.utils.helpers import LinkedInURLUtility, experience_filter_codes
 from src.linked_agent.utils.logger import get_logger
 from src.linked_agent.utils.exceptions import LoginError, RateLimitError
 
@@ -164,6 +164,11 @@ class LinkedInJobSearcher:
 
         sort_by = "DD" if self._settings.search.sort_by == "date" else ""
         experience_str = ",".join(self._settings.search.experience_level)
+        if not experience_str:
+            experience_str = experience_filter_codes(
+                self._settings.search.experience_min,
+                self._settings.search.experience_max,
+            )
         job_type = ",".join(self._settings.search.job_type)
 
         empty_pages = 0
