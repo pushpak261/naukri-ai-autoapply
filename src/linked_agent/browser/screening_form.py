@@ -110,7 +110,8 @@ return /application (?:sent|submitted)|successfully applied|thank you for applyi
 }"""
     )
     try:
-        await page.wait_for_function(script, timeout=timeout_ms)
+        # rAF polling never fires while the automation window is occluded.
+        await page.wait_for_function(script, timeout=timeout_ms, polling=200)
         return True
     except PlaywrightTimeoutError:
         return False

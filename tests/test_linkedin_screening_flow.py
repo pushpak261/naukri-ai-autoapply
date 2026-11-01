@@ -281,6 +281,81 @@ async def test_job_error_page_does_not_count_as_loaded_listing(search_page):
 
 
 @pytest.mark.asyncio
+async def test_listing_wait_polls_on_a_timer_not_animation_frames(search_page):
+    """rAF polling stalls whenever the automation window is occluded."""
+    from src.linked_agent.bot.agent import LinkedInAgent
+
+    _, tab = search_page
+    agent = object.__new__(LinkedInAgent)
+    await tab.set_content(
+        '<div componentkey="JobDetails_AboutTheJob_123">Java and Spring Boot development role.</div>'
+    )
+    seen = {}
+
+    async def record(script, **kwargs):
+        seen.update(kwargs)
+        return await tab.wait_for_function(script, timeout=5000, polling=kwargs.get("polling", "raf"))
+
+    wrapped = SimpleNamespace(
+        wait_for_function=record,
+        reload=tab.reload,
+        mouse=tab.mouse,
+        evaluate=tab.evaluate,
+    )
+    await agent._wait_for_listing_content(wrapped)
+    assert isinstance(seen.get("polling"), int), "listing wait must not rely on rAF polling"
+
+
+# The logged-in layout ships hashed class names and no component keys.
+HASHED_LAYOUT = """
+<main>
+  <h2>Use AI to assess how you fit</h2>
+  <p>Activate Premium to see AI-powered advice on this job.</p>
+  <div>
+    <h2>About the job</h2>
+    <div>
+      <p>About Persistent: we build platform-driven engineering teams.</p>
+      <p>Required: Java, Spring Boot, microservices and AWS. 2+ years of experience.</p>
+    </div>
+  </div>
+  <h2>About the company</h2>
+  <p>Persistent Systems, 10001+ employees.</p>
+</main>
+"""
+
+
+@pytest.mark.asyncio
+async def test_hashed_class_layout_is_recognized_as_a_loaded_listing(search_page):
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.browser.dom_scripts import DESCRIPTION_TEXT
+
+    _, tab = search_page
+    agent = object.__new__(LinkedInAgent)
+    await tab.set_content(HASHED_LAYOUT)
+    await agent._wait_for_listing_content(SimpleNamespace(
+        wait_for_function=tab.wait_for_function,
+        reload=tab.reload,
+        mouse=tab.mouse,
+        evaluate=tab.evaluate,
+    ))
+    description = await tab.evaluate(DESCRIPTION_TEXT)
+    assert description.startswith("About Persistent")
+    assert "Spring Boot" in description
+    assert "Premium" not in description
+
+
+@pytest.mark.asyncio
+async def test_sidebar_extraction_reads_hashed_class_description(search_page):
+    from src.linked_agent.browser.pages.search import LinkedInSearchPage
+
+    _, tab = search_page
+    await tab.set_content(HASHED_LAYOUT)
+    page = LinkedInSearchPage(SimpleNamespace(page=tab), AsyncMock())
+    details = await page.extract_sidebar_details()
+    assert "Spring Boot" in details.get("description", "")
+
+
+@pytest.mark.asyncio
 async def test_modern_city_wrapper_and_equivalent_suggestions(search_page):
     _, tab = search_page
     await tab.set_content(

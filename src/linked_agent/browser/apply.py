@@ -15,10 +15,10 @@ from src.linked_agent.config.constants import ApplicationStatus
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.bot.interfaces import IQuestionAnswerer
 from src.linked_agent.models.entities import Job
+from src.linked_agent.utils.helpers import is_linkedin_host
 from src.linked_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
-LINKEDIN_HOSTS = ("www.linkedin.com", "linkedin.com")
 
 
 def _question_identity(fields):
@@ -160,12 +160,12 @@ class LinkedInJobApplier:
                             return await self._apply_external(page, new_page_url, job)
 
                         current_url = page.url
-                        if urlsplit(current_url).hostname not in LINKEDIN_HOSTS:
+                        if not is_linkedin_host(urlsplit(current_url).hostname):
                             return await self._apply_external(page, current_url, job)
 
                         # Only close pages that are external (not LinkedIn), not all other pages
                         for p in page.context.pages:
-                            if p != page and urlsplit(p.url or "").hostname not in LINKEDIN_HOSTS:
+                            if p != page and not is_linkedin_host(urlsplit(p.url or "").hostname):
                                 try:
                                     ext_url = p.url
                                     await p.close()
@@ -197,7 +197,7 @@ class LinkedInJobApplier:
                             page.context.remove_listener("page", on_popup)
                         listener_active = False
                     for external_page in opened_external_pages:
-                        if urlsplit(external_page.url).hostname not in LINKEDIN_HOSTS:
+                        if not is_linkedin_host(urlsplit(external_page.url).hostname):
                             with contextlib.suppress(Exception):
                                 await external_page.close()
 

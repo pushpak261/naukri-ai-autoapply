@@ -28,6 +28,7 @@ from rich.table import Table
 
 from src.linked_agent.utils.similarity import LinkedInVectorSimilarityFilter
 from src.linked_agent.browser.apply import LinkedInJobApplier
+from src.linked_agent.browser.dom_scripts import LOADED_LISTING
 from src.linked_agent.browser.login import LinkedInLoginHandler
 from src.linked_agent.browser.search import LinkedInJobSearcher
 from src.linked_agent.browser.navigation import NetworkUnavailableError, navigate
@@ -57,7 +58,7 @@ from src.linked_agent.bot.interfaces import (
     IResumeParser,
 )
 from src.linked_agent.bot.factory import LinkedInDependencyFactory
-from src.linked_agent.utils.helpers import TimeUtility
+from src.linked_agent.utils.helpers import TimeUtility, is_linkedin_host
 from src.linked_agent.utils.logger import (
     console,
     get_logger,
@@ -74,7 +75,7 @@ logger = get_logger(__name__)
 
 def _matches_job_url(url, identifier):
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname not in ("linkedin.com", "www.linkedin.com"):
+    if parsed.scheme != "https" or not is_linkedin_host(parsed.hostname):
         return False
     direct = re.search(r"/jobs/view/(?:[^/]*-)?(\d+)(?:/|$)", parsed.path)
     if direct:
@@ -786,9 +787,12 @@ class LinkedInAgent:
         # Strategy 1: Append currentJobId to the search URL
         target_url = None
         if "/jobs/search-results" in job.search_url:
-            # In the component-based results layout currentJobId may only
-            # select a card; use the actual detail page before assessing it.
-            target_url = job.url
+            # The apply flow only initializes from the results layout; a bare
+            # /jobs/view/<id> page renders an Easy Apply button that does
+            # nothing when clicked, so keep the currentJobId selection.
+            base_url = re.sub(r'[&?]currentJobId=\d+', '', job.search_url)
+            separator = "&" if "?" in base_url else "?"
+            target_url = f"{base_url}{separator}currentJobId={job_id}"
         elif job.search_url:
             separator = "&" if "?" in job.search_url else "?"
             # Remove any existing currentJobId from the search_url
@@ -845,10 +849,55 @@ class LinkedInAgent:
         return False
 
     async def _wait_for_listing_content(self, page) -> None:
-        """An expected URL alone cannot distinguish a loaded listing from a browser error."""
-        await page.wait_for_function("""() => [...document.querySelectorAll(
-            '[componentkey^="JobDetails_AboutTheJob_"], .jobs-description__content, .jobs-box__html-content, .description__text, .show-more-less-html__markup'
-        )].some(el => el.getClientRects().length && el.textContent.trim().length > 20)""", timeout=10000)
+        """An expected URL alone cannot distinguish a loaded listing from a browser error.
+
+        Polling on a timer matters: Playwright's default requestAnimationFrame
+        polling never fires when the automation window is occluded or
+        backgrounded, which would reject every reachable listing behind a
+        visible window.
+        """
+        try:
+            await page.wait_for_function(LOADED_LISTING, timeout=10000, polling=200)
+            return
+        except PlaywrightTimeoutError:
+            pass
+        if await self._reload_listing(page):
+            logger.info("Listing content appeared after a reload.")
+            return
+        raise PlaywrightTimeoutError("LinkedIn job description did not render.")
+
+    async def _reload_listing(self, page) -> bool:
+        """One slow paint must not reject a job that is otherwise reachable."""
+        with contextlib.suppress(Exception):
+            await page.reload(wait_until="domcontentloaded", timeout=30000)
+        with contextlib.suppress(Exception):
+            await page.mouse.wheel(0, 1200)
+        try:
+            await page.wait_for_function(LOADED_LISTING, timeout=15000, polling=200)
+            return True
+        except Exception:
+            await self._log_listing_diagnostic(page)
+            return False
+
+    async def _log_listing_diagnostic(self, page) -> None:
+        """Record what the browser actually showed so selector drift is debuggable."""
+        try:
+            state = await page.evaluate(
+                """() => ({
+                    url: location.href,
+                    title: document.title,
+                    ready: document.readyState,
+                    challenge: !!document.querySelector('#captcha-internal, [class*="challenge"]'),
+                    signIn: !!document.querySelector('form[action*="login"]'),
+                    descriptionBlocks: [...document.querySelectorAll(
+                        '[class*="description"], [componentkey*="AboutTheJob"]'
+                    )].map(el => (el.textContent || '').trim().length).slice(0, 5),
+                    text: (document.body?.innerText || '').slice(0, 200),
+                })"""
+            )
+            logger.warning("Listing did not render: %s", state)
+        except Exception as exc:
+            logger.warning("Listing diagnostic unavailable: %s", exc)
 
     def _is_excluded(self, job: Job) -> bool:
         levels = set(self._settings.search.experience_level)

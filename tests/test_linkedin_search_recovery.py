@@ -20,7 +20,11 @@ from tests.test_linkedin_modern_search import search_page as search_page
         ("https://www.linkedin.com/jobs/search/?currentJobId=123", True),
         ("https://www.linkedin.com/jobs/search/?currentJobId=999", False),
         ("https://www.linkedin.com/jobs/view/999/", False),
+        ("https://in.linkedin.com/jobs/view/java-developer-at-employer-123/", True),
+        ("https://in.linkedin.com/jobs/search/?currentJobId=123", True),
+        ("https://in.linkedin.com/jobs/view/999/", False),
         ("https://example.invalid/jobs/view/123/", False),
+        ("https://linkedin.com.evil.invalid/jobs/view/123/", False),
     ],
 )
 def test_selected_listing_must_match_the_job_being_evaluated(url, expected):

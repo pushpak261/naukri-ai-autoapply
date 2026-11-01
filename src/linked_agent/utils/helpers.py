@@ -12,6 +12,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar, cast, overload
+from urllib.parse import urlparse
 
 from src.linked_agent.utils.logger import get_logger
 
@@ -235,6 +236,17 @@ def hash_file(file_path: str | Path) -> str:
 
 def extract_linkedin_job_id(url: str) -> str:
     return LinkedInURLUtility.extract_job_id(url)
+
+
+def is_linkedin_host(host: str | None) -> bool:
+    """LinkedIn redirects jobs to country subdomains such as in.linkedin.com."""
+    host = (host or "").lower()
+    return host == "linkedin.com" or host.endswith(".linkedin.com")
+
+
+def is_linkedin_url(url: str) -> bool:
+    parsed = urlparse(url or "")
+    return parsed.scheme == "https" and is_linkedin_host(parsed.hostname)
 
 
 def build_search_url(
