@@ -170,6 +170,8 @@ class ProfileSettings(BaseModel):
     current_country: str = ""
     preferred_locations: list[str] = Field(default_factory=list)
     total_experience: str = ""
+    linkedin_url: str = ""
+    github_url: str = ""
     employment_status: str = ""
     serving_notice: bool | None = None
     last_working_date: str = ""

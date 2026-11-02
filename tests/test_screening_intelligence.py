@@ -186,6 +186,30 @@ def test_drafts_are_job_specific_and_profile_changes_refresh_reused_answers(tmp_
     assert "1 year" not in refreshed
 
 
+def test_additional_months_question_is_answered_from_stated_experience(tmp_path):
+    settings = Settings(project_root=tmp_path, profile={"total_experience": "2"})
+    question = {
+        "question": "Please select your total additional months of experience:*",
+        "type": "dropdown",
+        "options": ["0 month", "1 month", "2 months", "12 months"],
+    }
+
+    answer, _ = local_answer(question, settings, candidate(), listing())
+
+    assert answer == "0 month"
+
+
+def test_linkedin_profile_url_falls_back_to_the_resume_text(tmp_path):
+    settings = Settings(project_root=tmp_path)
+    person = candidate()
+    person.raw_text = "Pune | linkedin.com/in/pushpak261 | github.com/pushpak261"
+    question = {"question": "Please enter your LinkedIn profile URL", "type": "text"}
+
+    answer, _ = local_answer(question, settings, person, listing())
+
+    assert answer == "https://linkedin.com/in/pushpak261"
+
+
 def test_updated_job_requirements_and_shorter_fields_refresh_a_generated_draft(tmp_path):
     settings = Settings(project_root=tmp_path)
     question = {"question": "Why should we hire you?", "type": "textarea"}

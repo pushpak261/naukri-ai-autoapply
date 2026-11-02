@@ -30,6 +30,39 @@ def _address_answer(text, profile):
     return value
 
 
+def _additional_experience_months(profile, candidate, question):
+    """Months beyond whole years, as LinkedIn's two-part experience question asks."""
+    from libs.common.resume_facts import duration_years
+
+    stated = duration_years(getattr(profile, "total_experience", ""))
+    if stated is None:
+        stated = getattr(candidate, "total_experience_years", None)
+    if stated is None:
+        return ""
+    months = int(round((float(stated) - int(float(stated))) * 12)) % 12
+    options = [
+        str(option.get("text", option)) if isinstance(option, dict) else str(option)
+        for option in question.get("options") or []
+    ]
+    for option in options:
+        if re.fullmatch(rf"{months}\s*months?", option.strip(), re.I):
+            return option
+    return str(months)
+
+
+def _profile_link(text, profile, candidate):
+    """Prefer the saved profile link, then the link the resume already states."""
+    key = "github_url" if "github" in text else "linkedin_url"
+    value = str(getattr(profile, key, "") or "").strip()
+    if value:
+        return value
+    pattern = r"github\.com/[\w.-]+" if key == "github_url" else r"linkedin\.com/in/[\w.-]+"
+    match = re.search(pattern, str(getattr(candidate, "raw_text", "") or ""), re.I)
+    if not match:
+        return ""
+    return "https://" + match[0].rstrip(").,;:")
+
+
 def _basic_answer(question, settings, candidate=None):
     text = str(question.get("question", "")).casefold()
     profile = settings.profile
@@ -252,6 +285,12 @@ def evidence_answer(question, settings, candidate=None):
         )
     elif (
         "experience" in text
+        and "month" in text
+        and re.search(r"\b(?:additional|extra|remaining)\b", text)
+    ):
+        value = _additional_experience_months(profile, candidate, question)
+    elif (
+        "experience" in text
         or re.search(r"\b(?:years|months)\b.*\b(?:with|using)\b", text)
         or re.search(r"\b(?:have you worked|do you know|have you used)\b", text)
     ):
@@ -347,7 +386,7 @@ def evidence_answer(question, settings, candidate=None):
     ):
         value = ", ".join(getattr(profile, "preferred_locations", []))
     elif any(word in text for word in ("github", "linkedin")):
-        value = getattr(profile, "github_url" if "github" in text else "linkedin_url", "")
+        value = _profile_link(text, profile, candidate)
     elif "reason for" in text and any(word in text for word in ("change", "leaving")):
         value = getattr(profile, "reason_for_change", "")
     elif any(
