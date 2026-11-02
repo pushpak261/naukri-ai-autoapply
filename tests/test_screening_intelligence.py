@@ -210,6 +210,23 @@ def test_linkedin_profile_url_falls_back_to_the_resume_text(tmp_path):
     assert answer == "https://linkedin.com/in/pushpak261"
 
 
+def test_preferred_work_location_picks_an_available_option(tmp_path):
+    settings = Settings(
+        project_root=tmp_path, profile={"preferred_locations": ["Pune", "Mumbai"]}
+    )
+    radio = {
+        "question": "Select Your Preferred Work Location*",
+        "type": "radio",
+        "options": ["Mumbai", "Pune", "Remote"],
+    }
+
+    answer, _ = local_answer(radio, settings, candidate(), listing())
+
+    assert answer == "Pune"
+    free_text = {"question": "Preferred work location", "type": "text", "options": []}
+    assert local_answer(free_text, settings, candidate(), listing())[0] == "Pune, Mumbai"
+
+
 def test_updated_job_requirements_and_shorter_fields_refresh_a_generated_draft(tmp_path):
     settings = Settings(project_root=tmp_path)
     question = {"question": "Why should we hire you?", "type": "textarea"}

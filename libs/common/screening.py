@@ -394,11 +394,32 @@ def evidence_answer(question, settings, candidate=None):
         )
     ):
         value = getattr(profile, "current_ctc", "")
-    elif re.fullmatch(
-        r"(?:(?:what (?:are|is)|which (?:are|is)) )?(?:your )?preferred (?:work |job )?locations?",
-        question_key(text),
-    ):
-        value = ", ".join(getattr(profile, "preferred_locations", []))
+    elif re.search(r"\bpreferred (?:work |job )?location", question_key(text)):
+        preferred = [
+            str(location) for location in getattr(profile, "preferred_locations", []) if location
+        ]
+        options = [
+            str(option.get("text", option)) if isinstance(option, dict) else str(option)
+            for option in question.get("options") or []
+        ]
+        # Option lists (radio/dropdown) hold one place each; keep the order the
+        # candidate configured as their preference order.
+        value = ""
+        for location in preferred:
+            target = location.strip().casefold()
+            value = next(
+                (option for option in options if option.strip().casefold() == target), ""
+            ) or next(
+                (
+                    option
+                    for option in options
+                    if option.strip().casefold().startswith(target + ",")
+                ),
+                "",
+            )
+            if value:
+                break
+        value = value or ", ".join(preferred)
     elif any(word in text for word in ("github", "linkedin")):
         value = _profile_link(text, profile, candidate)
     elif "reason for" in text and any(word in text for word in ("change", "leaving")):
