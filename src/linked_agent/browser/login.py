@@ -177,15 +177,16 @@ class LinkedInLoginHandler:
             await asyncio.sleep(2)
             await self._login_page.close_popups()
 
-            if os.environ.get("LOCAL_AGENT_MODE") == "1":
-                return await self._wait_for_manual_login()
-
-            # /login can complete the sign-in itself from saved cookies.
+            # /login can complete the sign-in itself from saved cookies, in
+            # every mode. Check before asking the operator for credentials.
             if await self._login_page.is_logged_in():
                 log_success("LinkedIn restored the saved session automatically.")
                 self._engine.mark_session_authenticated()
                 await self._engine.save_session()
                 return True
+
+            if os.environ.get("LOCAL_AGENT_MODE") == "1":
+                return await self._wait_for_manual_login()
 
             log_info(f"Email configured: {'Yes' if self._settings.linkedin.email else 'No'}")
             log_info(f"Password configured: {'Yes' if self._settings.linkedin.password else 'No'}")
