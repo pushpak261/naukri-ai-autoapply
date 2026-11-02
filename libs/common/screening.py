@@ -3,6 +3,20 @@
 import re
 
 
+# Employers word the pay-expectation field differently; all of these ask the
+# same fact and must map to the saved expected CTC.
+_EXPECTED_PAY_TERMS = (
+    "expected salary",
+    "expected ctc",
+    "desired salary",
+    "salary expectation",
+    "income expectation",
+    "expected income",
+    "expected compensation",
+    "compensation expectation",
+)
+
+
 def _address_answer(text, profile):
     label = question_key(text)
     label = re.sub(r"^(?:what is |which is )?(?:your )?(?:current |residential )?", "", label)
@@ -96,7 +110,7 @@ def _basic_answer(question, settings, candidate=None):
         for word in ("current location", "current city", "where do you live", "where are you based")
     ):
         value = profile.current_location
-    elif any(word in text for word in ("expected salary", "expected ctc", "desired salary")):
+    elif any(word in text for word in _EXPECTED_PAY_TERMS):
         value = profile.expected_ctc
     elif any(word in text for word in ("current salary", "current ctc")):
         value = profile.current_ctc
@@ -364,8 +378,8 @@ def evidence_answer(question, settings, candidate=None):
             )
         if re.search(r"\b(?:are you|serving|buyout)\b", text):
             value = ""  # A duration does not establish current employment status.
-    elif "expected" in text and any(
-        word in text for word in ("salary", "ctc", "compensation", "package")
+    elif any(word in text for word in _EXPECTED_PAY_TERMS) or (
+        "expected" in text and "package" in text
     ):
         value = getattr(profile, "expected_ctc", "")
     elif any(
