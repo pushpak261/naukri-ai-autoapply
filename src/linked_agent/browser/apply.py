@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 from urllib.parse import urlsplit
 
 
@@ -23,6 +24,18 @@ logger = get_logger(__name__)
 
 def _question_identity(fields):
     return [(f.get('question'), f.get('field_type'), f.get('selector')) for f in fields]
+
+
+# LinkedIn appends these optional profile-prose fields to some Easy Apply
+# forms. They are not eligibility questions, so a blank value is valid.
+_NARRATIVE_FIELD_NAMES = {"headline", "summary", "cover letter"}
+
+
+def _optional_narrative_field(question) -> bool:
+    label = re.sub(r"[\s*:]+$", "", str(question.get("question") or "")).strip().casefold()
+    if label not in _NARRATIVE_FIELD_NAMES:
+        return False
+    return not question.get("is_required", False)
 
 
 class LinkedInJobApplier:
@@ -387,6 +400,12 @@ class LinkedInJobApplier:
                 for q, a in zip(non_file_questions, answers, strict=True):
                     answer_text = a.get("answer", "")
                     if not answer_text:
+                        if _optional_narrative_field(q):
+                            # LinkedIn adds Headline/Summary/Cover letter to some
+                            # Easy Apply forms. They are profile prose, not
+                            # screening questions, and blank is a valid answer.
+                            logger.info(f"Step {step} leaving optional narrative field blank: {q.get('question', '')[:40]}")
+                            continue
                         return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
                         filled = await self._detail_page.fill_answer(q, answer_text)

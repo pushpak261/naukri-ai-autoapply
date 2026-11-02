@@ -155,6 +155,49 @@ async def test_offline_multistep_application_answers_dynamic_questions_then_subm
 
 
 @pytest.mark.asyncio
+async def test_optional_blank_text_fields_do_not_block_an_easy_apply(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><label for="email">Email address</label>
+      <input id="email" type="email" required>
+      <label for="headline">Headline</label><input id="headline" type="text">
+      <label for="summary">Summary</label><textarea id="summary"></textarea>
+      <label for="cover">Cover letter</label><textarea id="cover"></textarea>
+      <button onclick="review()">Review</button></div>
+      <script>
+      window.submissions=0;
+      function review(){document.body.dataset.headline=document.querySelector('#headline').value;
+        document.querySelector('[role=dialog]').innerHTML=
+        '<button onclick="done()">Submit application</button>';}
+      function done(){window.submissions++;
+        document.querySelector('[role=dialog]').innerHTML='<p>Application sent</p>';}
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(project_root=tmp_path, ai={"use_gemini": False})
+    candidate = ResumeProfile(
+        name="Candidate",
+        email="candidate@example.invalid",
+        skills=["Java"],
+        total_experience_years=1,
+    )
+    qa = SimpleNamespace(_resume=candidate)
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.submissions") == 1
+    assert await tab.locator("body").get_attribute("data-headline") == ""
+
+
+@pytest.mark.asyncio
 async def test_stale_question_and_wrong_dropdown_option_are_rejected(search_page):
     _, tab = search_page
     await tab.set_content(
