@@ -129,6 +129,38 @@ async def test_sidebar_does_not_swallow_a_persistent_network_outage(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_login_redirect_mid_run_recovers_the_session_once(monkeypatch):
+    from src.linked_agent.bot.agent import LinkedInAgent
+
+    page = SimpleNamespace(
+        url="",
+        wait_for_load_state=AsyncMock(),
+    )
+    navigated = []
+
+    agent = object.__new__(LinkedInAgent)
+    agent._engine = SimpleNamespace(page=page)
+    agent._login_handler = SimpleNamespace(login=AsyncMock(return_value=True))
+    agent._wait_for_listing_content = AsyncMock(return_value=True)
+
+    async def navigate(page_object, url):
+        navigated.append(url)
+        page_object.url = (
+            "https://www.linkedin.com/login"
+            if len(navigated) == 1
+            else "https://www.linkedin.com/jobs/search/?currentJobId=1"
+        )
+
+    monkeypatch.setattr("src.linked_agent.bot.agent.navigate", navigate)
+    monkeypatch.setattr("src.linked_agent.bot.agent.asyncio.sleep", AsyncMock())
+
+    job = Job("1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1")
+    assert await agent._navigate_to_job_sidebar(job) is True
+    agent._login_handler.login.assert_awaited_once()
+    assert len(navigated) == 2
+
+
+@pytest.mark.asyncio
 async def test_disabled_email_notifications_keep_local_report_without_sending(
     tmp_path, monkeypatch
 ):

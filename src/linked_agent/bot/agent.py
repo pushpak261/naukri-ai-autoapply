@@ -824,8 +824,15 @@ class LinkedInAgent:
                     await self._wait_for_listing_content(page)
                     return True
 
-                # If redirected away (e.g., to login), retry once
+                # If redirected away (e.g., to login), the cookie hand-off can
+                # still complete the sign-in; recover once before giving up.
                 if "/login" in current_url or "signup" in current_url:
+                    logger.warning(
+                        "LinkedIn redirected sidebar navigation to a sign-in surface"
+                    )
+                    if attempt == 0 and await self._recover_linkedin_session():
+                        logger.info("LinkedIn session recovered; retrying job navigation")
+                        continue
                     logger.warning("Session expired during sidebar navigation — cannot proceed")
                     return False
 
@@ -854,6 +861,18 @@ class LinkedInAgent:
             except Exception as e:
                 logger.warning(f"Direct job URL navigation failed: {e}")
 
+        return False
+
+    async def _recover_linkedin_session(self) -> bool:
+        """A mid-run sign-in redirect is usually a cookie hand-off, not a logout."""
+        handler = getattr(self, "_login_handler", None)
+        if handler is None:
+            return False
+        try:
+            if await handler.login():
+                return True
+        except Exception as exc:
+            logger.warning(f"LinkedIn session recovery failed: {exc}")
         return False
 
     async def _wait_for_listing_content(self, page) -> None:
