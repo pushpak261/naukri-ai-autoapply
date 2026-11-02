@@ -66,18 +66,11 @@ class LinkedInLoginPage(BasePage):
     async def _on_authenticated_surface(self) -> bool:
         """True when LinkedIn auto-restored the session instead of showing a form."""
         page = self._engine.page
-        try:
-            await page.wait_for_function(
-                """() => !!document.querySelector(
-                    'img.global-nav__me-photo, li.global-nav__me, '
-                    + 'div.global-nav__me, #voyager-feed'
-                )""",
-                timeout=10_000,
-                polling=200,
-            )
-            return True
-        except PlaywrightTimeoutError:
-            return False
+        for _ in range(15):
+            if "/login" not in page.url.lower() and await self.is_logged_in():
+                return True
+            await asyncio.sleep(2)
+        return False
 
     async def navigate_to_base(self) -> None:
         """Check the authenticated jobs surface, not the public landing page."""

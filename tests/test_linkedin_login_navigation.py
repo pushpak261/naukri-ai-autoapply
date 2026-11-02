@@ -25,25 +25,29 @@ async def test_navigation_waits_for_password_field_without_network_idle():
 async def test_authenticated_surface_is_accepted_when_the_form_never_renders():
     engine = Mock()
     engine.page.goto = AsyncMock()
+    engine.page.url = "https://www.linkedin.com/feed/"
     engine.page.locator.return_value.first.wait_for = AsyncMock(
         side_effect=TimeoutError("No login form")
     )
-    engine.page.wait_for_function = AsyncMock(return_value=True)
+    page_object = LinkedInLoginPage(engine, Mock())
+    page_object.is_logged_in = AsyncMock(return_value=True)
     with patch("src.linked_agent.browser.pages.login.asyncio.sleep", new=AsyncMock()):
-        await LinkedInLoginPage(engine, Mock()).navigate()
-    engine.page.wait_for_function.assert_awaited_once()
+        await page_object.navigate()
+    page_object.is_logged_in.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_missing_form_does_not_silently_continue_to_credentials():
     engine = Mock()
     engine.page.goto = AsyncMock()
+    engine.page.url = "https://www.linkedin.com/login"
     engine.page.locator.return_value.first.wait_for = AsyncMock(side_effect=TimeoutError("No login form"))
-    engine.page.wait_for_function = AsyncMock(side_effect=TimeoutError("No auth surface"))
+    page_object = LinkedInLoginPage(engine, Mock())
+    page_object.is_logged_in = AsyncMock(return_value=False)
     with pytest.raises(TimeoutError, match="No login form"), patch(
         "src.linked_agent.browser.pages.login.asyncio.sleep", new=AsyncMock()
     ):
-        await LinkedInLoginPage(engine, Mock()).navigate()
+        await page_object.navigate()
 
 
 @pytest.mark.asyncio
