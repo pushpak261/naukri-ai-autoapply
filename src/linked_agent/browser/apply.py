@@ -333,7 +333,7 @@ class LinkedInJobApplier:
         - Work authorization
         - Review
         """
-        max_steps = 15
+        max_steps = 30
         self._active_job_id = job.linkedin_job_id
         step = 0
         modal_found = False
@@ -403,8 +403,16 @@ class LinkedInJobApplier:
                 if has_submit:
                     return await self._submit_once_and_confirm()
 
-            # Build step signature for loop detection
-            step_sig = "|".join(f"{q.get('question','')[:30]}:{q.get('field_type','')}" for q in questions)
+            # Build step signature for loop detection. Some LinkedIn forms
+            # re-render the whole question block after each answer, so two
+            # consecutive steps keep the same questions while the filled
+            # values progress. Include the filled/empty state in the
+            # signature; otherwise a long form looks like a loop.
+            step_sig = "|".join(
+                f"{q.get('question','')[:30]}:{q.get('field_type','')}:"
+                f"{'filled' if str(q.get('current_value') or '').strip() else 'empty'}"
+                for q in questions
+            )
             if step_sig:
                 last_step_signatures.append(step_sig)
                 # Check if any signature appears 2+ times in last 4 steps (catches loops early)

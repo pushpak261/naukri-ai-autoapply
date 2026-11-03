@@ -268,6 +268,65 @@ async def test_best_effort_policy_fills_unknown_required_questions(
 
 
 @pytest.mark.asyncio
+async def test_long_rerendering_form_is_not_mistaken_for_a_loop(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog" id="form"></div>
+      <script>
+      window.filled = 0; window.submissions = 0; window.steps = 0;
+      const total = 18;
+      function render() {
+        const form = document.getElementById('form');
+        if (window.filled >= total) {
+          form.innerHTML = '<p>Screening complete</p>' +
+            '<button onclick="review()">Review</button>';
+          return;
+        }
+        let html = '';
+        for (let i = 0; i < total; i++) {
+          const value = i < window.filled ? 'Yes' : '';
+          html += '<label for="q' + i + '">Question ' + i + '?*</label>' +
+            '<input id="q' + i + '" type="text" required value="' + value + '">';
+        }
+        form.innerHTML = html + '<button onclick="next()">Next</button>';
+      }
+      function next() { window.filled++; window.steps++; render(); }
+      function review() {
+        document.getElementById('form').innerHTML =
+          '<button onclick="submit()">Submit application</button>';
+      }
+      function submit() {
+        window.submissions++;
+        document.getElementById('form').innerHTML = '<p>Application sent</p>';
+      }
+      render();
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(
+        project_root=tmp_path,
+        ai={"use_gemini": False},
+        application={"answer_all_screening_questions": True},
+    )
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(name="Candidate", skills=["Java"], total_experience_years=1)
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.steps") == 18
+    assert await tab.evaluate("window.submissions") == 1
+
+
+@pytest.mark.asyncio
 async def test_stale_question_and_wrong_dropdown_option_are_rejected(search_page):
     _, tab = search_page
     await tab.set_content(
