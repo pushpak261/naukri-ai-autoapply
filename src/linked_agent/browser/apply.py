@@ -235,6 +235,13 @@ class LinkedInJobApplier:
         return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": url,
                 "error_message": "External employer applications are disabled."}
 
+    def _positive_answer(self, question: dict, job: Job) -> str:
+        """Best-effort answer used only when the evidence-based answerers are silent."""
+        from libs.common.screening_fallback import positive_answer
+
+        candidate = getattr(self._question_answerer, '_resume', None)
+        return positive_answer(question, self._settings, candidate, job)
+
     async def _answer_screening_questions_locally(self, questions: list[dict], job: Job) -> list[dict]:
         from libs.common.screening_memory import local_answer, memory_store
         candidate = getattr(self._question_answerer, '_resume', None)
@@ -406,7 +413,14 @@ class LinkedInJobApplier:
                             # screening questions, and blank is a valid answer.
                             logger.info(f"Step {step} leaving optional narrative field blank: {q.get('question', '')[:40]}")
                             continue
-                        return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
+                        if self._settings.application.answer_all_screening_questions:
+                            answer_text = self._positive_answer(q, job)
+                            if answer_text:
+                                logger.info(
+                                    f"Step {step} best-effort answer for '{q.get('question', '')[:40]}'"
+                                )
+                        if not answer_text:
+                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
                         filled = await self._detail_page.fill_answer(q, answer_text)
                         refreshed = await self._detail_page.extract_screening_questions()

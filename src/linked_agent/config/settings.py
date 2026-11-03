@@ -137,6 +137,9 @@ class ApplicationSettings(BaseModel):
     dry_run: bool = False
     # LinkedIn-specific: always apply to Easy Apply jobs
     easy_apply_only: bool = False
+    # Fill every screening field with a best-effort answer instead of pausing
+    # the application for a confirmed answer.
+    answer_all_screening_questions: bool = False
     # Unfollow companies after applying (reduces noise)
     unfollow_after_apply: bool = True
     # Notification settings

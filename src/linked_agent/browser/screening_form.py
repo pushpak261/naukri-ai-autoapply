@@ -42,8 +42,23 @@ const labelText = el => {
 const ownLabel = el => [...(el.labels || [])].map(labelText).join(' ') || (el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => labelText(document.getElementById(id))).filter(Boolean).join(' ') || labelText(el.closest('label')) || el.getAttribute('aria-label') || '';
 const groupOf = el => el.closest('[componentkey^="easyApplyFieldFocus_"]') || el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping') || el.parentElement;
 const optionText = (el, question) => {
-    const candidates = [ownLabel(el), el.getAttribute('aria-label'), text(el), el.value];
-    const option = candidates.find(value => value && value.trim() !== question.trim() && value !== 'on') || '';
+    const heading = question.trim().replace(/\*+$/, '').trim();
+    // LinkedIn sometimes renders the option text in a sibling paragraph and
+    // leaves the radio label empty; take the closest wrapper that holds only
+    // this control so the whole group is never read as one option.
+    const nearbyText = target => {
+        for (let node = target.parentElement, depth = 0; node && depth < 4; node = node.parentElement, depth++) {
+            const peers = [...node.querySelectorAll('input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"]')];
+            if (peers.length > 1) continue;
+            const value = text(node);
+            if (value) return value;
+        }
+        return '';
+    };
+    const candidates = [ownLabel(el), nearbyText(el), el.getAttribute('aria-label'), text(el), el.value];
+    const option = candidates
+        .map(value => (value || '').trim())
+        .find(value => value && value !== question.trim() && value !== heading && value !== 'on') || '';
     return /^true$/i.test(option) ? 'Yes' : /^false$/i.test(option) ? 'No' : option;
 };
 const seen = new Set(), result = [];
