@@ -337,3 +337,75 @@ return {invalid: fields.filter(el => (el.willValidate && !el.validity.valid) || 
 buttons: [...modal.querySelectorAll('button')].filter(visible).map(el => ({text: el.innerText || el.getAttribute('aria-label'), disabled: el.disabled}))};
 }"""
     )
+
+
+async def education_form(page):
+    """Describe the inline Education editor LinkedIn opens before Review."""
+    return await page.evaluate(
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return {found: false};
+const school = [...modal.querySelectorAll('input')].find(el => visible(el) && (el.getAttribute('aria-label') || '').trim() === 'School');
+if (!school) return {found: false};
+const field = name => {
+    const el = [...modal.querySelectorAll('input')].find(item => (item.getAttribute('aria-label') || '').trim() === name);
+    return el ? (el.value || '').trim() : '';
+};
+const save = [...modal.querySelectorAll('button')].find(b => visible(b) && !b.disabled && /^save$/i.test((b.innerText || '').trim()));
+return {found: true, school: field('School'), degree: field('Degree'),
+    selects: [...modal.querySelectorAll('select')].filter(visible).length, has_save: !!save};
+}"""
+    )
+
+
+async def fill_education_dates(page, dates):
+    """Set the From/To month and year of the open Education editor."""
+    from_month, from_year, to_month, to_year = dates
+    return await page.evaluate(
+        "(args) => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return false;
+const school = [...modal.querySelectorAll('input')].find(el => visible(el) && (el.getAttribute('aria-label') || '').trim() === 'School');
+if (!school) return false;
+const selects = [...modal.querySelectorAll('select')].filter(visible);
+if (selects.length < 4) return false;
+const setValue = (el, text) => {
+    const option = [...el.options].find(o => (o.text || '').trim() === text || (o.value || '').trim() === text);
+    if (!option) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    setter.call(el, option.value);
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+    return true;
+};
+const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const [fromMonth, fromYear, toMonth, toYear] = selects;
+return [
+    setValue(fromMonth, months[args[0] - 1]),
+    setValue(fromYear, String(args[1])),
+    setValue(toMonth, months[args[2] - 1]),
+    setValue(toYear, String(args[3])),
+].every(Boolean);
+}""",
+        [from_month, from_year, to_month, to_year],
+    )
+
+
+async def save_education(page):
+    """Save the open Education editor so the application Review can continue."""
+    return await page.evaluate(
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return false;
+const school = [...modal.querySelectorAll('input')].find(el => visible(el) && (el.getAttribute('aria-label') || '').trim() === 'School');
+if (!school) return false;
+const save = [...modal.querySelectorAll('button')].find(b => visible(b) && !b.disabled &&
+    !b.closest('[aria-disabled="true"]') && /^save$/i.test((b.innerText || '').trim()));
+if (!save) return false;
+save.click();
+return true;
+}"""
+    )

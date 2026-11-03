@@ -535,3 +535,103 @@ async def test_modern_radio_group_uses_outer_question_heading(search_page):
     assert await tab.locator("#employed-yes").is_checked()
     assert await tab.locator("#notice-no").is_checked()
     assert not await tab.locator("#employed-no").is_checked()
+
+
+@pytest.mark.asyncio
+async def test_education_dates_helper_sets_all_four_selects_and_saves(search_page):
+    from src.linked_agent.browser.screening_form import (
+        education_form,
+        fill_education_dates,
+        save_education,
+    )
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog">
+      <h2>Education</h2>
+      <input aria-label="School" value="D.Y. Patil College of Engineering">
+      <input aria-label="Degree" value="Bachelor of Mechanical Engineering">
+      <select id="fm" aria-label="From month"><option value="">Month</option>
+        <option value="6">June</option></select>
+      <select id="fy" aria-label="From year"><option value="">Year</option>
+        <option value="2019">2019</option><option value="2023">2023</option></select>
+      <input type="checkbox" aria-label="I currently attend this institution">
+      <select id="tm" aria-label="To month"><option value="">Month</option>
+        <option value="6">June</option></select>
+      <select id="ty" aria-label="To year"><option value="">Year</option>
+        <option value="2019">2019</option><option value="2023">2023</option></select>
+      <button onclick="window.saved = 1">Save</button></div>"""
+    )
+    state = await education_form(tab)
+    assert state["found"] is True and state["has_save"] is True
+    assert state["selects"] == 4
+    assert await fill_education_dates(tab, (6, 2019, 6, 2023))
+    assert [await tab.locator(selector).input_value() for selector in ("#fm", "#fy", "#tm", "#ty")] == [
+        "6",
+        "2019",
+        "6",
+        "2023",
+    ]
+    assert await save_education(tab)
+    assert await tab.evaluate("window.saved") == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_education_dates_are_saved_before_review(search_page, tmp_path, monkeypatch):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><p>Education</p>
+      <button onclick="openForm()">Review</button></div>
+      <script>
+      window.saved = ''; window.submissions = 0;
+      function openForm() {
+        document.querySelector('[role=dialog]').innerHTML = `
+          <input aria-label="School" value="D.Y. Patil College of Engineering">
+          <input aria-label="Degree" value="Bachelor of Mechanical Engineering">
+          <select id="fm"><option value="">Month</option><option value="6">June</option></select>
+          <select id="fy"><option value="">Year</option><option value="2019">2019</option><option value="2023">2023</option></select>
+          <input type="checkbox" aria-label="I currently attend this institution">
+          <select id="tm"><option value="">Month</option><option value="6">June</option></select>
+          <select id="ty"><option value="">Year</option><option value="2019">2019</option><option value="2023">2023</option></select>
+          <button onclick="saveForm()">Save</button>`;
+      }
+      function saveForm() {
+        window.saved = ['#fm','#fy','#tm','#ty'].map(id => document.querySelector(id).value).join(',');
+        document.querySelector('[role=dialog]').innerHTML =
+          '<p>Education saved</p><button onclick="submitForm()">Submit application</button>';
+      }
+      function submitForm() {
+        window.submissions++;
+        document.querySelector('[role=dialog]').innerHTML = '<p>Application sent</p>';
+      }
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(
+        project_root=tmp_path,
+        ai={"use_gemini": False},
+        application={"answer_all_screening_questions": True},
+    )
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(
+            name="Candidate",
+            education=[
+                {
+                    "degree": "B.E., Mechanical Engineering",
+                    "institution": "D.Y. Patil College of Engineering",
+                    "year": "2023",
+                }
+            ],
+        )
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.saved") == "6,2019,6,2023"
+    assert await tab.evaluate("window.submissions") == 1

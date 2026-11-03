@@ -88,3 +88,28 @@ def extract_resume_facts(text, configured_experience=""):
         "education": education,
         "raw_text": text,
     }
+
+
+_DEGREE_SPANS = (
+    (r"\b(?:ph\.?\s?d|doctorate)\b", 4),
+    (r"\b(?:bachelor|b\.?\s?e\b|b\.?\s?tech|b\.?\s?sc|bca|b\.?\s?com)\b", 4),
+    (r"\b(?:pg[- ]?dac|pg\s*diploma)\b", 1),
+    (r"\b(?:master|m\.?\s?e\b|m\.?\s?tech|mba|mca|m\.?\s?sc|post\s*graduate)\b", 2),
+    (r"\b(?:diploma|polytechnic)\b", 3),
+)
+
+
+def education_dates(entry):
+    """Return (from_month, from_year, to_month, to_year) for a resume education entry.
+
+    The resume usually records only the graduation year, so the start year is
+    derived from the standard length of the stated programme. Months default to
+    June, which is the common graduation month for Indian programmes.
+    """
+    match = re.search(r"(?:19|20)\d{2}", str(entry.get("year", "")))
+    if not match:
+        return None
+    to_year = int(match[0])
+    degree = f"{entry.get('degree', '')} {entry.get('field', '')} {entry.get('major', '')}"
+    span = next((years for pattern, years in _DEGREE_SPANS if re.search(pattern, degree, re.I)), 3)
+    return 6, to_year - span, 6, to_year

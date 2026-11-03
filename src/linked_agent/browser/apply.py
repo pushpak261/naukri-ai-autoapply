@@ -242,6 +242,58 @@ class LinkedInJobApplier:
         candidate = getattr(self._question_answerer, '_resume', None)
         return positive_answer(question, self._settings, candidate, job)
 
+    def _education_dates_for(self, school: str, degree: str):
+        from libs.common.resume_facts import education_dates
+
+        candidate = getattr(self._question_answerer, "_resume", None)
+        entries = list(getattr(candidate, "education", []) or [])
+
+        def words(value):
+            return {word for word in re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split() if len(word) > 3}
+
+        school_words, degree_words = words(school), words(degree)
+        scored = []
+        for entry in entries:
+            entry_words = set(re.sub(r"[^a-z0-9]+", " ", f"{entry.get('institution', '')} {entry.get('degree', '')}".casefold()).split())
+            score = len(school_words & entry_words) + len(degree_words & entry_words)
+            if score:
+                scored.append((score, entry))
+        if not scored:
+            return None
+        return education_dates(max(scored, key=lambda item: item[0])[1])
+
+    async def _complete_education_form(self) -> bool:
+        """Save missing Education dates from the resume so Review can advance."""
+        if not self._settings.application.answer_all_screening_questions:
+            return False
+        from src.linked_agent.browser.screening_form import (
+            education_form,
+            fill_education_dates,
+            save_education,
+        )
+
+        page = self._detail_page.page
+        state = await education_form(page)
+        if not state.get("found") or not state.get("has_save"):
+            return False
+        school = state.get("school", "")
+        dates = self._education_dates_for(school, state.get("degree", ""))
+        if not dates:
+            logger.warning("Education dates are required but no resume entry matches: %s", school[:60])
+            return False
+        if not await fill_education_dates(page, dates):
+            logger.warning("Could not fill education dates for: %s", school[:60])
+            return False
+        if not await save_education(page):
+            logger.warning("Could not save education entry for: %s", school[:60])
+            return False
+        logger.info(
+            "Saved education dates for %s (%02d/%s-%02d/%s)",
+            school[:60], dates[0], dates[1], dates[2], dates[3],
+        )
+        await asyncio.sleep(2)
+        return True
+
     async def _answer_screening_questions_locally(self, questions: list[dict], job: Job) -> list[dict]:
         from libs.common.screening_memory import local_answer, memory_store
         candidate = getattr(self._question_answerer, '_resume', None)
@@ -482,6 +534,17 @@ class LinkedInJobApplier:
                     return self._unfinished_form_result("Review is unavailable or the form has validation errors.")
                 # Wait for review page to fully load
                 await asyncio.sleep(3)
+
+                # LinkedIn can open an inline Education editor when dates are
+                # missing. Saving them from the resume is what lets Review
+                # advance; without it every such job is abandoned.
+                for _ in range(2):
+                    if not await self._complete_education_form():
+                        break
+                    logger.info("Education dates were missing — retrying Review")
+                    if not await self._detail_page.click_review():
+                        break
+                    await asyncio.sleep(3)
 
                 # Dump modal state after Review for debugging
                 review_state = {}

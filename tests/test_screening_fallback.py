@@ -98,3 +98,21 @@ def test_narrative_questions_get_a_grounded_draft(tmp_path):
 def test_profile_links_come_from_the_resume_text(tmp_path):
     question = {"question": "Please enter your LinkedIn profile URL", "field_type": "text"}
     assert answer(tmp_path, question) == "https://linkedin.com/in/candidate"
+
+
+def test_ctc_text_fields_become_plain_inr_numbers(tmp_path):
+    profile = {"current_ctc": "4.4 lpa", "expected_ctc": "6 lpa"}
+    current = {"question": "Please enter your current ctc in INR", "field_type": "text"}
+    expected = {"question": "Please enter your expected ctc in INR", "field_type": "text"}
+    assert answer(tmp_path, current, profile) == "440000"
+    assert answer(tmp_path, expected, profile) == "600000"
+
+
+def test_notice_field_without_the_word_day_stays_numeric(tmp_path):
+    question = {"question": "Notice period", "field_type": "text"}
+    assert answer(tmp_path, question, {"notice_period": "2 weeks"}) == "14"
+
+
+def test_location_text_fields_use_the_saved_city(tmp_path):
+    question = {"question": "Location (city)*", "field_type": "text"}
+    assert answer(tmp_path, question, {"current_city": "Pune"}) == "Pune"

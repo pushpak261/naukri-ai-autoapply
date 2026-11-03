@@ -202,6 +202,25 @@ def _notice_days(settings):
     return str(days)
 
 
+def _ctc_amount(text, settings):
+    profile = settings.profile
+    raw = profile.current_ctc if "current" in text else profile.expected_ctc
+    raw = raw or profile.expected_ctc or profile.current_ctc
+    value = str(raw or "").casefold()
+    numbers = re.findall(r"\d+(?:\.\d+)?", value)
+    if not numbers:
+        return "0"
+    amount = float(numbers[0])
+    if "lpa" in value or "lakh" in value or "lac" in value:
+        amount *= 100000
+    elif "k" in value:
+        amount *= 1000
+    rounded = round(amount)
+    if abs(amount - rounded) < 0.01:
+        return str(rounded)
+    return format(amount, ".2f").rstrip("0").rstrip(".")
+
+
 def _number_answer(text, settings, candidate):
     if "month" in text and "experience" in text:
         stated = _years(settings, candidate)
@@ -212,8 +231,7 @@ def _number_answer(text, settings, candidate):
     if "notice" in text:
         return _notice_days(settings)
     if any(word in text for word in ("ctc", "salary", "compensation", "package")):
-        numbers = re.findall(r"\d+(?:\.\d+)?", str(settings.profile.expected_ctc or ""))
-        return numbers[0] if numbers else "0"
+        return _ctc_amount(text, settings)
     return "0"
 
 
@@ -225,6 +243,16 @@ def _link(text, settings, candidate):
     pattern = r"github\.com/[\w.-]+" if key == "github_url" else r"linkedin\.com/in/[\w.-]+"
     match = re.search(pattern, str(getattr(candidate, "raw_text", "") or ""), re.I)
     return "https://" + match[0].rstrip(").,;:") if match else ""
+
+
+def _location_answer(settings):
+    profile = settings.profile
+    values = [
+        getattr(profile, "current_city", ""),
+        getattr(profile, "current_location", ""),
+        *getattr(profile, "preferred_locations", []),
+    ]
+    return next((str(value).strip() for value in values if str(value or "").strip()), "")
 
 
 def _profile_sentence(text, settings, candidate, question):
@@ -273,11 +301,16 @@ def _text_answer(question, settings, candidate, job):
         re.search(r"\b(?:how many|number of)\b", text)
         or question.get("input_type") == "number"
         or question.get("field_type") == "number"
-        or ("notice" in text and "day" in text)
+        or "notice" in text
+        or any(word in text for word in ("ctc", "salary", "compensation", "package"))
     ):
         return _number_answer(text, settings, candidate)
     if re.match(r"^(?:do|does|are|is|have|has|will|would|can|could|did)\b", text):
         return "No" if _wants_negative(text) else "Yes"
+    if "location" in text or "city" in text:
+        location = _location_answer(settings)
+        if location:
+            return location
     return _profile_sentence(text, settings, candidate, question)
 
 
