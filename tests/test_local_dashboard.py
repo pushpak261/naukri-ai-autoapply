@@ -77,6 +77,7 @@ async def test_local_mode_never_submits_stored_password(monkeypatch):
     page = Mock()
     page.navigate = AsyncMock()
     page.close_popups = AsyncMock()
+    page.is_logged_in = AsyncMock(return_value=False)
     strategy = Mock()
     strategy.authenticate = AsyncMock()
     handler = LinkedInLoginHandler(page, Mock(), strategy=strategy, settings=Mock())
@@ -84,3 +85,20 @@ async def test_local_mode_never_submits_stored_password(monkeypatch):
     with patch("src.linked_agent.browser.login.asyncio.sleep", new=AsyncMock()):
         assert await handler._perform_login()
     strategy.authenticate.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_local_mode_accepts_an_auto_restored_session(monkeypatch):
+    monkeypatch.setenv("LOCAL_AGENT_MODE", "1")
+    page = Mock()
+    page.navigate = AsyncMock()
+    page.close_popups = AsyncMock()
+    page.is_logged_in = AsyncMock(return_value=True)
+    engine = Mock()
+    engine.save_session = AsyncMock()
+    handler = LinkedInLoginHandler(page, engine, strategy=Mock(), settings=Mock())
+    handler._wait_for_manual_login = AsyncMock()
+    with patch("src.linked_agent.browser.login.asyncio.sleep", new=AsyncMock()):
+        assert await handler._perform_login()
+    handler._wait_for_manual_login.assert_not_awaited()
+    engine.save_session.assert_awaited_once()

@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import json
 from typing import Any
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
@@ -102,6 +101,20 @@ class LinkedInJobDetailPage(BasePage):
 
             // -- Description -- (multi-strategy, most critical field)
             let descText = '';
+            // Strategy 0: LinkedIn's logged-in layout hashes its class names,
+            // so anchor on the stable "About the job" heading text.
+            const normText = t => (t || '').replace(/\\s+/g, ' ').trim();
+            const aboutHeading = [...document.querySelectorAll('h1,h2,h3,h4,[role="heading"]')]
+                .find(el => normText(el.innerText).toLowerCase() === 'about the job');
+            if (aboutHeading) {
+                const headingLength = normText(aboutHeading.innerText).length;
+                let node = aboutHeading.parentElement;
+                while (node && normText(node.innerText).length <= headingLength + 5 && node.parentElement) {
+                    node = node.parentElement;
+                }
+                const text = node ? normText(node.innerText) : '';
+                if (text.length > headingLength + 20) descText = text.replace(/^about the job\\s*/i, '');
+            }
             // Strategy 1: Modern description containers
             const descSelectors = [
                 '[componentkey^="JobDetails_AboutTheJob_"]',

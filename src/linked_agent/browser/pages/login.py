@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 
 from playwright.async_api import Error as PlaywrightError
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
 from src.linked_agent.browser.pages.base import BasePage
 from src.linked_agent.config.constants import (
@@ -43,15 +44,33 @@ class LinkedInLoginPage(BasePage):
     """Page Object representing the LinkedIn Login page."""
 
     async def navigate(self) -> None:
-        """Navigate directly to the LinkedIn login page."""
+        """Navigate directly to the LinkedIn login page.
+
+        A saved cookie session makes /login sign the account in and redirect
+        to the feed instead of rendering the password form, so accept either
+        the form or an authenticated surface.
+        """
         page = self._engine.page
         # Third-party scripts can delay DOMContentLoaded/network idle even when
         # the sign-in form is usable. Wait for the field we actually need.
         await page.goto(LINKEDIN_LOGIN_URL, wait_until="commit", timeout=90_000)
-        await page.locator('input[type="password"]:visible').first.wait_for(
-            state="visible", timeout=90_000
-        )
+        try:
+            await page.locator('input[type="password"]:visible').first.wait_for(
+                state="visible", timeout=30_000
+            )
+        except PlaywrightTimeoutError:
+            if not await self._on_authenticated_surface():
+                raise
         await asyncio.sleep(2)
+
+    async def _on_authenticated_surface(self) -> bool:
+        """True when LinkedIn auto-restored the session instead of showing a form."""
+        page = self._engine.page
+        for _ in range(15):
+            if "/login" not in page.url.lower() and await self.is_logged_in():
+                return True
+            await asyncio.sleep(2)
+        return False
 
     async def navigate_to_base(self) -> None:
         """Check the authenticated jobs surface, not the public landing page."""
@@ -71,15 +90,7 @@ class LinkedInLoginPage(BasePage):
         """Quick check if the user appears logged in."""
         page = self._engine.page
 
-        # Check if we see login/signup buttons — if so, NOT logged in
-        try:
-            not_logged_in = await page.query_selector(LoginSelectors.NOT_LOGGED_IN_INDICATORS)
-            if not_logged_in and await not_logged_in.is_visible():
-                return False
-        except PlaywrightError:
-            pass
-
-        # Check for logged-in profile indicators
+        # Positive indicators win: signed-in pages can still link to /login.
         for selector in LoginSelectors.LOGGED_IN_INDICATORS:
             try:
                 element = await page.query_selector(selector)
@@ -88,6 +99,14 @@ class LinkedInLoginPage(BasePage):
                     return True
             except PlaywrightError:
                 continue
+
+        # Check if we see login/signup buttons — if so, NOT logged in
+        try:
+            not_logged_in = await page.query_selector(LoginSelectors.NOT_LOGGED_IN_INDICATORS)
+            if not_logged_in and await not_logged_in.is_visible():
+                return False
+        except PlaywrightError:
+            pass
 
         # Check URL
         current_url = page.url.lower()

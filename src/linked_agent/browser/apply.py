@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 from urllib.parse import urlsplit
 
 
@@ -15,14 +16,26 @@ from src.linked_agent.config.constants import ApplicationStatus
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.bot.interfaces import IQuestionAnswerer
 from src.linked_agent.models.entities import Job
+from src.linked_agent.utils.helpers import is_linkedin_host
 from src.linked_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
-LINKEDIN_HOSTS = ("www.linkedin.com", "linkedin.com")
 
 
 def _question_identity(fields):
     return [(f.get('question'), f.get('field_type'), f.get('selector')) for f in fields]
+
+
+# LinkedIn appends these optional profile-prose fields to some Easy Apply
+# forms. They are not eligibility questions, so a blank value is valid.
+_NARRATIVE_FIELD_NAMES = {"headline", "summary", "cover letter"}
+
+
+def _optional_narrative_field(question) -> bool:
+    label = re.sub(r"[\s*:]+$", "", str(question.get("question") or "")).strip().casefold()
+    if label not in _NARRATIVE_FIELD_NAMES:
+        return False
+    return not question.get("is_required", False)
 
 
 class LinkedInJobApplier:
@@ -160,12 +173,12 @@ class LinkedInJobApplier:
                             return await self._apply_external(page, new_page_url, job)
 
                         current_url = page.url
-                        if urlsplit(current_url).hostname not in LINKEDIN_HOSTS:
+                        if not is_linkedin_host(urlsplit(current_url).hostname):
                             return await self._apply_external(page, current_url, job)
 
                         # Only close pages that are external (not LinkedIn), not all other pages
                         for p in page.context.pages:
-                            if p != page and urlsplit(p.url or "").hostname not in LINKEDIN_HOSTS:
+                            if p != page and not is_linkedin_host(urlsplit(p.url or "").hostname):
                                 try:
                                     ext_url = p.url
                                     await p.close()
@@ -197,7 +210,7 @@ class LinkedInJobApplier:
                             page.context.remove_listener("page", on_popup)
                         listener_active = False
                     for external_page in opened_external_pages:
-                        if urlsplit(external_page.url).hostname not in LINKEDIN_HOSTS:
+                        if not is_linkedin_host(urlsplit(external_page.url).hostname):
                             with contextlib.suppress(Exception):
                                 await external_page.close()
 
@@ -221,6 +234,65 @@ class LinkedInJobApplier:
             return await self._external_applier.apply(page, url, job)
         return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": url,
                 "error_message": "External employer applications are disabled."}
+
+    def _positive_answer(self, question: dict, job: Job) -> str:
+        """Best-effort answer used only when the evidence-based answerers are silent."""
+        from libs.common.screening_fallback import positive_answer
+
+        candidate = getattr(self._question_answerer, '_resume', None)
+        return positive_answer(question, self._settings, candidate, job)
+
+    def _education_dates_for(self, school: str, degree: str):
+        from libs.common.resume_facts import education_dates
+
+        candidate = getattr(self._question_answerer, "_resume", None)
+        entries = list(getattr(candidate, "education", []) or [])
+
+        def words(value):
+            return {word for word in re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split() if len(word) > 3}
+
+        school_words, degree_words = words(school), words(degree)
+        scored = []
+        for entry in entries:
+            entry_words = set(re.sub(r"[^a-z0-9]+", " ", f"{entry.get('institution', '')} {entry.get('degree', '')}".casefold()).split())
+            score = len(school_words & entry_words) + len(degree_words & entry_words)
+            if score:
+                scored.append((score, entry))
+        if not scored:
+            return None
+        return education_dates(max(scored, key=lambda item: item[0])[1])
+
+    async def _complete_education_form(self) -> bool:
+        """Save missing Education dates from the resume so Review can advance."""
+        if not self._settings.application.answer_all_screening_questions:
+            return False
+        from src.linked_agent.browser.screening_form import (
+            education_form,
+            fill_education_dates,
+            save_education,
+        )
+
+        page = self._detail_page.page
+        state = await education_form(page)
+        if not state.get("found") or not state.get("has_save"):
+            return False
+        school = state.get("school", "")
+        dates = self._education_dates_for(school, state.get("degree", ""))
+        if not dates:
+            logger.warning("Education dates are required but no resume entry matches: %s", school[:60])
+            return False
+        if not await fill_education_dates(page, dates):
+            logger.warning("Could not fill education dates for: %s", school[:60])
+            return False
+        if not await save_education(page):
+            logger.warning("Could not save education entry for: %s", school[:60])
+            return False
+        logger.info(
+            "Saved education dates for %s (%02d/%s-%02d/%s)",
+            school[:60], dates[0], dates[1], dates[2], dates[3],
+        )
+        await asyncio.sleep(2)
+        return True
 
     async def _answer_screening_questions_locally(self, questions: list[dict], job: Job) -> list[dict]:
         from libs.common.screening_memory import local_answer, memory_store
@@ -261,7 +333,7 @@ class LinkedInJobApplier:
         - Work authorization
         - Review
         """
-        max_steps = 15
+        max_steps = 30
         self._active_job_id = job.linkedin_job_id
         step = 0
         modal_found = False
@@ -331,8 +403,16 @@ class LinkedInJobApplier:
                 if has_submit:
                     return await self._submit_once_and_confirm()
 
-            # Build step signature for loop detection
-            step_sig = "|".join(f"{q.get('question','')[:30]}:{q.get('field_type','')}" for q in questions)
+            # Build step signature for loop detection. Some LinkedIn forms
+            # re-render the whole question block after each answer, so two
+            # consecutive steps keep the same questions while the filled
+            # values progress. Include the filled/empty state in the
+            # signature; otherwise a long form looks like a loop.
+            step_sig = "|".join(
+                f"{q.get('question','')[:30]}:{q.get('field_type','')}:"
+                f"{'filled' if str(q.get('current_value') or '').strip() else 'empty'}"
+                for q in questions
+            )
             if step_sig:
                 last_step_signatures.append(step_sig)
                 # Check if any signature appears 2+ times in last 4 steps (catches loops early)
@@ -387,7 +467,20 @@ class LinkedInJobApplier:
                 for q, a in zip(non_file_questions, answers, strict=True):
                     answer_text = a.get("answer", "")
                     if not answer_text:
-                        return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
+                        if _optional_narrative_field(q):
+                            # LinkedIn adds Headline/Summary/Cover letter to some
+                            # Easy Apply forms. They are profile prose, not
+                            # screening questions, and blank is a valid answer.
+                            logger.info(f"Step {step} leaving optional narrative field blank: {q.get('question', '')[:40]}")
+                            continue
+                        if self._settings.application.answer_all_screening_questions:
+                            answer_text = self._positive_answer(q, job)
+                            if answer_text:
+                                logger.info(
+                                    f"Step {step} best-effort answer for '{q.get('question', '')[:40]}'"
+                                )
+                        if not answer_text:
+                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
                         filled = await self._detail_page.fill_answer(q, answer_text)
                         refreshed = await self._detail_page.extract_screening_questions()
@@ -449,6 +542,17 @@ class LinkedInJobApplier:
                     return self._unfinished_form_result("Review is unavailable or the form has validation errors.")
                 # Wait for review page to fully load
                 await asyncio.sleep(3)
+
+                # LinkedIn can open an inline Education editor when dates are
+                # missing. Saving them from the resume is what lets Review
+                # advance; without it every such job is abandoned.
+                for _ in range(2):
+                    if not await self._complete_education_form():
+                        break
+                    logger.info("Education dates were missing — retrying Review")
+                    if not await self._detail_page.click_review():
+                        break
+                    await asyncio.sleep(3)
 
                 # Dump modal state after Review for debugging
                 review_state = {}

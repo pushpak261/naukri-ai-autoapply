@@ -17,6 +17,8 @@ from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
+from src.linked_agent.browser.dom_scripts import DESCRIPTION_TEXT
+from src.linked_agent.browser.auth_state import signed_out
 from src.linked_agent.browser.pages.base import BasePage
 from src.linked_agent.browser.navigation import navigate
 from src.linked_agent.config.constants import SearchSelectors
@@ -176,6 +178,7 @@ class LinkedInSearchPage(BasePage):
                 }""",
                 arg=target,
                 timeout=10000,
+                polling=200,
             )
             destination = await suggestion.json_value()
             destination = self._filtered_location_url(destination)
@@ -184,6 +187,7 @@ class LinkedInSearchPage(BasePage):
                 "target => {const el=[...document.querySelectorAll('[aria-label^=\"Location \"]')].find(el=>el.getClientRects().length); return el && el.textContent.toLowerCase().replace(/\\bbangalore\\b/g,'bengaluru').includes(target);}",
                 arg=target,
                 timeout=10000,
+                polling=200,
             )
         geo_id = parse_qs(urlparse(page.url).query).get("geoId", [""])[0]
         if geo_id:
@@ -324,11 +328,14 @@ class LinkedInSearchPage(BasePage):
           6. Fall back to comprehensive DOM extraction if no payload.
           7. Deduplicate by URL, build Job objects with LinkedIn IDs.
         """
+        page = self._engine.page
+        if await signed_out(page):
+            raise LoginError("LinkedIn served a signed-out search page; sign-in is required")
+
         if await self.has_no_results():
             logger.info("Page indicates no search results — skipping card collection")
             return []
 
-        page = self._engine.page
         await self._wait_for_search_page_ready(page)
 
         if await self.has_no_results():
@@ -477,7 +484,7 @@ class LinkedInSearchPage(BasePage):
             const loc = document.querySelector('.job-details-jobs-unified-top-card__primary-description span, .job-details-jobs-unified-top-card__bullet');
             details.location = loc ? loc.textContent.trim() : '';
 
-            const descSelectors = ['[componentkey^="JobDetails_AboutTheJob_"]', '.jobs-description__content', '.jobs-box__html-content', '.description__text', '.show-more-less-html__markup', 'div.jobs-description', '.job-details-jobs-unified-top-card__job-insight'];
+            const descSelectors = ['[componentkey^="JobDetails_AboutTheJob_"]', '.jobs-description__content', '.jobs-box__html-content', '.description__text', '.show-more-less-html__markup', 'div.jobs-description'];
             let descText = '';
             for (const sel of descSelectors) {
                 const el = document.querySelector(sel);
@@ -485,18 +492,6 @@ class LinkedInSearchPage(BasePage):
                     descText = el.textContent.trim();
                     break;
                 }
-            }
-            if (!descText) {
-                let maxLen = 0;
-                document.querySelectorAll('div, section').forEach(el => {
-                    const t = el.textContent.trim();
-                    if (t.length > maxLen && t.length < 50000 && t.length > 200) {
-                        if (!t.includes('Jobs you may be interested in') && !t.includes('People also viewed') && !el.closest('.jobs-search-results-list')) {
-                            maxLen = t.length;
-                            descText = t;
-                        }
-                    }
-                });
             }
             details.description = descText;
             const skillEls = document.querySelectorAll('.job-details-jobs-unified-top-card__job-insight span, .job-insight__text');
@@ -538,6 +533,11 @@ class LinkedInSearchPage(BasePage):
         }"""
         try:
             result = await page.evaluate(js_script)
+            if not (result or {}).get("description"):
+                # The logged-in layout hashes its class names; anchor on the heading.
+                description = await page.evaluate(DESCRIPTION_TEXT)
+                if description and result is not None:
+                    result["description"] = description
             return result or {}
         except PlaywrightError as e:
             logger.error(f"Sidebar extraction failed: {e}")
