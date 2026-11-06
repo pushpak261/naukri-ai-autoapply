@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import Error as PlaywrightError
 
+from src.linked_agent.browser.auth_state import signed_out
 from src.linked_agent.browser.pages.search import LinkedInSearchPage
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
 from src.linked_agent.browser.navigation import NetworkUnavailableError
@@ -363,6 +364,8 @@ class LinkedInJobSearcher:
             )
             if "sign in" in body_text.lower() or "join now" in body_text.lower():
                 logger.warning("Session may have expired — login-related text detected")
+            if await signed_out(page):
+                raise LoginError("LinkedIn served a signed-out page; sign-in is required")
             if any(text in body_text.casefold() for text in ("complete the captcha", "verify you are human", "security verification", "unusual activity")):
                 raise LoginError("LinkedIn verification requires your attention")
 

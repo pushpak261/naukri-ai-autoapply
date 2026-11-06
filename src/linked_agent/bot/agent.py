@@ -28,6 +28,7 @@ from rich.table import Table
 
 from src.linked_agent.utils.similarity import LinkedInVectorSimilarityFilter
 from src.linked_agent.browser.apply import LinkedInJobApplier
+from src.linked_agent.browser.auth_state import signed_out
 from src.linked_agent.browser.dom_scripts import LOADED_LISTING
 from src.linked_agent.browser.login import LinkedInLoginHandler
 from src.linked_agent.browser.search import LinkedInJobSearcher
@@ -44,7 +45,7 @@ from src.linked_agent.models.rules import (
     LinkedInScamSpecification,
     TitleExclusionSpecification,
 )
-from src.linked_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.linked_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError, LoginError
 from src.linked_agent.utils.notification import send_notification
 from src.linked_agent.utils.telemetry import MetricsTracker
 from src.linked_agent.utils.email_sender import _build_html_report, send_external_jobs_email
@@ -253,7 +254,7 @@ class LinkedInAgent:
                 log_error("LinkedIn login failed. Cannot proceed.")
                 return
 
-            jobs = await self._job_searcher.search_all()
+            jobs = await self._search_all_with_recovery()
             self._jobs_found = len(jobs)
 
             if not jobs:
@@ -375,6 +376,23 @@ class LinkedInAgent:
                 logger.exception("Agent fatal error")
         finally:
             await self._cleanup()
+
+    async def _search_all_with_recovery(self) -> list[Job]:
+        """Search every keyword/location, recovering once from a mid-run sign-out.
+
+        LinkedIn can invalidate an automation session server-side while the
+        search is running. The search layer raises LoginError when it sees a
+        signed-out page, so re-authenticate and restart the search instead of
+        treating the public listings as a complete, applyable queue.
+        """
+        try:
+            return await self._job_searcher.search_all()
+        except LoginError:
+            logger.warning("LinkedIn session expired during search; recovering")
+            if not await self._recover_linkedin_session():
+                raise
+            logger.info("LinkedIn session recovered; restarting job search")
+            return await self._job_searcher.search_all()
 
     async def _parse_resume(self) -> None:
         """Parse the resume PDF and cache the structured profile."""
@@ -810,6 +828,7 @@ class LinkedInAgent:
             # Fallback: construct a minimal search URL with just currentJobId
             target_url = f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}"
 
+        recovered = False
         for attempt in range(2):
             try:
                 logger.debug(f"Navigating to sidebar (attempt {attempt+1}): {target_url[:120]}")
@@ -817,6 +836,18 @@ class LinkedInAgent:
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
                 await asyncio.sleep(2)
+
+                # A signed-out page still renders public listings, but every
+                # Apply control behind it is a sign-in prompt. Recover before
+                # interpreting the page as a job without Easy Apply.
+                if await signed_out(page):
+                    logger.warning("LinkedIn page is signed out; recovering the session")
+                    if not recovered and await self._recover_linkedin_session():
+                        recovered = True
+                        logger.info("LinkedIn session recovered; retrying job navigation")
+                        continue
+                    logger.warning("Session expired during job navigation — cannot proceed")
+                    return False
 
                 # Verify we're on a search page with the job sidebar open
                 current_url = page.url
@@ -830,7 +861,8 @@ class LinkedInAgent:
                     logger.warning(
                         "LinkedIn redirected sidebar navigation to a sign-in surface"
                     )
-                    if attempt == 0 and await self._recover_linkedin_session():
+                    if not recovered and await self._recover_linkedin_session():
+                        recovered = True
                         logger.info("LinkedIn session recovered; retrying job navigation")
                         continue
                     logger.warning("Session expired during sidebar navigation — cannot proceed")
@@ -853,6 +885,19 @@ class LinkedInAgent:
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
                 await asyncio.sleep(2)
+                if await signed_out(page):
+                    logger.warning("LinkedIn page is signed out; recovering the session")
+                    if recovered or not await self._recover_linkedin_session():
+                        logger.warning("Session expired during job navigation — cannot proceed")
+                        return False
+                    recovered = True
+                    logger.info("LinkedIn session recovered; retrying direct job navigation")
+                    await navigate(page, job.url)
+                    with contextlib.suppress(PlaywrightTimeoutError):
+                        await page.wait_for_load_state("networkidle", timeout=10000)
+                    await asyncio.sleep(2)
+                    if await signed_out(page):
+                        return False
                 if _matches_job_url(page.url, job_id):
                     await self._wait_for_listing_content(page)
                     return True

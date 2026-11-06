@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlparse, urlencode, urlunparse
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
 from src.linked_agent.browser.dom_scripts import DESCRIPTION_TEXT
+from src.linked_agent.browser.auth_state import signed_out
 from src.linked_agent.browser.pages.base import BasePage
 from src.linked_agent.browser.navigation import navigate
 from src.linked_agent.config.constants import SearchSelectors
@@ -327,11 +328,14 @@ class LinkedInSearchPage(BasePage):
           6. Fall back to comprehensive DOM extraction if no payload.
           7. Deduplicate by URL, build Job objects with LinkedIn IDs.
         """
+        page = self._engine.page
+        if await signed_out(page):
+            raise LoginError("LinkedIn served a signed-out search page; sign-in is required")
+
         if await self.has_no_results():
             logger.info("Page indicates no search results — skipping card collection")
             return []
 
-        page = self._engine.page
         await self._wait_for_search_page_ready(page)
 
         if await self.has_no_results():
