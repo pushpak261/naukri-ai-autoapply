@@ -42,6 +42,8 @@ _NEGATIVE_POLARITY = (
     r"\bveteran\b",
 )
 
+_LINK_FIELD = re.compile(r"\b(?:url|link|profile|portfolio|website|handle)\b", re.I)
+
 _AFFIRMATIVE = re.compile(
     r"\b(?:yes|agree|authoriz|authoris|eligible|willing|open to|available|confirm|accept|"
     r"acknowledge|i have read|i understand|immediate)\b",
@@ -293,10 +295,6 @@ def _text_answer(question, settings, candidate, job):
         draft = draft_answer(question, settings, candidate, job)
         if draft:
             return draft
-    if any(word in text for word in ("linkedin", "github", "portfolio", "website", "url")):
-        link = _link(text, settings, candidate)
-        if link:
-            return link
     if (
         re.search(r"\b(?:how many|number of)\b", text)
         or question.get("input_type") == "number"
@@ -305,6 +303,12 @@ def _text_answer(question, settings, candidate, job):
         or any(word in text for word in ("ctc", "salary", "compensation", "package"))
     ):
         return _number_answer(text, settings, candidate)
+    # A skill question mentioning GitHub Actions is still a number question,
+    # not a profile-link box. Only an explicit link/profile prompt gets a URL.
+    if _LINK_FIELD.search(text) or text.strip(" :*.-") in ("github", "linkedin"):
+        link = _link(text, settings, candidate)
+        if link:
+            return link
     if re.match(r"^(?:do|does|are|is|have|has|will|would|can|could|did)\b", text):
         return "No" if _wants_negative(text) else "Yes"
     if "location" in text or "city" in text:
@@ -322,3 +326,24 @@ def positive_answer(question, settings, candidate=None, job=None):
     if kind in ("radio", "dropdown", "checkbox") or _options(question):
         return _choice_answer(question, settings, candidate)
     return _text_answer(question, settings, candidate, job)
+
+
+def numeric_answer(question, settings, candidate=None):
+    """Positive number for a text field whose form rejects a prose answer.
+
+    LinkedIn sometimes renders numeric screening questions as plain text
+    inputs and only reveals the requirement after the first value is rejected.
+    Whatever the wording, this must return a non-empty number.
+    """
+    text = _text(question)
+    if "notice" in text:
+        return _notice_days(settings)
+    if any(word in text for word in ("ctc", "salary", "compensation", "package")):
+        return _ctc_amount(text, settings)
+    years = _years(settings, candidate) if candidate is not None else None
+    if years is None:
+        return "1"
+    if "month" in text and "year" not in text:
+        months = int(round((years - int(years)) * 12))
+        return str(max(months, 1))
+    return format(max(float(years), 1), "g")

@@ -33,6 +33,8 @@ const path = el => {
     return 'body > ' + parts.join(' > ');
 };
 const text = el => (el?.innerText || el?.textContent || '').trim().replace(/\s+/g, ' ');
+const validationHint = el => (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
+    .map(id => text(document.getElementById(id))).filter(Boolean).join(' ');
 const labelText = el => {
     if (!el) return '';
     const copy = el.cloneNode(true);
@@ -97,6 +99,7 @@ for (const input of controls) {
     result.push({question: label, field_type: fieldType, input_type: type || 'text', input_id: input.id || '', selector: path(input),
         group_selector: path(group), options: options.map(o => o.text), option_controls: options, current_value: value,
         validation_error: customInvalid(input),
+        validation_hint: validationHint(input),
         max_length: input.maxLength > 0 ? input.maxLength : null,
         min_length: input.minLength > 0 ? input.minLength : null,
         is_required: members.some(el => el.required || el.getAttribute('aria-required') === 'true') || group.getAttribute('aria-required') === 'true' || /\*\s*$/.test(label)});

@@ -636,6 +636,48 @@ async def test_education_dates_helper_sets_all_four_selects_and_saves(search_pag
 
 
 @pytest.mark.asyncio
+async def test_numeric_only_text_question_is_retried_with_a_number(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog">
+      <label for="aem">Have you worked on AEM architecture and implementation?</label>
+      <input id="aem" type="text" pattern="[0-9]+" required>
+      <button onclick="review()">Review</button></div>
+      <script>
+      window.submissions=0;
+      function review(){document.body.dataset.aem=document.querySelector('#aem').value;
+        document.querySelector('[role=dialog]').innerHTML=
+        '<button onclick="done()">Submit application</button>';}
+      function done(){window.submissions++;
+        document.querySelector('[role=dialog]').innerHTML='<p>Application sent</p>';}
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(
+        project_root=tmp_path,
+        ai={"use_gemini": False},
+        application={"answer_all_screening_questions": True},
+    )
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(name="Candidate", skills=["Java"], total_experience_years=1)
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.submissions") == 1
+    value = await tab.locator("body").get_attribute("data-aem")
+    assert value and value.isdigit() and int(value) >= 1
+
+
+@pytest.mark.asyncio
 async def test_missing_education_dates_are_saved_before_review(search_page, tmp_path, monkeypatch):
     from src.linked_agent.browser.apply import LinkedInJobApplier
     from src.linked_agent.config.settings import Settings

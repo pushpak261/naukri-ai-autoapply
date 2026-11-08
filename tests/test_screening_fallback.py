@@ -1,6 +1,6 @@
 """Best-effort screening answers keep every field populated."""
 
-from libs.common.screening_fallback import positive_answer
+from libs.common.screening_fallback import numeric_answer, positive_answer
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job, ResumeProfile
 
@@ -116,3 +116,28 @@ def test_notice_field_without_the_word_day_stays_numeric(tmp_path):
 def test_location_text_fields_use_the_saved_city(tmp_path):
     question = {"question": "Location (city)*", "field_type": "text"}
     assert answer(tmp_path, question, {"current_city": "Pune"}) == "Pune"
+
+
+def test_experience_questions_mentioning_github_actions_stay_numeric(tmp_path):
+    question = {
+        "question": "How many years of work experience do you have in DevOps "
+        "(AWS, Jenkins, GitHub Actions)?",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, question, {"total_experience": "1 year"}) == "1"
+
+
+def test_a_bare_github_question_still_returns_the_profile_link(tmp_path):
+    question = {"question": "GitHub", "field_type": "text"}
+    assert answer(tmp_path, question) == "https://github.com/candidate"
+
+
+def test_numeric_retry_answer_is_never_prose(tmp_path):
+    settings = Settings(project_root=tmp_path, profile={})
+    question = {
+        "question": "Have you worked on AEM architecture and implementation?",
+        "field_type": "text",
+    }
+    value = numeric_answer(question, settings, candidate())
+    assert value.isdigit()
+    assert int(value) >= 1

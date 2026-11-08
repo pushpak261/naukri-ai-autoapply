@@ -26,6 +26,16 @@ def _question_identity(fields):
     return [(f.get('question'), f.get('field_type'), f.get('selector')) for f in fields]
 
 
+def _same_field(fields, question):
+    matches = [
+        field
+        for field in fields
+        if field.get('selector') == question.get('selector')
+        and field.get('field_type') == question.get('field_type')
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
 # LinkedIn appends these optional profile-prose fields to some Easy Apply
 # forms. They are not eligibility questions, so a blank value is valid.
 _NARRATIVE_FIELD_NAMES = {"headline", "summary", "cover letter"}
@@ -241,6 +251,13 @@ class LinkedInJobApplier:
 
         candidate = getattr(self._question_answerer, '_resume', None)
         return positive_answer(question, self._settings, candidate, job)
+
+    def _numeric_answer(self, question: dict, job: Job) -> str:
+        """Positive number for a text field that rejects a prose answer."""
+        from libs.common.screening_fallback import numeric_answer
+
+        candidate = getattr(self._question_answerer, '_resume', None)
+        return numeric_answer(question, self._settings, candidate)
 
     def _education_dates_for(self, school: str, degree: str):
         from libs.common.resume_facts import education_dates
@@ -487,6 +504,25 @@ class LinkedInJobApplier:
                         if _question_identity(refreshed) != _question_identity(questions):
                             form_changed = True
                             break
+                        retried = _same_field(refreshed, q)
+                        rejected = not filled or bool(
+                            retried and retried.get("validation_error")
+                        )
+                        if rejected and q.get("field_type") == "text":
+                            # LinkedIn renders some numeric questions as text
+                            # boxes and only rejects prose after the first fill.
+                            # Retry once with a positive number instead of
+                            # abandoning an otherwise answerable application.
+                            numeric = self._numeric_answer(q, job)
+                            if numeric and numeric != str(answer_text):
+                                logger.info(
+                                    f"Step {step} text answer rejected; retrying numeric answer for '{q.get('question','')[:40]}'"
+                                )
+                                filled = await self._detail_page.fill_answer(q, numeric)
+                                refreshed = await self._detail_page.extract_screening_questions()
+                                if _question_identity(refreshed) != _question_identity(questions):
+                                    form_changed = True
+                                    break
                         if not filled:
                             return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a screening field. Review the application form."}
                         logger.info(f"Step {step} fill '{q.get('question','')[:30]}': {filled}")
