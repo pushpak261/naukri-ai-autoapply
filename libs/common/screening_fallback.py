@@ -44,9 +44,20 @@ _NEGATIVE_POLARITY = (
 
 _LINK_FIELD = re.compile(r"\b(?:url|link|profile|portfolio|website|handle)\b", re.I)
 _MONEY = re.compile(
-    r"\b(?:ctc|salary|compensation|package|stipend|pay|rate|inr|lpa)\b", re.I
+    r"\b(?:ctc|salary|compensation|package|stipend|pay|inr|lpa)\b", re.I
+)
+_RATE = re.compile(r"\brate\b", re.I)
+_RATE_CONTEXT = re.compile(
+    r"\b(?:expected|current|monthly|hourly|daily|annual|yearly|per|inr|lpa|ctc|salary)\b",
+    re.I,
 )
 _MONTHLY = re.compile(r"\bmonth(?:ly)?\b", re.I)
+
+
+def _is_money(text):
+    return bool(_MONEY.search(text)) or (
+        bool(_RATE.search(text)) and bool(_RATE_CONTEXT.search(text))
+    )
 
 _AFFIRMATIVE = re.compile(
     r"\b(?:yes|agree|authoriz|authoris|eligible|willing|open to|available|confirm|accept|"
@@ -236,7 +247,7 @@ def _number_answer(text, settings, candidate):
         return format(stated, "g") if stated is not None else "0"
     if "notice" in text:
         return _notice_days(settings)
-    if _MONEY.search(text):
+    if _is_money(text):
         return _money_amount(text, settings)
     return "0"
 
@@ -312,7 +323,7 @@ def _text_answer(question, settings, candidate, job):
         or question.get("input_type") == "number"
         or question.get("field_type") == "number"
         or "notice" in text
-        or _MONEY.search(text)
+        or _is_money(text)
     ):
         return _number_answer(text, settings, candidate)
     # A skill question mentioning GitHub Actions is still a number question,
@@ -350,7 +361,7 @@ def numeric_answer(question, settings, candidate=None):
     text = _text(question)
     if "notice" in text:
         return _notice_days(settings)
-    if _MONEY.search(text):
+    if _is_money(text):
         return _money_amount(text, settings)
     years = _years(settings, candidate) if candidate is not None else None
     if years is None:

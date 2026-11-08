@@ -159,3 +159,10 @@ def test_numeric_retry_uses_the_expected_ctc_for_a_monthly_rate(tmp_path):
         "field_type": "text",
     }
     assert numeric_answer(question, settings, candidate()) == "50000"
+
+
+def test_skill_ratings_are_not_mistaken_for_pay(tmp_path):
+    question = {"question": "Rate your Java skills from 1 to 10", "field_type": "text"}
+    value = answer(tmp_path, question, {"expected_ctc": "6 lpa"})
+    assert value
+    assert value != "50000"
