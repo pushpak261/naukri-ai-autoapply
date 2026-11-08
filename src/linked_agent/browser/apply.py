@@ -377,6 +377,15 @@ class LinkedInJobApplier:
                 if not modal_found:
                     logger.warning("Easy Apply modal not found")
                     break
+                # Some jobs open a "Job search safety reminder" dialog first;
+                # its "Continue applying" link loads the actual application.
+                from src.linked_agent.browser.screening_form import continue_past_safety_reminder
+
+                if await continue_past_safety_reminder(page):
+                    logger.info("Dismissed LinkedIn safety reminder; loading the application form")
+                    with contextlib.suppress(Exception):
+                        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    await asyncio.sleep(2)
 
             # Check for 0-step success (click Easy Apply → success screen immediately)
             if await self._detail_page.has_submit_success():

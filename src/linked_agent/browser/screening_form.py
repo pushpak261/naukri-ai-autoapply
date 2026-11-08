@@ -113,6 +113,24 @@ async def extract(page):
     return await page.evaluate(EXTRACT)
 
 
+async def continue_past_safety_reminder(page):
+    """Dismiss LinkedIn's 'Job search safety reminder' before the real form."""
+    return await page.evaluate(
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return false;
+if (!/job search safety reminder/i.test(modal.innerText || '')) return false;
+const link = [...modal.querySelectorAll('a, button, [role="button"]')].find(el => visible(el) &&
+    el.getAttribute('aria-disabled') !== 'true' && !el.disabled &&
+    /^continue applying$/i.test((el.innerText || el.getAttribute('aria-label') || '').trim()));
+if (!link) return false;
+link.click();
+return true;
+}"""
+    )
+
+
 async def wait_until_ready(page, timeout_ms: int = 30000):
     """A dialog heading and spinner do not mean the application body has loaded."""
     script = (
@@ -120,6 +138,7 @@ async def wait_until_ready(page, timeout_ms: int = 30000):
         + FORM_SCOPE
         + r"""
 if (!modal || modal.getAttribute('aria-busy') === 'true' || [...modal.querySelectorAll('[aria-busy="true"]')].some(visible)) return false;
+if (/job search safety reminder/i.test(modal.innerText || '')) return false;
 const fields = [...modal.querySelectorAll('input, select, textarea, [role="radio"], [role="checkbox"]')];
 if (fields.some(el => visible(el) && el.type !== 'hidden' && !['button', 'submit', 'reset'].includes(el.type))) return true;
 const actions = [...modal.querySelectorAll('button')];

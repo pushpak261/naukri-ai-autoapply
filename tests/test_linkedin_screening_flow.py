@@ -678,6 +678,49 @@ async def test_numeric_only_text_question_is_retried_with_a_number(
 
 
 @pytest.mark.asyncio
+async def test_safety_reminder_is_dismissed_before_the_application_form(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog" id="modal">
+      <p>Job search safety reminder</p>
+      <button>Review job post</button>
+      <a href="#" onclick="event.preventDefault();openForm()">Continue applying</a></div>
+      <script>
+      window.submissions=0;
+      function openForm(){document.getElementById('modal').innerHTML=
+        '<label for="email">Email address</label><input id="email" type="email" required>' +
+        '<button onclick="review()">Next</button>';}
+      function review(){document.getElementById('modal').innerHTML=
+        '<button onclick="submit()">Submit application</button>';}
+      function submit(){window.submissions++;
+        document.getElementById('modal').innerHTML='<p>Application sent</p>';}
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(project_root=tmp_path, ai={"use_gemini": False})
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(
+            name="Candidate",
+            email="candidate@example.invalid",
+            skills=["Java"],
+            total_experience_years=1,
+        )
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.submissions") == 1
+
+
+@pytest.mark.asyncio
 async def test_missing_education_dates_are_saved_before_review(search_page, tmp_path, monkeypatch):
     from src.linked_agent.browser.apply import LinkedInJobApplier
     from src.linked_agent.config.settings import Settings
