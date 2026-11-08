@@ -43,6 +43,10 @@ _NEGATIVE_POLARITY = (
 )
 
 _LINK_FIELD = re.compile(r"\b(?:url|link|profile|portfolio|website|handle)\b", re.I)
+_MONEY = re.compile(
+    r"\b(?:ctc|salary|compensation|package|stipend|pay|rate|inr|lpa)\b", re.I
+)
+_MONTHLY = re.compile(r"\bmonth(?:ly)?\b", re.I)
 
 _AFFIRMATIVE = re.compile(
     r"\b(?:yes|agree|authoriz|authoris|eligible|willing|open to|available|confirm|accept|"
@@ -232,9 +236,17 @@ def _number_answer(text, settings, candidate):
         return format(stated, "g") if stated is not None else "0"
     if "notice" in text:
         return _notice_days(settings)
-    if any(word in text for word in ("ctc", "salary", "compensation", "package")):
-        return _ctc_amount(text, settings)
+    if _MONEY.search(text):
+        return _money_amount(text, settings)
     return "0"
+
+
+def _money_amount(text, settings):
+    """Annual or monthly money amount from the saved CTC facts."""
+    amount = float(_ctc_amount(text, settings))
+    if _MONTHLY.search(text):
+        amount /= 12
+    return format(round(amount, 2), "g")
 
 
 def _link(text, settings, candidate):
@@ -300,7 +312,7 @@ def _text_answer(question, settings, candidate, job):
         or question.get("input_type") == "number"
         or question.get("field_type") == "number"
         or "notice" in text
-        or any(word in text for word in ("ctc", "salary", "compensation", "package"))
+        or _MONEY.search(text)
     ):
         return _number_answer(text, settings, candidate)
     # A skill question mentioning GitHub Actions is still a number question,
@@ -338,8 +350,8 @@ def numeric_answer(question, settings, candidate=None):
     text = _text(question)
     if "notice" in text:
         return _notice_days(settings)
-    if any(word in text for word in ("ctc", "salary", "compensation", "package")):
-        return _ctc_amount(text, settings)
+    if _MONEY.search(text):
+        return _money_amount(text, settings)
     years = _years(settings, candidate) if candidate is not None else None
     if years is None:
         return "1"

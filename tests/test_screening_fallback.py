@@ -141,3 +141,21 @@ def test_numeric_retry_answer_is_never_prose(tmp_path):
     value = numeric_answer(question, settings, candidate())
     assert value.isdigit()
     assert int(value) >= 1
+
+
+def test_monthly_expected_rate_uses_the_annual_expected_ctc(tmp_path):
+    profile = {"expected_ctc": "6 lpa"}
+    question = {
+        "question": "Monthly expected rate in INR (As per Gov. 10% TDS would be deducted):",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, question, profile) == "50000"
+
+
+def test_numeric_retry_uses_the_expected_ctc_for_a_monthly_rate(tmp_path):
+    settings = Settings(project_root=tmp_path, profile={"expected_ctc": "6 lpa"})
+    question = {
+        "question": "Monthly expected rate in INR (As per Gov. 10% TDS would be deducted):",
+        "field_type": "text",
+    }
+    assert numeric_answer(question, settings, candidate()) == "50000"
