@@ -59,6 +59,84 @@ def _is_money(text):
         bool(_RATE.search(text)) and bool(_RATE_CONTEXT.search(text))
     )
 
+
+_RATING = re.compile(
+    r"\bhow would you rate\b|\brate your\b[^?.]*\b(?:scale|out of|\d\s*(?:-|to)\s*\d)\b",
+    re.I,
+)
+_PEOPLE = re.compile(
+    r"\b(?:how many|number of|size of)\b[^?.]{0,60}"
+    r"\b(?:people|persons?|team members?|members|employees|reports?|direct reports?)\b",
+    re.I,
+)
+_NAME_FACT = re.compile(r"\b(?:full name|your name|name as per)\b", re.I)
+_FIRST_NAME = re.compile(r"\b(?:first|given) name\b", re.I)
+_LAST_NAME = re.compile(r"\b(?:last|family|sur)name\b", re.I)
+_EDUCATION_FACT = re.compile(r"\b(?:highest|completed|qualification)\b", re.I)
+_COMPANY_FACT = re.compile(
+    r"\b(?:current|present)\b[^?.]*\b(?:company|employer|organization)\b"
+    r"|\b(?:company|employer) name\b",
+    re.I,
+)
+_LOCATION_FACT = re.compile(r"\b(?:location|city|based|located|reside|residing)\b", re.I)
+_TECH_LIST = re.compile(
+    r"\b(?:list|which|what)\b[^?.]*\b(?:tools?|platforms?|technologies|tech stack|skills?)\b",
+    re.I,
+)
+_DATE_ANSWER = re.compile(
+    r"\blast working day\b|\bstart(?:ing)? date\b|\bdate of joining\b|\bjoining date\b"
+    r"|\bwhen can you (?:start|join)\b|\bwhen are you able to (?:start|join)\b"
+    r"|\bhow soon can you (?:start|join)\b|\bavailability to (?:start|join)\b"
+    r"|\bavailable to (?:start|join)\b|\bearliest (?:start|joining)\b",
+    re.I,
+)
+
+
+def _highest_degree(candidate):
+    entries = [entry for entry in getattr(candidate, "education", []) or [] if isinstance(entry, dict)]
+
+    def year(entry):
+        match = re.search(r"(?:19|20)\d{2}", str(entry.get("year") or entry.get("end_year") or ""))
+        return int(match[0]) if match else 0
+
+    for entry in sorted(entries, key=year, reverse=True):
+        degree = str(entry.get("degree") or entry.get("qualification") or "").strip()
+        if degree:
+            return degree
+    return ""
+
+
+def _current_company(candidate):
+    entries = [
+        entry for entry in getattr(candidate, "work_experience", []) or [] if isinstance(entry, dict)
+    ]
+    current = next(
+        (entry for entry in entries if "present" in str(entry.get("duration", "")).casefold()),
+        None,
+    )
+    entry = current or (entries[0] if entries else {})
+    return str(entry.get("company") or entry.get("employer") or "").strip()
+
+
+def _skills_text(candidate, limit=10):
+    values = [
+        *getattr(candidate, "skills", []),
+        *getattr(candidate, "technical_skills", []),
+    ]
+    unique = list(dict.fromkeys(str(value).strip() for value in values if str(value or "").strip()))
+    return ", ".join(unique[:limit])
+
+
+def _rating_value(text):
+    match = re.search(r"\b(\d{1,2})\s*(?:-|to|–|—|/)\s*(\d{1,2})\b", text)
+    if match:
+        low, high = int(match[1]), int(match[2])
+        if 1 <= low < high <= 100:
+            return str(high)
+    match = re.search(r"\bout of (\d{1,2})\b", text)
+    return match[1] if match else "10"
+
+
 _AFFIRMATIVE = re.compile(
     r"\b(?:yes|agree|authoriz|authoris|eligible|willing|open to|available|confirm|accept|"
     r"acknowledge|i have read|i understand|immediate)\b",
@@ -114,7 +192,7 @@ def _experience_option(options, text, settings, candidate):
         return ""
     wanted = stated
     if "month" in text and "year" not in text:
-        wanted = (stated - int(stated)) * 12
+        wanted = stated * 12
     affordable = [
         (number, option)
         for number, option in zip(numbers, options, strict=True)
@@ -219,6 +297,16 @@ def _notice_days(settings):
     return str(days)
 
 
+def _availability_answer(settings):
+    """Earliest start date: saved last working day, else the notice period."""
+    profile = settings.profile
+    last_day = str(getattr(profile, "last_working_date", "") or "").strip()
+    if last_day:
+        return last_day
+    notice = str(getattr(profile, "notice_period", "") or "").strip()
+    return notice or "Immediate"
+
+
 def _ctc_amount(text, settings):
     profile = settings.profile
     raw = profile.current_ctc if "current" in text else profile.expected_ctc
@@ -241,8 +329,11 @@ def _ctc_amount(text, settings):
 def _number_answer(text, settings, candidate):
     if "month" in text and "experience" in text:
         stated = _years(settings, candidate)
-        return str(int(round((stated - int(stated)) * 12)) % 12) if stated is not None else "0"
+        return str(max(int(round(stated * 12)), 1)) if stated is not None else "0"
     if "year" in text and "experience" in text:
+        stated = _years(settings, candidate)
+        return format(stated, "g") if stated is not None else "0"
+    if "experience" in text:
         stated = _years(settings, candidate)
         return format(stated, "g") if stated is not None else "0"
     if "notice" in text:
@@ -253,10 +344,18 @@ def _number_answer(text, settings, candidate):
 
 
 def _money_amount(text, settings):
-    """Annual or monthly money amount from the saved CTC facts."""
-    amount = float(_ctc_amount(text, settings))
+    """Annual, monthly, daily or hourly money amount from the saved CTC."""
+    annual = float(_ctc_amount(text, settings))
     if _MONTHLY.search(text):
-        amount /= 12
+        amount = annual / 12
+    elif re.search(r"\b(?:per\s+hour|hourly)\b", text):
+        amount = annual / 2080
+    elif re.search(r"\b(?:per\s+day|daily)\b", text):
+        amount = annual / 260
+    elif re.search(r"\b(?:in|as)\s+(?:lpa|lakhs?|lacs?)\b", text):
+        amount = annual / 100000
+    else:
+        amount = annual
     return format(round(amount, 2), "g")
 
 
@@ -318,8 +417,18 @@ def _text_answer(question, settings, candidate, job):
         draft = draft_answer(question, settings, candidate, job)
         if draft:
             return draft
+    if _RATING.search(text):
+        return _rating_value(text)
+    if "last working day" in text:
+        value = str(getattr(settings.profile, "last_working_date", "") or "").strip()
+        return value or "Immediate"
+    if _DATE_ANSWER.search(text):
+        return _availability_answer(settings)
+    if _PEOPLE.search(text):
+        return "2"
     if (
         re.search(r"\b(?:how many|number of)\b", text)
+        or re.search(r"\bhow much\b[^?.]*\bexperience\b", text)
         or question.get("input_type") == "number"
         or question.get("field_type") == "number"
         or "notice" in text
@@ -334,10 +443,35 @@ def _text_answer(question, settings, candidate, job):
             return link
     if re.match(r"^(?:do|does|are|is|have|has|will|would|can|could|did)\b", text):
         return "No" if _wants_negative(text) else "Yes"
-    if "location" in text or "city" in text:
+    name = str(getattr(candidate, "name", "") or "").strip()
+    if _FIRST_NAME.search(text) and name:
+        return name.split()[0]
+    if _LAST_NAME.search(text) and name:
+        return name.split()[-1]
+    if (_NAME_FACT.search(text) or text.strip(" :*.-") == "name") and name:
+        return name
+    if _EDUCATION_FACT.search(text):
+        degree = _highest_degree(candidate)
+        if degree:
+            return degree
+    if _COMPANY_FACT.search(text):
+        company = _current_company(candidate)
+        if company:
+            return company
+    if _LOCATION_FACT.search(text):
         location = _location_answer(settings)
         if location:
             return location
+    if _TECH_LIST.search(text):
+        skills = _skills_text(candidate)
+        if skills:
+            return skills
+    email = str(getattr(candidate, "email", "") or "").strip()
+    if "email" in text and email:
+        return email
+    phone = str(getattr(candidate, "phone", "") or "").strip()
+    if any(word in text for word in ("phone", "mobile", "contact number")) and phone:
+        return phone
     return _profile_sentence(text, settings, candidate, question)
 
 
@@ -359,6 +493,14 @@ def numeric_answer(question, settings, candidate=None):
     Whatever the wording, this must return a non-empty number.
     """
     text = _text(question)
+    if _DATE_ANSWER.search(text):
+        # A date or "Immediate" is never a number; a numeric fallback would
+        # turn an available-to-start date into 0.
+        return ""
+    if _RATING.search(text):
+        return _rating_value(text)
+    if _PEOPLE.search(text):
+        return "2"
     if "notice" in text:
         return _notice_days(settings)
     if _is_money(text):
@@ -367,6 +509,31 @@ def numeric_answer(question, settings, candidate=None):
     if years is None:
         return "1"
     if "month" in text and "year" not in text:
-        months = int(round((years - int(years)) * 12))
-        return str(max(months, 1))
+        return str(max(int(round(years * 12)), 1))
     return format(max(float(years), 1), "g")
+
+
+def needs_numeric(question):
+    """True when an answer must be a number rather than prose or a URL."""
+    text = _text(question)
+    if question.get("input_type") == "number" or question.get("field_type") == "number":
+        return True
+    if _DATE_ANSWER.search(text):
+        # Dates and availability are answered with a date or "Immediate",
+        # even when the wording also contains "notice".
+        return False
+    if _RATING.search(text) or _PEOPLE.search(text):
+        return True
+    if "notice" in text or _is_money(text):
+        return True
+    if re.search(r"\b(?:how many|number of)\b", text):
+        return True
+    if re.search(r"\bhow much\b[^?.]*\bexperience\b", text):
+        return True
+    return bool(
+        re.search(
+            r"\b(?:years?|months?)\b[^?.]*\bexperience\b"
+            r"|\bexperience\b[^?.]*\b(?:years?|months?)\b",
+            text,
+        )
+    )

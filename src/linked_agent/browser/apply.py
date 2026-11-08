@@ -11,6 +11,7 @@ import re
 from urllib.parse import urlsplit
 
 
+from libs.common.screening_fallback import needs_numeric
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
 from src.linked_agent.config.constants import ApplicationStatus
 from src.linked_agent.config.settings import Settings
@@ -34,6 +35,10 @@ def _same_field(fields, question):
         and field.get('field_type') == question.get('field_type')
     ]
     return matches[0] if len(matches) == 1 else None
+
+
+def _is_numeric_text(value):
+    return bool(re.fullmatch(r"[-+]?\d+(?:\.\d+)?", str(value).strip()))
 
 
 # LinkedIn appends these optional profile-prose fields to some Easy Apply
@@ -508,6 +513,17 @@ class LinkedInJobApplier:
                         if not answer_text:
                             return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
+                        if (
+                            q.get("field_type") == "text"
+                            and not _is_numeric_text(answer_text)
+                            and needs_numeric(q)
+                        ):
+                            numeric = self._numeric_answer(q, job)
+                            if numeric:
+                                logger.info(
+                                    f"Step {step} numeric question answered as a number: '{q.get('question','')[:40]}'"
+                                )
+                                answer_text = numeric
                         filled = await self._detail_page.fill_answer(q, answer_text)
                         refreshed = await self._detail_page.extract_screening_questions()
                         if _question_identity(refreshed) != _question_identity(questions):

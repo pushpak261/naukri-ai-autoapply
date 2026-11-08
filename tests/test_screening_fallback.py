@@ -11,6 +11,10 @@ def candidate():
         current_title="Software Engineer",
         total_experience_years=1,
         skills=["Java", "Spring Boot", "SQL"],
+        education=[
+            {"degree": "B.E., Mechanical Engineering", "institution": "Example", "year": "2023"},
+            {"degree": "PG-DAC", "institution": "CDAC", "year": "2024"},
+        ],
         raw_text="Pune | linkedin.com/in/candidate | github.com/candidate",
     )
 
@@ -166,3 +170,118 @@ def test_skill_ratings_are_not_mistaken_for_pay(tmp_path):
     value = answer(tmp_path, question, {"expected_ctc": "6 lpa"})
     assert value
     assert value != "50000"
+
+
+def test_full_name_and_highest_degree_come_from_the_resume(tmp_path):
+    name = {"question": "Please enter your full name.", "field_type": "text"}
+    degree = {"question": "Please specify your highest completed degree", "field_type": "text"}
+    assert answer(tmp_path, name) == "Candidate"
+    assert answer(tmp_path, degree) == "PG-DAC"
+
+
+def test_where_are_you_based_returns_the_saved_city(tmp_path):
+    question = {"question": "Where are you currently based?", "field_type": "text"}
+    assert answer(tmp_path, question, {"current_city": "Pune"}) == "Pune"
+
+
+def test_last_working_day_uses_the_saved_date_or_immediate(tmp_path):
+    question = {
+        "question": "If you are serving notice, what will be your last working day?",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, question) == "Immediate"
+    assert answer(tmp_path, question, {"last_working_date": "2026-11-30"}) == "2026-11-30"
+
+
+def test_last_working_day_is_not_overwritten_with_a_numeric_zero(tmp_path):
+    from libs.common.screening_fallback import needs_numeric, numeric_answer
+    from src.linked_agent.config.settings import Settings
+
+    question = {
+        "question": "If you are serving notice, what will be your last working day?",
+        "field_type": "text",
+    }
+    settings = Settings(project_root=tmp_path, profile={"notice_period": "Immediate"})
+    assert needs_numeric(question) is False
+    assert numeric_answer(question, settings) == ""
+    # A plain notice-period question still needs a number.
+    assert needs_numeric({"question": "What will be your notice period?", "field_type": "text"})
+    assert numeric_answer(
+        {"question": "What will be your notice period?", "field_type": "text"}, settings
+    ) == "0"
+
+
+def test_start_date_questions_answer_immediate(tmp_path):
+    for prompt in (
+        "When can you start?",
+        "What is your availability to start?",
+        "What is your earliest start date?",
+        "What is your date of joining?",
+    ):
+        question = {"question": prompt, "field_type": "text"}
+        assert answer(tmp_path, question) == "Immediate", prompt
+    question = {"question": "When can you start?", "field_type": "text"}
+    assert answer(tmp_path, question, {"last_working_date": "2026-11-30"}) == "2026-11-30"
+
+
+def test_rating_questions_get_a_high_number(tmp_path):
+    ten = {
+        "question": "How would you rate your communication and interpersonal skills "
+        "on a scale of 1-10?",
+        "field_type": "text",
+    }
+    five = {"question": "Rate your Java skills from 1 to 5", "field_type": "text"}
+    assert answer(tmp_path, ten) == "10"
+    assert answer(tmp_path, five) == "5"
+
+
+def test_team_size_questions_get_a_positive_number(tmp_path):
+    question = {
+        "question": "Have you managed teams before? If yes, with how many people?",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, question) == "2"
+
+
+def test_technology_list_questions_return_skills_not_prose(tmp_path):
+    question = {
+        "question": "Please list the primary technologies you have hands-on experience with.",
+        "field_type": "text",
+    }
+    value = answer(tmp_path, question)
+    assert "Java" in value and "Spring Boot" in value
+    assert not value.lower().startswith("software engineer with")
+
+
+def test_month_questions_use_total_months_of_experience(tmp_path):
+    question = {"question": "How many months of experience do you have with Java?", "field_type": "text"}
+    assert answer(tmp_path, question, {"total_experience": "2 years"}) == "24"
+
+
+def test_reason_for_seeking_gets_a_motivation_draft(tmp_path):
+    question = {"question": "What is your primary reason for seeking a new job?", "field_type": "text"}
+    value = answer(tmp_path, question)
+    assert len(value) > 30
+    assert "interested" in value.lower()
+
+
+def test_ctc_in_lpa_keeps_the_lpa_unit(tmp_path):
+    question = {"question": "What is your expected CTC in LPA?", "field_type": "text"}
+    assert answer(tmp_path, question, {"expected_ctc": "6 lpa"}) == "6"
+
+
+def test_needs_numeric_separates_numbers_from_prose():
+    from libs.common.screening_fallback import needs_numeric
+
+    assert needs_numeric(
+        {"question": "How many years of experience do you have?", "field_type": "text"}
+    )
+    assert needs_numeric(
+        {
+            "question": "How would you rate your communication skills on a scale of 1-10?",
+            "field_type": "text",
+        }
+    )
+    assert not needs_numeric(
+        {"question": "Where are you currently based?", "field_type": "text"}
+    )
