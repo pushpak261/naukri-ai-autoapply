@@ -243,6 +243,150 @@ def test_team_size_questions_get_a_positive_number(tmp_path):
     assert answer(tmp_path, question) == "2"
 
 
+def test_rating_dropdowns_pick_the_top_of_the_scale(tmp_path):
+    numeric = {
+        "question": "How would you rate your communication skills on a scale of 1-10?",
+        "field_type": "dropdown",
+        "options": [str(value) for value in range(1, 11)],
+    }
+    labelled = {
+        "question": "Rate your Java skills from 1 to 5",
+        "field_type": "radio",
+        "options": ["1 - Poor", "3 - Average", "5 - Excellent"],
+    }
+    words = {
+        "question": "How would you rate your communication skills?",
+        "field_type": "dropdown",
+        "options": ["Poor", "Average", "Excellent"],
+    }
+    assert answer(tmp_path, numeric) == "10"
+    assert answer(tmp_path, labelled) == "5 - Excellent"
+    assert answer(tmp_path, words) == "Excellent"
+
+
+def test_team_size_dropdowns_pick_a_positive_range(tmp_path):
+    question = {
+        "question": "Have you managed teams before? If yes, with how many people?",
+        "field_type": "dropdown",
+        "options": ["0", "1-2", "3-5"],
+    }
+    assert answer(tmp_path, question) == "1-2"
+
+
+def test_expected_ctc_dropdowns_pick_the_range_containing_the_fact(tmp_path):
+    question = {
+        "question": "What is your expected CTC?",
+        "field_type": "dropdown",
+        "options": ["0-5 LPA", "5-10 LPA", "10-15 LPA"],
+    }
+    profile = {"current_ctc": "4.4 lpa", "expected_ctc": "6 lpa"}
+    assert answer(tmp_path, question, profile) == "5-10 LPA"
+    current = {
+        "question": "What is your current annual compensation?",
+        "field_type": "dropdown",
+        "options": ["0-5 LPA", "5-10 LPA", "10-15 LPA"],
+    }
+    assert answer(tmp_path, current, profile) == "0-5 LPA"
+    monthly = {
+        "question": "What is your expected monthly salary?",
+        "field_type": "dropdown",
+        "options": ["30,000 - 40,000 per month", "50,000 - 60,000 per month"],
+    }
+    assert answer(tmp_path, monthly, profile) == "50,000 - 60,000 per month"
+
+
+def test_immediate_notice_picks_the_lowest_available_range(tmp_path):
+    question = {
+        "question": "What is your notice period?",
+        "field_type": "dropdown",
+        "options": ["16-30 days", "31-60 days"],
+    }
+    assert answer(tmp_path, question, {"notice_period": "Immediate"}) == "16-30 days"
+
+
+def test_serving_notice_dropdown_follows_the_saved_notice_period(tmp_path):
+    question = {
+        "question": "Are you currently serving your notice?*",
+        "field_type": "dropdown",
+        "options": ["Yes", "No"],
+    }
+    assert answer(tmp_path, question, {"notice_period": "Immediate"}) == "No"
+    assert answer(tmp_path, question, {"notice_period": "30 days"}) == "Yes"
+    assert answer(tmp_path, question, {"serving_notice": True}) == "Yes"
+    assert answer(tmp_path, question, {"serving_notice": False}) == "No"
+    checkbox = {**question, "field_type": "checkbox"}
+    assert answer(tmp_path, checkbox, {"notice_period": "Immediate"}) == "No"
+
+
+def test_serving_notice_text_question_answers_yes_or_no_not_a_duration(tmp_path):
+    question = {"question": "Are you currently serving your notice?", "field_type": "text"}
+    assert answer(tmp_path, question, {"notice_period": "Immediate"}) == "No"
+    assert answer(tmp_path, question, {"notice_period": "2 months"}) == "Yes"
+
+
+def test_offer_in_hand_is_not_claimed_by_default(tmp_path):
+    choice = {
+        "question": "Do You Have Any Offer in Hand?*",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    text = {"question": "Do You Have Any Offer in Hand?*", "field_type": "text"}
+    assert answer(tmp_path, choice) == "No"
+    assert answer(tmp_path, text) == "No"
+    assert answer(tmp_path, {**choice, "field_type": "checkbox"}) == "No"
+
+
+def test_specific_skill_experience_is_zero_when_the_resume_lacks_it(tmp_path):
+    unsupported = {
+        "question": "How many years of hands-on AEM development experience do you have?",
+        "field_type": "text",
+    }
+    supported = {
+        "question": "How many years of experience do you have with Java?",
+        "field_type": "text",
+    }
+    generic = {
+        "question": "How many years of professional experience do you have?",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, unsupported) == "0"
+    assert answer(tmp_path, supported) == "1"
+    assert answer(tmp_path, generic) == "1"
+
+
+def test_multi_select_skill_checkboxes_pick_supported_options(tmp_path):
+    question = {
+        "question": "Which of the following technologies do you have experience with?",
+        "field_type": "checkbox",
+        "options": ["Java", "Spring Boot", "Salesforce", "SQL"],
+    }
+    assert answer(tmp_path, question) == "Java\nSpring Boot\nSQL"
+
+
+def test_multi_select_location_checkboxes_pick_preferred_cities(tmp_path):
+    question = {
+        "question": "Which locations are you willing to work in?",
+        "field_type": "checkbox",
+        "options": ["Pune", "Mumbai", "Delhi"],
+    }
+    profile = {"preferred_locations": ["Pune", "Mumbai"]}
+    assert answer(tmp_path, question, profile) == "Pune\nMumbai"
+
+
+def test_availability_to_join_answers_immediate_not_zero(tmp_path):
+    question = {"question": "Available time to join/Notice Period?", "field_type": "text"}
+    assert answer(tmp_path, question, {"notice_period": "Immediate"}) == "Immediate"
+    assert numeric_answer(question, Settings(project_root=tmp_path, profile={})) == ""
+
+
+def test_years_of_experience_managing_people_is_not_team_size(tmp_path):
+    question = {
+        "question": "How many years of experience do you have managing people?",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, question, {"total_experience": "5 years"}) == "5"
+
+
 def test_technology_list_questions_return_skills_not_prose(tmp_path):
     question = {
         "question": "Please list the primary technologies you have hands-on experience with.",
