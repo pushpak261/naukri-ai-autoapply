@@ -24,7 +24,11 @@ logger = get_logger(__name__)
 
 
 def _question_identity(fields):
-    return [(f.get('question'), f.get('field_type'), f.get('selector')) for f in fields]
+    # LinkedIn re-renders the whole block after each answer, regenerating ids
+    # and structural selectors. Selector churn is not a new form; question text
+    # and control type are. Ignoring selectors lets one pass fill every empty
+    # field instead of consuming a step per field and hitting max_steps.
+    return [(f.get('question'), f.get('field_type')) for f in fields]
 
 
 def _same_field(fields, question):

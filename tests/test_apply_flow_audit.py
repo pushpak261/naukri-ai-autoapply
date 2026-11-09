@@ -21,6 +21,19 @@ def detail():
     return page
 
 
+def test_question_identity_ignores_rerender_selector_churn():
+    from src.linked_agent.browser.apply import _question_identity
+
+    before = [{'question': 'Years?', 'field_type': 'text', 'selector': '#a', 'current_value': ''}]
+    after = [{'question': 'Years?', 'field_type': 'text', 'selector': '#b', 'current_value': '2'}]
+    assert _question_identity(before) == _question_identity(after)
+    new_question = [
+        {'question': 'Years?', 'field_type': 'text', 'selector': '#b'},
+        {'question': 'React?', 'field_type': 'radio', 'selector': '#c'},
+    ]
+    assert _question_identity(before) != _question_identity(new_question)
+
+
 @pytest.mark.asyncio
 async def test_linkedin_submits_only_once_without_confirmation(tmp_path):
     page = detail()

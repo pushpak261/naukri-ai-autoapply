@@ -255,14 +255,19 @@ async def _fill_typeahead(page, locator, answer):
 
 async def _current_field(page, question):
     fields = await extract(page)
-    matches = [
+    same = [
         f
         for f in fields
         if normalized(f["question"]) == normalized(question.get("question", ""))
         and f["field_type"] == question.get("field_type", "text")
-        and (not question.get("selector") or f["selector"] == question["selector"])
     ]
-    return matches[0] if len(matches) == 1 else None
+    if question.get("selector"):
+        exact = [f for f in same if f["selector"] == question["selector"]]
+        if len(exact) == 1:
+            return exact[0]
+    # A step transition can re-render the modal and replace every selector
+    # between extraction and filling. One unambiguous question is still safe.
+    return same[0] if len(same) == 1 else None
 
 
 def _numeric_equivalent(field, answer):
