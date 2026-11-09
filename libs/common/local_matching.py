@@ -20,6 +20,15 @@ ALIASES = {
     "rest apis": "rest api",
     "restful": "rest api",
     "javascript": "javascript",
+    ".net core": ".net",
+    ".net stack": ".net",
+    "asp.net": ".net",
+    "asp.net core": ".net",
+    "core .net": ".net",
+    "dotnet": ".net",
+    "ai/llm tooling": "llm",
+    "generative ai": "llm",
+    "genai": "llm",
 }
 
 

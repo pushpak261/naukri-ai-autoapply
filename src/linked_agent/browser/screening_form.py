@@ -207,7 +207,13 @@ async def _fill_choices(page, field, answer):
         return bool(selected) and await _set_choice(page, selected, True)
     if len(options) == 1 and normalized(answer) in ("yes", "true", "no", "false"):
         return await _set_choice(page, options[0], normalized(answer) in ("yes", "true"))
-    answers = [part.strip() for part in re.split(r"[,;|\n]", str(answer)) if part.strip()]
+    raw = str(answer)
+    if "\n" in raw:
+        # Newline-separated answers are exact option labels; never split a
+        # label on commas or semicolons inside the label.
+        answers = [part.strip() for part in raw.splitlines() if part.strip()]
+    else:
+        answers = [part.strip() for part in re.split(r"[,;|]", raw) if part.strip()]
     selected = [matching_option(part, options) for part in answers]
     if not selected or any(option is None for option in selected):
         return False

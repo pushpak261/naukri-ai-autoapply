@@ -72,6 +72,40 @@ async def test_checkbox_groups_are_complete_and_idempotent(search_page):
 
 
 @pytest.mark.asyncio
+async def test_newline_answers_keep_commas_inside_option_labels(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><fieldset><legend>Which locations are you willing to work in?</legend>
+      <input id="pune" type="checkbox" style="display:none"><label for="pune">Pune, Maharashtra, India</label>
+      <input id="mumbai" type="checkbox" style="display:none"><label for="mumbai">Mumbai, Maharashtra, India</label>
+      <input id="delhi" type="checkbox" style="display:none"><label for="delhi">Delhi, India</label>
+      </fieldset></div>"""
+    )
+    page = detail(tab)
+    question = (await page.extract_screening_questions())[0]
+    assert await page.fill_answer(
+        question, "Pune, Maharashtra, India\nMumbai, Maharashtra, India"
+    )
+    assert await tab.locator("#pune").is_checked()
+    assert await tab.locator("#mumbai").is_checked()
+    assert not await tab.locator("#delhi").is_checked()
+
+
+@pytest.mark.asyncio
+async def test_lone_skill_checkbox_can_be_left_unchecked(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><div class="fb-dash-form-element">
+      <input id="azure" type="checkbox" required>
+      <label for="azure">Experience with Azure cloud services?</label></div></div>"""
+    )
+    page = detail(tab)
+    (question,) = await page.extract_screening_questions()
+    assert await page.fill_answer(question, "No")
+    assert not await tab.locator("#azure").is_checked()
+
+
+@pytest.mark.asyncio
 async def test_hidden_modals_and_invalid_required_fields_cannot_submit(search_page):
     _, tab = search_page
     await tab.set_content(

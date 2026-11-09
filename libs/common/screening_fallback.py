@@ -24,6 +24,7 @@ _PLACEHOLDERS = (
 )
 
 _DEMOGRAPHIC = (
+    "age",
     "gender",
     "ethnicity",
     "race",
@@ -41,11 +42,19 @@ _NEGATIVE_POLARITY = (
     r"\bcriminal\b",
     r"\bdisability\b",
     r"\bveteran\b",
+    r"\bcurrent\s+or\s+former\s+employee\b",
+    r"\bemployer\b[^?.]*\bpartner\b",
+    r"\bapplied\s+to\s+or\s+been\s+referred\b",
+    r"\bintellectual\s+property\b",
+    r"\boutside\s+employment\b",
+    r"\bboard\s+memberships?\b",
+    r"\bpersonal\s+relationships?\b",
+    r"\bconflict\s+of\s+interest\b",
 )
 
 _LINK_FIELD = re.compile(r"\b(?:url|link|profile|portfolio|website|handle)\b", re.I)
 _MONEY = re.compile(
-    r"\b(?:ctc|salary|compensation|package|stipend|pay|inr|lpa)\b", re.I
+    r"\b(?:ctc|salary|compensation|package|stipend|pay|income|inr|lpa)\b", re.I
 )
 _RATE = re.compile(r"\brate\b", re.I)
 _RATE_CONTEXT = re.compile(
@@ -86,6 +95,37 @@ _SERVING_NOTICE = re.compile(
 _OFFER_IN_HAND = re.compile(
     r"\boffers?\s+in\s+hand\b|\bcompeting\s+offers?\b|\bother\s+offers?\b", re.I
 )
+_CONDITIONAL_YES = re.compile(
+    r"^\s*if\s+(?:you\s+(?:have\s+)?(?:answered|selected|chose)\s+)?['\"]?yes\b", re.I
+)
+_CONDITIONAL_NO = re.compile(
+    r"^\s*if\s+(?:you\s+(?:have\s+)?(?:answered|selected|chose)\s+)?['\"]?no\b", re.I
+)
+_CONDITIONAL_SERVING = re.compile(
+    r"^\s*if\s+(?:you\s+(?:are|have)\s+)?(?:already\s+)?serving\s+(?:a\s+)?notice\b",
+    re.I,
+)
+_YES_NO = re.compile(
+    r"(?:^|[:;.?!]\s*)(?:do|does|are|is|have|has|will|would|can|could|did|should|may|am)\b",
+    re.I,
+)
+_CURRENT_IN = re.compile(
+    r"\b(?:currently\s+)?(?:based|residing|reside|living|live|located|staying|stay)\s+in\s+"
+    r"([^?.!,;]+)",
+    re.I,
+)
+_WORK_AUTH = re.compile(
+    r"\b(?:right|authoris\w*|authoriz\w*|eligible|permit(?:ted)?)\s+to\s+work\b"
+    r"|\bwork\s+(?:permit|authori[sz]ation)\b",
+    re.I,
+)
+_CERTIFICATION = re.compile(r"\bcertif(?:icate|ication|ied|icates|ications)?\b", re.I)
+_OPTIONAL_PROMPT = re.compile(
+    r"\bis there anything else\b"
+    r"|\banything else (?:you(?:'d| would) like|we should know)\b"
+    r"|\banything you(?:'d| would) like us to know\b",
+    re.I,
+)
 _SKILL_PHRASES = (
     re.compile(r"\bexperience\s+(?:do you have\s+)?with\s+(.+?)(?:\?|$)", re.I),
     re.compile(r"\b(?:working|work)\s+with\s+(.+?)(?:\?|$)", re.I),
@@ -96,41 +136,66 @@ _SKILL_PHRASES = (
         r"\b(?:years?|months?)\s+of\s+(.+?)\s+(?:development\s+|engineering\s+)?experience\b",
         re.I,
     ),
+    re.compile(r"\bworked\s+on\s+(.+?)(?:\?|$)", re.I),
 )
 _GENERIC_EXPERIENCE_WORDS = {
+    "additional",
+    "and",
     "application",
-    "backend",
+    "architecture",
     "back",
+    "backend",
+    "both",
+    "cloud",
     "commercial",
+    "complex",
     "corporate",
     "development",
     "end",
     "engineering",
     "field",
+    "for",
     "front",
     "frontend",
     "full",
     "hands",
+    "in",
     "industry",
     "information",
+    "integration",
+    "integrations",
     "internship",
     "it",
+    "large",
+    "my",
     "non",
+    "of",
     "on",
+    "or",
     "overall",
     "practical",
     "product",
     "professional",
     "related",
     "relevant",
+    "scale",
+    "service",
+    "services",
+    "similar",
+    "small",
     "software",
     "stack",
+    "system",
+    "systems",
     "technical",
     "technology",
     "the",
+    "to",
     "total",
     "web",
+    "with",
     "work",
+    "your",
 }
 _NAME_FACT = re.compile(r"\b(?:full name|your name|name as per)\b", re.I)
 _FIRST_NAME = re.compile(r"\b(?:first|given) name\b", re.I)
@@ -211,7 +276,7 @@ def _skill_phrase(text):
     for pattern in _SKILL_PHRASES:
         match = pattern.search(text)
         if match:
-            phrase = re.sub(r"\s+", " ", match[1]).strip(" .,:;*")
+            phrase = re.sub(r"\s+", " ", match[1]).lstrip(" ,:;*").rstrip(" .,:;*")
             if phrase:
                 return phrase
     return ""
@@ -255,6 +320,16 @@ def _unsupported_skill_years(text, settings, candidate):
         return ""
     years = _years(settings, candidate)
     return "0" if years is not None else ""
+
+
+def _unsupported_skill_claim(text, candidate):
+    """True for an explicit 'experience with X' claim the resume cannot support."""
+    phrase = _skill_phrase(text)
+    return bool(
+        phrase
+        and _concrete_skill_phrase(phrase)
+        and not _supported_skill_phrase(phrase, candidate)
+    )
 
 
 def _target_in_option(target, option):
@@ -374,11 +449,6 @@ def _years(settings, candidate):
     return stated
 
 
-def _option_number(option):
-    match = re.search(r"(\d+(?:\.\d+)?)", option)
-    return float(match[1]) if match else None
-
-
 def _option_numbers(option):
     return [float(number) for number in re.findall(r"\d+(?:\.\d+)?", str(option))]
 
@@ -485,11 +555,24 @@ def _notice_option(options, settings):
     return ""
 
 
+def _experience_span(option):
+    """Year span an option represents, including ranges and open-ended scales."""
+    label = str(option).casefold()
+    numbers = _option_numbers(label)
+    if not numbers:
+        return None
+    if re.search(r"\b(?:more than|above|over|at least)\b|\+", label):
+        return numbers[0], float("inf"), False
+    if re.search(r"\b(?:less than|under|below|up to)\b", label):
+        return 0.0, numbers[0], False
+    if len(numbers) >= 2 and re.search(r"[-–]|\bto\b", label):
+        low, high = sorted(numbers[:2])
+        return low, high, False
+    return numbers[0], numbers[0], True
+
+
 def _experience_option(options, text, settings, candidate):
     if not re.search(r"\b(?:experience|years?|months?)\b", text):
-        return ""
-    numbers = [_option_number(option) for option in options]
-    if any(number is None for number in numbers):
         return ""
     stated = _years(settings, candidate)
     if stated is None:
@@ -497,21 +580,38 @@ def _experience_option(options, text, settings, candidate):
     wanted = stated
     if "month" in text and "year" not in text:
         wanted = stated * 12
-    affordable = [
-        (number, option)
-        for number, option in zip(numbers, options, strict=True)
-        if number is not None and number <= wanted
+    if "additional" in text:
+        # Months/years beyond the saved total are zero.
+        wanted = 0
+    spans = [
+        (span, option)
+        for option in options
+        if (span := _experience_span(option)) is not None
     ]
-    if affordable:
-        return max(affordable, key=lambda item: item[0])[1]
-    return min(
-        (
-            (number, option)
-            for number, option in zip(numbers, options, strict=True)
-            if number is not None
-        ),
-        key=lambda item: item[0],
-    )[1]
+    if not spans:
+        return ""
+    exact = [
+        option
+        for (low, high, scalar), option in spans
+        if scalar and low == wanted
+    ]
+    if exact:
+        return exact[0]
+    containing = [
+        (high - low, high, option)
+        for (low, high, _scalar), option in spans
+        if low <= wanted <= high
+    ]
+    if containing:
+        return min(containing, key=lambda item: (item[0], item[1]))[2]
+    below = [
+        (low, option)
+        for (low, _high, _scalar), option in spans
+        if low <= wanted
+    ]
+    if below:
+        return max(below, key=lambda item: item[0])[1]
+    return min(spans, key=lambda item: item[0][0])[1]
 
 
 def _fact_options(options, text, settings, candidate):
@@ -530,13 +630,27 @@ def _fact_options(options, text, settings, candidate):
         facts.append(getattr(profile, "notice_period", ""))
     if "ctc" in text or "salary" in text or "compensation" in text:
         facts.extend([getattr(profile, "expected_ctc", ""), getattr(profile, "current_ctc", "")])
+    if "email" in text:
+        facts.extend([getattr(profile, "email", ""), getattr(candidate, "email", "")])
+    if "country code" in text:
+        phone = str(getattr(profile, "phone", "") or getattr(candidate, "phone", "") or "")
+        match = re.search(r"^\s*\+\s*(\d{1,3})", phone)
+        if match:
+            code = match[1]
+            for option in options:
+                if re.search(r"(?<!\d)" + re.escape(code) + r"(?!\d)", option):
+                    return option
     for fact in facts:
         target = str(fact or "").strip().casefold()
         if not target:
             continue
         for option in options:
             lowered = option.casefold()
-            if lowered == target or lowered.startswith(target + ","):
+            if (
+                lowered == target
+                or lowered.startswith(target + ",")
+                or lowered.startswith(target + " (")
+            ):
                 return option
     return ""
 
@@ -546,9 +660,13 @@ def _choice_answer(question, settings, candidate):
     options = [option for option in _options(question) if not _placeholder(option)]
     kind = question.get("field_type") or question.get("type") or ""
     if not options:
+        if _unsupported_skill_claim(text, candidate):
+            return "No"
         return "No" if _wants_negative(text) else "Yes"
     if kind == "checkbox" and len(options) == 1:
         # A lone checkbox is a consent/declaration control, not a list.
+        if _unsupported_skill_claim(text, candidate):
+            return "No"
         return "No" if _wants_negative(text) else "Yes"
 
     offer = _offer_in_hand_answer(text)
@@ -556,6 +674,18 @@ def _choice_answer(question, settings, candidate):
         return _option_for(options, offer) or next(
             (option for option in options if _NEGATIVE.search(option)), offer
         )
+
+    place = _location_yes_no_answer(text, settings)
+    if place:
+        picked = _option_for(options, place)
+        if picked:
+            return picked
+
+    authorization = _work_authorization_answer(text, settings)
+    if authorization:
+        picked = _option_for(options, authorization)
+        if picked:
+            return picked
 
     if any(term in text for term in _DEMOGRAPHIC):
         for option in options:
@@ -567,6 +697,25 @@ def _choice_answer(question, settings, candidate):
     serving = _serving_notice_answer(text, settings, options)
     if serving:
         return serving
+
+    certification = _certification_choice(text, options, candidate)
+    if certification:
+        return certification
+
+    optional = _optional_prompt_answer(text)
+    if optional:
+        picked = _option_for(options, optional) or next(
+            (option for option in options if _NEGATIVE.search(option)), ""
+        )
+        if picked:
+            return picked
+
+    if _unsupported_skill_claim(text, candidate):
+        no = _option_for(options, "No") or next(
+            (option for option in options if _NEGATIVE.search(option)), ""
+        )
+        if no:
+            return no
 
     if kind == "checkbox":
         return _multi_checkbox_answer(question, options, settings, candidate)
@@ -601,6 +750,10 @@ def _choice_answer(question, settings, candidate):
         )
         if positive:
             return positive
+
+    conditional = _conditional_option(options, text, settings)
+    if conditional:
+        return conditional
 
     if _is_money(text):
         picked = _money_option(options, text, settings)
@@ -657,22 +810,157 @@ def _availability_answer(settings):
     return notice or "Immediate"
 
 
+def _is_serving_notice(settings):
+    serving = getattr(settings.profile, "serving_notice", None)
+    if serving is not None:
+        return bool(serving)
+    notice = str(getattr(settings.profile, "notice_period", "") or "").casefold().strip()
+    return notice not in ("", "immediate", "immediately", "0", "none")
+
+
 def _serving_notice_answer(text, settings, options=None):
     """A yes/no notice question, never a duration and never a guessed Yes."""
     if not _SERVING_NOTICE.search(text):
         return ""
     if re.search(r"\b(?:last working|last day|date|when|what will be)\b", text, re.I):
         return ""
-    serving = getattr(settings.profile, "serving_notice", None)
-    if serving is None:
-        notice = str(getattr(settings.profile, "notice_period", "") or "").casefold().strip()
-        serving = notice not in ("", "immediate", "immediately", "0", "none")
-    answer = "Yes" if serving else "No"
+    answer = "Yes" if _is_serving_notice(settings) else "No"
     if options:
         return next(
             (option for option in options if option.strip().casefold() == answer.casefold()), ""
         )
     return answer
+
+
+def _conditional_answer(text, settings):
+    """Follow-up questions about a previous Yes/No answer are not yes/no facts."""
+    matches = bool(
+        _CONDITIONAL_YES.search(text)
+        or _CONDITIONAL_NO.search(text)
+        or _CONDITIONAL_SERVING.search(text)
+    )
+    if not matches:
+        return ""
+    if _PEOPLE.search(text) or _DATE_ANSWER.search(text):
+        return ""
+    if _CONDITIONAL_SERVING.search(text) and _is_serving_notice(settings):
+        return ""
+    return "N/A"
+
+
+def _conditional_option(options, text, settings):
+    answer = _conditional_answer(text, settings)
+    if not answer:
+        return ""
+    exact = _option_for(options, answer)
+    if exact:
+        return exact
+    for preferred in ("not applicable", "none", "no"):
+        picked = next(
+            (option for option in options if option.strip().casefold().startswith(preferred)),
+            "",
+        )
+        if picked:
+            return picked
+    return next((option for option in options if _NEGATIVE.search(option)), "")
+
+
+def _place_key(value):
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+
+
+def _location_yes_no_answer(text, settings):
+    """Answer 'are you based/residing in X?' from the saved current location."""
+    match = _CURRENT_IN.search(text)
+    if not match:
+        return ""
+    place = re.sub(
+        r"\b(?:the|our|your|this|that|role|job|position|office|city|area|region|country)\b",
+        " ",
+        match[1],
+        flags=re.I,
+    )
+    place = _place_key(place)
+    if not place:
+        return ""
+    profile = settings.profile
+    facts = [
+        getattr(profile, "current_city", ""),
+        getattr(profile, "current_location", ""),
+        getattr(profile, "current_state", ""),
+        getattr(profile, "current_country", ""),
+    ]
+    for fact in facts:
+        known = _place_key(fact)
+        if known and (place == known or place in known or known in place):
+            return "Yes"
+    return "No"
+
+
+def _work_authorization_answer(text, settings):
+    """Never claim a right to work in a country the profile does not live in."""
+    if not _WORK_AUTH.search(text) or re.search(r"\b(?:require|need|sponsor)", text, re.I):
+        return ""
+    match = re.search(r"\b(?:in|for)\s+([a-z][a-z .'-]+)", text, re.I)
+    if not match:
+        return "Yes"
+    place = re.sub(
+        r"\b(?:the|this|that|which|where|country|role|job|position|office|city|location|"
+        r"company|employer|is|are|located|based|work)\b",
+        " ",
+        match[1],
+        flags=re.I,
+    )
+    place = _place_key(place)
+    if not place or re.search(r"\b(?:country|role|position|office|city|location)\b", match[1], re.I):
+        return "Yes"
+    country = _place_key(getattr(settings.profile, "current_country", "") or "India")
+    if country and (place in country or country in place):
+        return "Yes"
+    return "No"
+
+
+def _certifications(candidate):
+    values = [
+        str(value).strip()
+        for value in getattr(candidate, "certifications", []) or []
+        if str(value or "").strip()
+    ]
+    return list(dict.fromkeys(values))
+
+
+def _certification_answer(question, candidate):
+    text = _text(question)
+    if not _CERTIFICATION.search(text):
+        return ""
+    certifications = _certifications(candidate)
+    if not certifications:
+        return "No"
+    answer = "; ".join(certifications)
+    limit = question.get("max_length")
+    if isinstance(limit, int) and 0 < limit < len(answer):
+        answer = answer[:limit].rsplit(" ", 1)[0].rstrip(" ,;|") or answer[:limit]
+    return answer
+
+
+def _certification_choice(text, options, candidate):
+    if not _CERTIFICATION.search(text):
+        return ""
+    answer = "Yes" if _certifications(candidate) else "No"
+    return _option_for(options, answer) or next(
+        (option for option in options if _NEGATIVE.search(option)), ""
+    )
+
+
+def _skill_claim_answer(text, candidate):
+    phrase = _skill_phrase(text)
+    if not phrase or not _concrete_skill_phrase(phrase):
+        return ""
+    return "Yes" if _supported_skill_phrase(phrase, candidate) else "No"
+
+
+def _optional_prompt_answer(text):
+    return "N/A" if _OPTIONAL_PROMPT.search(text) else ""
 
 
 def _ctc_amount(text, settings):
@@ -699,6 +987,9 @@ def _number_answer(text, settings, candidate):
         unsupported = _unsupported_skill_years(text, settings, candidate)
         if unsupported:
             return unsupported
+    if "additional" in text and "experience" in text:
+        # Additional months/years are beyond the saved total.
+        return "0"
     if "month" in text and "experience" in text:
         stated = _years(settings, candidate)
         return str(max(int(round(stated * 12)), 1)) if stated is not None else "0"
@@ -775,6 +1066,14 @@ def _profile_sentence(text, settings, candidate, question):
 
 def _text_answer(question, settings, candidate, job):
     text = _text(question)
+    if "last working day" in text:
+        value = str(getattr(settings.profile, "last_working_date", "") or "").strip()
+        return value or "Immediate"
+    if _RATING.search(text):
+        return _rating_value(text)
+    conditional = _conditional_answer(text, settings)
+    if conditional:
+        return conditional
     if narrative_kind(text) or any(
         word in text
         for word in (
@@ -789,11 +1088,6 @@ def _text_answer(question, settings, candidate, job):
         draft = draft_answer(question, settings, candidate, job)
         if draft:
             return draft
-    if _RATING.search(text):
-        return _rating_value(text)
-    if "last working day" in text:
-        value = str(getattr(settings.profile, "last_working_date", "") or "").strip()
-        return value or "Immediate"
     offer = _offer_in_hand_answer(text)
     if offer:
         return offer
@@ -811,16 +1105,30 @@ def _text_answer(question, settings, candidate, job):
         or question.get("field_type") == "number"
         or "notice" in text
         or _is_money(text)
+        or _EXPERIENCE_YEARS.search(text)
     ):
         return _number_answer(text, settings, candidate)
+    certification = _certification_answer(question, candidate)
+    if certification:
+        return certification
+    place = _location_yes_no_answer(text, settings)
+    if place:
+        return place
+    authorization = _work_authorization_answer(text, settings)
+    if authorization:
+        return authorization
+    optional = _optional_prompt_answer(text)
+    if optional:
+        return optional
+    claim = _skill_claim_answer(text, candidate)
+    if claim:
+        return claim
     # A skill question mentioning GitHub Actions is still a number question,
     # not a profile-link box. Only an explicit link/profile prompt gets a URL.
     if _LINK_FIELD.search(text) or text.strip(" :*.-") in ("github", "linkedin"):
         link = _link(text, settings, candidate)
         if link:
             return link
-    if re.match(r"^(?:do|does|are|is|have|has|will|would|can|could|did)\b", text):
-        return "No" if _wants_negative(text) else "Yes"
     name = str(getattr(candidate, "name", "") or "").strip()
     if _FIRST_NAME.search(text) and name:
         return name.split()[0]
@@ -844,12 +1152,18 @@ def _text_answer(question, settings, candidate, job):
         skills = _skills_text(candidate)
         if skills:
             return skills
-    email = str(getattr(candidate, "email", "") or "").strip()
+    email = str(
+        getattr(settings.profile, "email", "") or getattr(candidate, "email", "") or ""
+    ).strip()
     if "email" in text and email:
         return email
-    phone = str(getattr(candidate, "phone", "") or "").strip()
+    phone = str(
+        getattr(settings.profile, "phone", "") or getattr(candidate, "phone", "") or ""
+    ).strip()
     if any(word in text for word in ("phone", "mobile", "contact number")) and phone:
         return phone
+    if _YES_NO.search(text):
+        return "No" if _wants_negative(text) else "Yes"
     return _profile_sentence(text, settings, candidate, question)
 
 
@@ -879,6 +1193,14 @@ def numeric_answer(question, settings, candidate=None):
         return _rating_value(text)
     if _PEOPLE.search(text) and not _EXPERIENCE_YEARS.search(text):
         return "2"
+    if _conditional_answer(text, settings) and question.get("field_type") != "number" and (
+        question.get("input_type") != "number"
+    ):
+        # Conditional follow-ups are answered "N/A" on text fields; never turn
+        # that into a numeric zero.
+        return ""
+    if "additional" in text and "experience" in text:
+        return "0"
     if "notice" in text:
         return _notice_days(settings)
     if _is_money(text):
@@ -899,6 +1221,13 @@ def needs_numeric(question):
     if _DATE_ANSWER.search(text):
         # Dates and availability are answered with a date or "Immediate",
         # even when the wording also contains "notice".
+        return False
+    if (
+        _CONDITIONAL_YES.search(text)
+        or _CONDITIONAL_NO.search(text)
+        or _CONDITIONAL_SERVING.search(text)
+    ) and not _PEOPLE.search(text):
+        # "If yes..." and serving-notice follow-ups get "N/A" on prose fields.
         return False
     if _RATING.search(text) or _PEOPLE.search(text):
         return True

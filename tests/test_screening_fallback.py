@@ -1,6 +1,8 @@
 """Best-effort screening answers keep every field populated."""
 
-from libs.common.screening_fallback import numeric_answer, positive_answer
+from dataclasses import replace
+
+from libs.common.screening_fallback import needs_numeric, numeric_answer, positive_answer
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job, ResumeProfile
 
@@ -415,8 +417,6 @@ def test_ctc_in_lpa_keeps_the_lpa_unit(tmp_path):
 
 
 def test_needs_numeric_separates_numbers_from_prose():
-    from libs.common.screening_fallback import needs_numeric
-
     assert needs_numeric(
         {"question": "How many years of experience do you have?", "field_type": "text"}
     )
@@ -429,3 +429,223 @@ def test_needs_numeric_separates_numbers_from_prose():
     assert not needs_numeric(
         {"question": "Where are you currently based?", "field_type": "text"}
     )
+
+
+def test_additional_experience_is_zero(tmp_path):
+    months = {
+        "question": "Please select your total additional months of experience",
+        "field_type": "dropdown",
+        "options": ["0 months", "1-6 months", "7-12 months", "12+ months"],
+    }
+    years = {
+        "question": "Please select your total additional years of experience",
+        "field_type": "dropdown",
+        "options": ["0 years", "1 year", "2 years"],
+    }
+    text = {
+        "question": "Please enter your total additional months of experience",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, months) == "0 months"
+    assert answer(tmp_path, years) == "0 years"
+    assert answer(tmp_path, text, {"total_experience": "2 years"}) == "0"
+    settings = Settings(project_root=tmp_path, profile={"total_experience": "2 years"})
+    assert numeric_answer(text, settings, candidate()) == "0"
+
+
+def test_experience_ranges_cover_the_saved_total(tmp_path):
+    question = {
+        "question": "Please select your total years of professional experience",
+        "field_type": "dropdown",
+        "options": ["0-1 years", "1-3 years", "3-5 years", "5+ years"],
+    }
+    open_ended = {**question, "options": ["0-1 years", "2-4 years", "5+ years"]}
+    assert answer(tmp_path, question, {"total_experience": "2 years"}) == "1-3 years"
+    assert answer(tmp_path, open_ended, {"total_experience": "2 years"}) == "2-4 years"
+
+
+def test_income_expectations_use_the_expected_ctc(tmp_path):
+    question = {"question": "Income Expectations", "field_type": "text"}
+    assert answer(tmp_path, question, {"expected_ctc": "6 lpa"}) == "600000"
+
+
+def test_conflict_of_interest_questions_answer_no(tmp_path):
+    intellectual_property = {
+        "question": "Intellectual Property: Do you own or have any interest in intellectual property?",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    outside_employment = {
+        "question": "Outside Employment: Do you have any outside employment?",
+        "field_type": "text",
+    }
+    board = {
+        "question": "Board Memberships: Are you involved or seated on any board?",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    assert answer(tmp_path, intellectual_property) == "No"
+    assert answer(tmp_path, outside_employment) == "No"
+    assert answer(tmp_path, board) == "No"
+
+
+def test_conditional_followups_answer_not_applicable(tmp_path):
+    conditional_no = {
+        "question": 'If you have answered "no" to the previous question, please provide details below.',
+        "field_type": "text",
+    }
+    conditional_yes = {
+        "question": "If you answered 'yes' above, please provide details",
+        "field_type": "text",
+    }
+    choice = {
+        **conditional_no,
+        "field_type": "dropdown",
+        "options": ["N/A", "Yes", "No"],
+    }
+    plain_choice = {**choice, "options": ["Yes", "No"]}
+    assert answer(tmp_path, conditional_no) == "N/A"
+    assert answer(tmp_path, conditional_yes) == "N/A"
+    assert answer(tmp_path, choice) == "N/A"
+    assert answer(tmp_path, plain_choice) == "No"
+    settings = Settings(project_root=tmp_path, profile={})
+    assert numeric_answer(conditional_no, settings, candidate()) == ""
+    assert needs_numeric(conditional_no) is False
+
+
+def test_serving_notice_followup_is_not_zero(tmp_path):
+    question = {
+        "question": "If you are serving notice, what will be your notice period?",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, question) == "N/A"
+    settings = Settings(project_root=tmp_path, profile={"notice_period": "Immediate"})
+    assert numeric_answer(question, settings, candidate()) == ""
+    assert needs_numeric(question) is False
+
+    serving = Settings(project_root=tmp_path, profile={"notice_period": "30 days"})
+    assert answer(tmp_path, question, {"notice_period": "30 days"}) == "30"
+    assert numeric_answer(question, serving, candidate()) == "30"
+
+
+def test_email_and_country_code_choices_use_saved_contacts(tmp_path):
+    email = {
+        "question": "Email address*",
+        "field_type": "dropdown",
+        "options": ["candidate@example.com (Primary)", "other@example.com"],
+    }
+    code = {
+        "question": "Phone country code*",
+        "field_type": "dropdown",
+        "options": ["+44 United Kingdom", "+91 India"],
+    }
+    profile = {"email": "candidate@example.com"}
+    contact = replace(candidate(), phone="+91 9921626877")
+    settings = Settings(project_root=tmp_path, profile=profile)
+    assert answer(tmp_path, email, profile) == "candidate@example.com (Primary)"
+    assert positive_answer(code, settings, contact, job()) == "+91 India"
+
+
+def test_lone_skill_checkbox_is_not_checked_without_evidence(tmp_path):
+    azure = {
+        "question": "Experience with Azure cloud services?*",
+        "field_type": "checkbox",
+        "options": [],
+    }
+    consent = {
+        "question": "You declare that you have read and agree to the privacy notice.*",
+        "field_type": "checkbox",
+        "options": [],
+    }
+    assert answer(tmp_path, azure) == "No"
+    assert answer(tmp_path, consent) == "Yes"
+
+
+def test_current_residence_questions_use_the_saved_city(tmp_path):
+    bengaluru = {
+        "question": "Are you currently residing in bengaluru?",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    india = {
+        "question": "Are you currently based in India?*",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    pune = {"question": "Are you currently residing in Pune?", "field_type": "text"}
+    profile = {"current_city": "Pune", "current_country": "India"}
+    assert answer(tmp_path, bengaluru, profile) == "No"
+    assert answer(tmp_path, india, profile) == "Yes"
+    assert answer(tmp_path, pune, profile) == "Yes"
+
+
+def test_work_authorization_is_limited_to_the_saved_country(tmp_path):
+    uk = {
+        "question": "Do you currently have full right to work in the United Kingdom?",
+        "field_type": "text",
+    }
+    india = {
+        "question": "Do you currently have full right to work in India?",
+        "field_type": "text",
+    }
+    profile = {"current_country": "India"}
+    assert answer(tmp_path, uk, profile) == "No"
+    assert answer(tmp_path, india, profile) == "Yes"
+
+
+def test_certifications_come_from_the_resume(tmp_path):
+    certified = replace(candidate(), certifications=["Oracle Java Foundations"])
+    question = {"question": "Have you completed any relevant certifications?", "field_type": "text"}
+    choice = {**question, "field_type": "radio", "options": ["Yes", "No"]}
+    settings = Settings(project_root=tmp_path, profile={})
+    assert positive_answer(question, settings, certified, job()) == "Oracle Java Foundations"
+    assert positive_answer(choice, settings, certified, job()) == "Yes"
+    assert answer(tmp_path, question) == "No"
+    assert answer(tmp_path, choice) == "No"
+
+
+def test_supported_skill_claims_are_yes_not_prose(tmp_path):
+    unit_testing = {
+        "question": "Experience with unit testing and integration testing",
+        "field_type": "text",
+    }
+    aws = {
+        "question": "Do you have hands-on experience with AWS?",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    aem = {"question": "Have you worked on AEM architecture and development?", "field_type": "text"}
+    testing_candidate = replace(
+        candidate(),
+        skills=[*candidate().skills, "Unit Testing", "Integration Testing", "AWS"],
+    )
+    llm_candidate = replace(candidate(), skills=[*candidate().skills, "AI/LLM Tooling"])
+    llm = {"question": "Have you worked on GenAI/LLM integration?", "field_type": "text"}
+    settings = Settings(project_root=tmp_path, profile={})
+    assert positive_answer(unit_testing, settings, testing_candidate, job()) == "Yes"
+    assert positive_answer(aws, settings, testing_candidate, job()) == "Yes"
+    assert answer(tmp_path, aem) == "No"
+    assert positive_answer(llm, settings, llm_candidate, job()) == "Yes"
+
+
+def test_dotnet_experience_is_supported_by_the_dotnet_stack(tmp_path):
+    net_candidate = replace(candidate(), skills=[*candidate().skills, ".NET Stack"])
+    question = {
+        "question": "How many years of experience with .NET Core?",
+        "field_type": "text",
+    }
+    settings = Settings(project_root=tmp_path, profile={"total_experience": "2 years"})
+    assert positive_answer(question, settings, net_candidate, job()) == "2"
+
+
+def test_optional_anything_else_prompt_is_not_answered_yes(tmp_path):
+    question = {"question": "Is there anything else you’d like us to know?", "field_type": "text"}
+    assert answer(tmp_path, question) == "N/A"
+
+
+def test_yes_no_question_after_a_statement_still_gets_a_yes(tmp_path):
+    question = {
+        "question": "This is a contractual position. Are you comfortable with it?",
+        "field_type": "text",
+    }
+    assert answer(tmp_path, question) == "Yes"
