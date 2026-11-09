@@ -57,7 +57,7 @@ def software_development_role(title):
     )
 
 
-def local_match(profile, job, threshold):
+def local_match(profile, job, threshold, max_shortfall=0.0):
     from src.naukri_agent.ai.resume_parser import DEFAULT_TECH_SKILLS
 
     candidate = {
@@ -145,9 +145,12 @@ def local_match(profile, job, threshold):
     if stated:
         stated_years = minimum_experience_years(stated[0])
         required_years = max(required_years or 0, stated_years or 0)
-    if required_years is not None and required_years > profile.total_experience_years:
+    shortfall = max(0.0, float(max_shortfall or 0.0))
+    if required_years is not None and required_years > profile.total_experience_years + shortfall:
         approved = False
         reason += f" Required experience is {required_years:g} years; the saved resume supports {profile.total_experience_years:g}."
+    elif required_years is not None and required_years > profile.total_experience_years:
+        reason += f" Within the {shortfall:g}-year experience stretch ({required_years:g} asked, {profile.total_experience_years:g} recorded)."
     if not requirements:
         reason += " No usable skill requirements; review this listing manually."
     return score, approved, reason, matching, missing

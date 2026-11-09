@@ -16,8 +16,13 @@ main fit, missing requirements and uncertainty; do not provide hidden reasoning.
 """
 
 
-def eligibility_concern(profile, job):
-    """Veto explicit minimums, including requirements contradicting card metadata."""
+def eligibility_concern(profile, job, max_shortfall=0.0):
+    """Veto explicit minimums, including requirements contradicting card metadata.
+
+    ``max_shortfall`` lets a near-miss role through (for example 2 years asked,
+    1 year held) without ever claiming the missing tenure. The default keeps
+    the strict veto.
+    """
     experience = str(getattr(job, "experience", "") or "").lower()
     match = re.fullmatch(
         r"\s*(\d+(?:\.\d+)?)\s*(?:[-–]\s*\d+(?:\.\d+)?|\+)?\s*(?:years?|yrs?)\s*", experience
@@ -31,9 +36,10 @@ def eligibility_concern(profile, job):
     try:
         years = float(profile.total_experience_years)
         minimum = max(minimums)
+        shortfall = max(0.0, float(max_shortfall or 0.0))
     except (ValueError, TypeError, AttributeError):
         return ""
-    if math.isfinite(years) and years >= 0 and minimum > years:
+    if math.isfinite(years) and years >= 0 and minimum > years + shortfall:
         return f"Eligibility check: listing explicitly requires at least {minimum:g} years; the saved resume records {years:g}. Review this mismatch before applying."
     return ""
 
@@ -96,7 +102,7 @@ def _tenure_is_required(part, match, required_section):
     return bool(required_section or explicit)
 
 
-def decision_fingerprint(profile, job, ai, threshold):
+def decision_fingerprint(profile, job, ai, threshold, shortfall=0.0):
     """Rescraping an unchanged listing must not consume another AI request."""
     job_data = dataclasses.asdict(job)
     for key in ("id", "scraped_at", "created_at", "updated_at", "card_index", "search_url"):
@@ -109,6 +115,7 @@ def decision_fingerprint(profile, job, ai, threshold):
         "enabled": ai.use_gemini,
         "matching": ai.enable_matching,
         "threshold": threshold,
+        "shortfall": max(0.0, float(shortfall or 0.0)),
     }
     return hashlib.sha256(json.dumps(context, sort_keys=True, default=str).encode()).hexdigest()[
         :32

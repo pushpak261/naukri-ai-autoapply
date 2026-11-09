@@ -156,7 +156,7 @@ class JobMatcher(IJobMatcher):
         """
         # Format resume profile for the prompt
         from libs.common.agent_reasoning import eligibility_concern, decision_fingerprint, DECISION_GUIDANCE
-        concern = eligibility_concern(resume_profile, job)
+        concern = eligibility_concern(resume_profile, job, max_shortfall=self._settings.application.experience_shortfall_years)
         if concern:
             return JobApplication(match_score=0, should_apply=False, match_reasoning=concern)
         profile_dict = dataclasses.asdict(resume_profile)
@@ -165,7 +165,7 @@ class JobMatcher(IJobMatcher):
 
         resume_hash = resume_profile.file_hash
         if resume_hash:
-            resume_hash = decision_fingerprint(resume_profile, job, self._settings.ai, self._threshold)
+            resume_hash = decision_fingerprint(resume_profile, job, self._settings.ai, self._threshold, shortfall=self._settings.application.experience_shortfall_years)
         job_id = job.naukri_job_id
         if resume_hash and job_id:
             cached_result = self._cache.get(resume_hash, job_id)
@@ -323,7 +323,7 @@ class JobMatcher(IJobMatcher):
 
     def _match_locally(self, resume_profile: ResumeProfile, job: Job) -> JobApplication:
         from libs.common.local_matching import local_match
-        score, approved, reason, matching, missing = local_match(resume_profile, job, self._threshold)
+        score, approved, reason, matching, missing = local_match(resume_profile, job, self._threshold, max_shortfall=self._settings.application.experience_shortfall_years)
         log_match(score=score, title=job.title or "Unknown", company=job.company or "Unknown", should_apply=approved)
         logger.info(reason)
         return JobApplication(match_score=score, should_apply=approved,

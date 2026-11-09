@@ -103,6 +103,29 @@ def test_local_matching_understands_compound_skill_tags_and_minimum_experience()
     assert "Required experience is 2.5" in result[2]
 
 
+def test_near_miss_experience_can_be_allowed_without_claiming_it():
+    profile = ResumeProfile(
+        current_title="Java Developer",
+        skills=["Java", "SQL", "Spring Boot"],
+        total_experience_years=1.1,
+    )
+    job = Job(
+        "1",
+        "Java Backend Developer",
+        "Example",
+        "https://example.invalid/1",
+        skills="Java, Spring Boot, SQL",
+        experience="2-3 years",
+    )
+    assert not local_match(profile, job, 70)[1]
+    score, approved, reason, *_ = local_match(profile, job, 70, max_shortfall=1)
+    assert score >= 70
+    assert approved
+    assert "experience stretch" in reason
+    job.experience = "3-5 years"
+    assert not local_match(profile, job, 70, max_shortfall=1)[1]
+
+
 def test_saved_profile_without_title_still_matches_its_evidenced_java_stack():
     profile = ResumeProfile(
         skills=["Java", "Spring Boot", "Microservices"], total_experience_years=1
