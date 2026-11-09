@@ -45,6 +45,9 @@ const ownLabel = el => [...(el.labels || [])].map(labelText).join(' ') || (el.ge
 const groupOf = el => el.closest('[componentkey^="easyApplyFieldFocus_"]') || el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping') || el.parentElement;
 const optionText = (el, question) => {
     const heading = question.trim().replace(/\*+$/, '').trim();
+    // LinkedIn attaches the group's own label to every radio as aria-label
+    // (sometimes with a required-marker asterisk). It is not an option label.
+    const plain = value => (value || '').replace(/[\s\u00a0*]+$/g, '').trim();
     // LinkedIn sometimes renders the option text in a sibling paragraph and
     // leaves the radio label empty; take the closest wrapper that holds only
     // this control so the whole group is never read as one option.
@@ -60,7 +63,7 @@ const optionText = (el, question) => {
     const candidates = [ownLabel(el), nearbyText(el), el.getAttribute('aria-label'), text(el), el.value];
     const option = candidates
         .map(value => (value || '').trim())
-        .find(value => value && value !== question.trim() && value !== heading && value !== 'on') || '';
+        .find(value => value && plain(value) !== heading && value !== 'on') || '';
     return /^true$/i.test(option) ? 'Yes' : /^false$/i.test(option) ? 'No' : option;
 };
 const seen = new Set(), result = [];

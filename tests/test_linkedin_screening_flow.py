@@ -631,6 +631,42 @@ async def test_modern_radio_group_uses_outer_question_heading(search_page):
 
 
 @pytest.mark.asyncio
+async def test_self_identification_options_use_the_visible_labels(search_page, tmp_path):
+    from libs.common.screening_fallback import positive_answer
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import ResumeProfile
+
+    _, tab = search_page
+    option = (
+        '<div><div><div><div><input id="{id}" aria-label="Voluntary Self-Identification of Gender'
+        '&nbsp;*" type="radio" name="radio-group-g"><label for="{id}"></label></div>'
+        '<div><p>{label}</p></div></div></div></div>'
+    )
+    await tab.set_content(
+        """<div role="dialog">
+      <div componentkey="easyApplyFieldFocus_ea_validation_p3_0_1">
+        <p>Voluntary Self-Identification of Gender&nbsp;**</p>
+        <fieldset role="radiogroup">"""
+        + option.format(id="g-male", label="Male")
+        + option.format(id="g-female", label="Female")
+        + option.format(id="g-decline", label="I don't wish to answer")
+        + """</fieldset></div></div>"""
+    )
+    page = detail(tab)
+    questions = await page.extract_screening_questions()
+    assert len(questions) == 1
+    question = questions[0]
+    assert question["question"].startswith("Voluntary Self-Identification of Gender")
+    assert question["options"] == ["Male", "Female", "I don't wish to answer"]
+    settings = Settings(project_root=tmp_path)
+    answer = positive_answer(question, settings, ResumeProfile(name="Candidate"))
+    assert answer == "I don't wish to answer"
+    assert await page.fill_answer(question, answer)
+    assert await tab.locator("#g-decline").is_checked()
+    assert not await tab.locator("#g-male").is_checked()
+
+
+@pytest.mark.asyncio
 async def test_education_dates_helper_sets_all_four_selects_and_saves(search_page):
     from src.linked_agent.browser.screening_form import (
         education_form,
