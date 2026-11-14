@@ -88,9 +88,24 @@ def _labelled_experience_minimums(description, duration):
     ]
 
 
+# A different labelled field ends the clause. Flattened job descriptions often
+# read "Experience: 5-10 Years Location: Bangalore ... Preferred Open
+# Positions: 1", where "Preferred" is headcount, not a preference on tenure.
+_NEXT_FIELD = re.compile(
+    r"(?:\b(?:preferred|required|minimum)\s+)?"
+    r"\b(?:location|work\s+location|employment\s+type|notice\s+period|job\s+description|"
+    r"open\s+positions?|department|company|role|position|salary|ctc|qualifications?|"
+    r"requirements?|responsibilities|benefits)\s*:",
+    re.I,
+)
+
+
 def _tenure_is_required(part, match, required_section):
     before = part[max(0, match.start() - 70) : match.start()]
     after = part[match.end() : match.end() + 90]
+    boundary = _NEXT_FIELD.search(after)
+    if boundary:
+        after = after[: boundary.start()]
     if re.search(r"\b(?:lasting|lasts|duration(?:\s+of)?)\s*$", before, re.I):
         return False
     # A preference in a required section still isn't a mandatory minimum.
