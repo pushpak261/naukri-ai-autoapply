@@ -61,6 +61,36 @@ def test_a_lone_consent_checkbox_is_checked(tmp_path):
     assert answer(tmp_path, question) == "Yes"
 
 
+def test_privacy_notice_declaration_is_consent_not_a_notice_period(tmp_path):
+    question = {
+        "question": (
+            "You declare that you have read and understand the job applications "
+            "privacy notice of METRO/MAKRO.*"
+        ),
+        "field_type": "text",
+    }
+    assert answer(tmp_path, question) == "Yes"
+    assert not needs_numeric(question)
+
+
+def test_prompt_echoed_as_the_only_option_is_not_an_answer(tmp_path):
+    question = {
+        "question": "Select Your Preferred Work Location*",
+        "field_type": "text",
+        "options": ["Select Your Preferred Work Location"],
+    }
+    assert answer(tmp_path, question, {"current_city": "Pune"}) == "Pune"
+
+
+def test_privacy_consent_options_choose_the_accepting_label(tmp_path):
+    question = {
+        "question": "You declare that you have read and agree to the privacy notice.*",
+        "field_type": "radio",
+        "options": ["I do not consent", "I consent"],
+    }
+    assert answer(tmp_path, question) == "I consent"
+
+
 def test_demographic_questions_prefer_the_decline_option(tmp_path):
     question = {
         "question": "Do you have a disability?",
@@ -306,6 +336,22 @@ def test_immediate_notice_picks_the_lowest_available_range(tmp_path):
     assert answer(tmp_path, question, {"notice_period": "Immediate"}) == "16-30 days"
 
 
+def test_immediate_notice_prefers_the_immediate_option_over_a_numeric_range(tmp_path):
+    joiner = {
+        "question": "What will be your notice period?*",
+        "field_type": "dropdown",
+        "options": ["Serving Notice Period", "Immediate Joiner", "30 Days", "45 Days"],
+    }
+    available = {
+        "question": "What's your current notice period?",
+        "field_type": "dropdown",
+        "options": ["Available Immediately", "7 days", "15 days"],
+    }
+    profile = {"notice_period": "Immediate"}
+    assert answer(tmp_path, joiner, profile) == "Immediate Joiner"
+    assert answer(tmp_path, available, profile) == "Available Immediately"
+
+
 def test_serving_notice_dropdown_follows_the_saved_notice_period(tmp_path):
     question = {
         "question": "Are you currently serving your notice?*",
@@ -324,6 +370,18 @@ def test_serving_notice_text_question_answers_yes_or_no_not_a_duration(tmp_path)
     question = {"question": "Are you currently serving your notice?", "field_type": "text"}
     assert answer(tmp_path, question, {"notice_period": "Immediate"}) == "No"
     assert answer(tmp_path, question, {"notice_period": "2 months"}) == "Yes"
+
+
+def test_serving_notice_yes_no_options_are_never_rewritten_as_a_number(tmp_path):
+    question = {
+        "question": "Serving Notice Period?*",
+        "field_type": "text",
+        "options": ["Yes", "No"],
+    }
+    settings = Settings(project_root=tmp_path, profile={"notice_period": "30 days"})
+    assert answer(tmp_path, question, {"notice_period": "30 days"}) == "Yes"
+    assert not needs_numeric(question)
+    assert numeric_answer(question, settings, candidate()) == ""
 
 
 def test_offer_in_hand_is_not_claimed_by_default(tmp_path):
@@ -487,6 +545,42 @@ def test_conflict_of_interest_questions_answer_no(tmp_path):
     assert answer(tmp_path, intellectual_property) == "No"
     assert answer(tmp_path, outside_employment) == "No"
     assert answer(tmp_path, board) == "No"
+
+
+def test_unrecorded_credentials_answer_no(tmp_path):
+    passport = {
+        "question": "Do you hold a valid passport?*",
+        "field_type": "text",
+        "options": ["Yes", "No"],
+    }
+    licence = {
+        "question": "Do you have a valid driver's license?",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    clearance = {
+        "question": "Do you hold an active security clearance?",
+        "field_type": "dropdown",
+        "options": ["Yes", "No"],
+    }
+    assert answer(tmp_path, passport) == "No"
+    assert answer(tmp_path, licence) == "No"
+    assert answer(tmp_path, clearance) == "No"
+
+
+def test_international_travel_is_not_claimed_without_a_passport(tmp_path):
+    international = {
+        "question": "Are you willing to travel internationally to customer locations?*",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    domestic = {
+        "question": "Are you willing to travel to customer locations?*",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    assert answer(tmp_path, international) == "No"
+    assert answer(tmp_path, domestic) == "Yes"
 
 
 def test_conditional_followups_answer_not_applicable(tmp_path):

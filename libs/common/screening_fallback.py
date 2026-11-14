@@ -93,6 +93,34 @@ _SERVING_NOTICE = re.compile(
     r"|\bon\s+(?:a\s+)?notice\b",
     re.I,
 )
+# "Privacy notice" is a consent statement, not the candidate's notice period.
+_PRIVACY_NOTICE = re.compile(
+    r"\bprivacy\s+(?:notice|policy|statement)\b"
+    r"|\bnotice\s+of\s+(?:the\s+)?privacy\b"
+    r"|\bdata\s+(?:privacy|protection)\b",
+    re.I,
+)
+_NOTICE_PERIOD = re.compile(
+    r"\bnotice\s+period\b|\bperiod\s+of\s+notice\b"
+    r"|\bserving\s+(?:your\s+)?notice\b"
+    r"|\b(?:current|official|required|total)\s+notice\b"
+    r"|\bnotice\s*(?:in\s+days?|:)\b"
+    r"|^\s*notice\s*[?:*]*\s*$",
+    re.I,
+)
+# Declarations and consent boxes are answerable with Yes, unlike a missing
+# personal fact.
+_CONSENT = re.compile(
+    r"\b(?:agree|acknowledge|consent|declare|accept)\b"
+    r"|\bterms\s+(?:and|&)\s+conditions\b"
+    r"|\bprivacy\s+(?:notice|policy|statement)\b"
+    r"|\bdata\s+(?:privacy|protection)\b",
+    re.I,
+)
+
+
+def _is_notice_period(text):
+    return bool(_NOTICE_PERIOD.search(text)) and not _PRIVACY_NOTICE.search(text)
 _OFFER_IN_HAND = re.compile(
     r"\boffers?\s+in\s+hand\b|\bcompeting\s+offers?\b|\bother\s+offers?\b", re.I
 )
@@ -131,6 +159,22 @@ _CURRENT_IN = re.compile(
 _WORK_AUTH = re.compile(
     r"\b(?:right|authoris\w*|authoriz\w*|eligible|permit(?:ted)?)\s+to\s+work\b"
     r"|\bwork\s+(?:permit|authori[sz]ation)\b",
+    re.I,
+)
+# No saved profile fact records a passport, driving licence or clearance. Claiming
+# one would invent a personal credential, so the grounded answer is No.
+_CREDENTIAL = re.compile(
+    r"\bpassport\b"
+    r"|\bdriver'?s?\s+licen[cs]e\b|\bdriving\s+licen[cs]e\b"
+    r"|\b(?:security|government|defence|defense)\s+clearance\b",
+    re.I,
+)
+# International travel needs the same unrecorded passport, so a willingness
+# answer would contradict the credential answer in the same form.
+_INTERNATIONAL_TRAVEL = re.compile(
+    r"\b(?:willing|able|open)\b[^?.]{0,60}\b(?:travel|relocat\w*)\b[^?.]{0,40}"
+    r"\b(?:international(?:ly)?|abroad|overseas)\b"
+    r"|\binternational\s+travel\b",
     re.I,
 )
 _CERTIFICATION = re.compile(r"\bcertif(?:icate|ication|ied|icates|ications)?\b", re.I)
@@ -425,11 +469,14 @@ def _rating_value(text):
 
 
 _AFFIRMATIVE = re.compile(
-    r"\b(?:yes|agree|authoriz|authoris|eligible|willing|open to|available|confirm|accept|"
-    r"acknowledge|i have read|i understand|immediate)\b",
+    r"\b(?:yes|agree|consent|authoriz|authoris|eligible|willing|open to|available|confirm|"
+    r"accept|acknowledge|i have read|i understand|immediate)\b",
     re.I,
 )
 _NEGATIVE = re.compile(r"^(?:no\b|not |none\b|decline|prefer not|do not|don't|disagree)", re.I)
+_CONSENT_NEGATIVE = re.compile(
+    r"\b(?:do not|don't|does not|disagree|decline|not\s+(?:consent|agree))\b", re.I
+)
 
 
 def _text(question):
@@ -448,6 +495,20 @@ def _options(question):
 def _placeholder(option):
     lowered = option.casefold().strip(" .:*")
     return not lowered or lowered in _PLACEHOLDERS
+
+
+def _option_key(value):
+    return re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).strip()
+
+
+def _usable_options(question):
+    """Real choices only; never the prompt echoed back as a fake option."""
+    prompt = _option_key(_text(question))
+    return [
+        option
+        for option in _options(question)
+        if not _placeholder(option) and _option_key(option) != prompt
+    ]
 
 
 def _wants_negative(text):
@@ -555,6 +616,17 @@ def _money_option(options, text, settings):
 
 def _notice_option(options, settings):
     days = int(_notice_days(settings))
+    if days == 0:
+        immediate = next(
+            (
+                option
+                for option in options
+                if re.search(r"\b(?:immediate(?:ly)?|joiner)\b", option, re.I)
+            ),
+            "",
+        )
+        if immediate:
+            return immediate
     picked = _pick_numeric_option(options, float(days))
     if picked:
         return picked
@@ -640,7 +712,7 @@ def _fact_options(options, text, settings, candidate):
                 getattr(profile, "current_location", ""),
             ]
         )
-    if "notice" in text:
+    if _is_notice_period(text):
         facts.append(getattr(profile, "notice_period", ""))
     if "ctc" in text or "salary" in text or "compensation" in text:
         facts.extend([getattr(profile, "expected_ctc", ""), getattr(profile, "current_ctc", "")])
@@ -671,15 +743,19 @@ def _fact_options(options, text, settings, candidate):
 
 def _choice_answer(question, settings, candidate):
     text = _text(question)
-    options = [option for option in _options(question) if not _placeholder(option)]
+    options = _usable_options(question)
     kind = question.get("field_type") or question.get("type") or ""
     if not options:
-        if _unsupported_skill_claim(text, candidate):
+        if _LOCATION_FACT.search(text):
+            location = _location_answer(settings)
+            if location:
+                return location
+        if _credential_answer(text) or _unsupported_skill_claim(text, candidate):
             return "No"
         return "No" if _wants_negative(text) else "Yes"
     if kind == "checkbox" and len(options) == 1:
         # A lone checkbox is a consent/declaration control, not a list.
-        if _unsupported_skill_claim(text, candidate):
+        if _credential_answer(text) or _unsupported_skill_claim(text, candidate):
             return "No"
         return "No" if _wants_negative(text) else "Yes"
 
@@ -698,6 +774,14 @@ def _choice_answer(question, settings, candidate):
     authorization = _work_authorization_answer(text, settings)
     if authorization:
         picked = _option_for(options, authorization)
+        if picked:
+            return picked
+
+    credential = _credential_answer(text)
+    if credential:
+        picked = _option_for(options, credential) or next(
+            (option for option in options if _NEGATIVE.search(option)), ""
+        )
         if picked:
             return picked
 
@@ -720,6 +804,18 @@ def _choice_answer(question, settings, candidate):
     if optional:
         picked = _option_for(options, optional) or next(
             (option for option in options if _NEGATIVE.search(option)), ""
+        )
+        if picked:
+            return picked
+
+    if _CONSENT.search(text):
+        picked = _option_for(options, "Yes") or next(
+            (
+                option
+                for option in options
+                if _AFFIRMATIVE.search(option) and not _CONSENT_NEGATIVE.search(option)
+            ),
+            "",
         )
         if picked:
             return picked
@@ -774,7 +870,7 @@ def _choice_answer(question, settings, candidate):
         if picked:
             return picked
 
-    if "notice" in text:
+    if _is_notice_period(text):
         picked = _notice_option(options, settings)
         if picked:
             return picked
@@ -912,6 +1008,13 @@ def _location_yes_no_answer(text, settings):
     return "No"
 
 
+def _credential_answer(text):
+    """Answer personal credentials the profile does not record."""
+    if _CREDENTIAL.search(text) or _INTERNATIONAL_TRAVEL.search(text):
+        return "No"
+    return ""
+
+
 def _work_authorization_answer(text, settings):
     """Never claim a right to work in a country the profile does not live in."""
     if not _WORK_AUTH.search(text) or re.search(r"\b(?:require|need|sponsor)", text, re.I):
@@ -1014,7 +1117,7 @@ def _number_answer(text, settings, candidate):
     if "experience" in text:
         stated = _years(settings, candidate)
         return format(stated, "g") if stated is not None else "0"
-    if "notice" in text:
+    if _is_notice_period(text):
         return _notice_days(settings)
     if _is_money(text):
         return _money_amount(text, settings)
@@ -1118,7 +1221,7 @@ def _text_answer(question, settings, candidate, job):
         or re.search(r"\bhow much\b[^?.]*\bexperience\b", text)
         or question.get("input_type") == "number"
         or question.get("field_type") == "number"
-        or "notice" in text
+        or _is_notice_period(text)
         or _is_money(text)
         or _EXPERIENCE_YEARS.search(text)
     ):
@@ -1132,6 +1235,9 @@ def _text_answer(question, settings, candidate, job):
     authorization = _work_authorization_answer(text, settings)
     if authorization:
         return authorization
+    credential = _credential_answer(text)
+    if credential:
+        return credential
     optional = _optional_prompt_answer(text)
     if optional:
         return optional
@@ -1177,6 +1283,8 @@ def _text_answer(question, settings, candidate, job):
     ).strip()
     if any(word in text for word in ("phone", "mobile", "contact number")) and phone:
         return phone
+    if _CONSENT.search(text):
+        return "No" if _wants_negative(text) else "Yes"
     if _YES_NO.search(text):
         return "No" if _wants_negative(text) else "Yes"
     return _profile_sentence(text, settings, candidate, question)
@@ -1187,7 +1295,7 @@ def positive_answer(question, settings, candidate=None, job=None):
     if candidate is None:
         return "Yes"
     kind = question.get("field_type") or question.get("type") or "text"
-    if kind in ("radio", "dropdown", "checkbox") or _options(question):
+    if kind in ("radio", "dropdown", "checkbox") or _usable_options(question):
         return _choice_answer(question, settings, candidate)
     return _text_answer(question, settings, candidate, job)
 
@@ -1216,7 +1324,15 @@ def numeric_answer(question, settings, candidate=None):
         return ""
     if "additional" in text and "experience" in text:
         return "0"
-    if "notice" in text:
+    if _SERVING_NOTICE.search(text) and not _is_notice_period(text):
+        # "Are you currently serving notice?" is a Yes/No fact, not a duration.
+        return ""
+    options = _usable_options(question)
+    if len(options) == 2 and all(
+        re.fullmatch(r"yes|no", option.strip(), re.I) for option in options
+    ):
+        return ""
+    if _is_notice_period(text):
         return _notice_days(settings)
     if _is_money(text):
         return _money_amount(text, settings)
@@ -1233,6 +1349,10 @@ def needs_numeric(question):
     text = _text(question)
     if question.get("input_type") == "number" or question.get("field_type") == "number":
         return True
+    if _usable_options(question):
+        # A text-styled typeahead still expects one of its labels, not a
+        # rewritten number ("No" on a serving-notice question, "1-2 years").
+        return False
     if _DATE_ANSWER.search(text):
         # Dates and availability are answered with a date or "Immediate",
         # even when the wording also contains "notice".
@@ -1244,9 +1364,12 @@ def needs_numeric(question):
     ) and not _PEOPLE.search(text):
         # "If yes..." and serving-notice follow-ups get "N/A" on prose fields.
         return False
+    if _SERVING_NOTICE.search(text):
+        # "Are you currently serving your notice?" is a Yes/No fact.
+        return False
     if _RATING.search(text) or _PEOPLE.search(text):
         return True
-    if "notice" in text or _is_money(text):
+    if _is_notice_period(text) or _is_money(text):
         return True
     if re.search(r"\b(?:how many|number of)\b", text):
         return True
