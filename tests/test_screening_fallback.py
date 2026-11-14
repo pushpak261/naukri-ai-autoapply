@@ -513,6 +513,29 @@ def test_conditional_followups_answer_not_applicable(tmp_path):
     assert needs_numeric(conditional_no) is False
 
 
+def test_referral_and_manager_followups_answer_not_applicable(tmp_path):
+    referrer = {
+        "question": "If you were referred by a current employee, please provide their name.",
+        "field_type": "text",
+    }
+    who = {"question": "Who referred you to this role?", "field_type": "text"}
+    manager = {
+        "question": "What is the name of your current manager?",
+        "field_type": "text",
+    }
+    for question in (referrer, who, manager):
+        assert answer(tmp_path, question) == "N/A"
+
+
+def test_direct_referral_questions_answer_no(tmp_path):
+    question = {
+        "question": "Were you referred by a current employee?",
+        "field_type": "radio",
+        "options": ["Yes", "No"],
+    }
+    assert answer(tmp_path, question) == "No"
+
+
 def test_serving_notice_followup_is_not_zero(tmp_path):
     question = {
         "question": "If you are serving notice, what will be your notice period?",

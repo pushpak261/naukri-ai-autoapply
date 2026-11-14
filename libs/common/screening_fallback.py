@@ -45,6 +45,7 @@ _NEGATIVE_POLARITY = (
     r"\bcurrent\s+or\s+former\s+employee\b",
     r"\bemployer\b[^?.]*\bpartner\b",
     r"\bapplied\s+to\s+or\s+been\s+referred\b",
+    r"\breferr(?:ed|al)\b",
     r"\bintellectual\s+property\b",
     r"\boutside\s+employment\b",
     r"\bboard\s+memberships?\b",
@@ -105,8 +106,21 @@ _CONDITIONAL_SERVING = re.compile(
     r"^\s*if\s+(?:you\s+(?:are|have)\s+)?(?:already\s+)?serving\s+(?:a\s+)?notice\b",
     re.I,
 )
+# Follow-ups that ask for a referrer, a former manager or the names of
+# relatives are only answerable when the preceding yes/no fact is true. No
+# such fact is saved, so they must be N/A rather than the candidate's name.
+_FOLLOW_UP_DETAIL = re.compile(
+    r"^\s*if\s+['\"]?yes\b"
+    r"|^\s*if\s+you\s+(?:were\s+referred|have\s+been\s+referred|answered\s+['\"]?yes)"
+    r"|\b(?:name|names|details)\s+of\s+(?:the\s+)?(?:referr|individual|person\s+who\s+referred)"
+    r"|\bwho\s+(?:referred|is\s+your\s+referrer)"
+    r"|\breferrer\b"
+    r"|\bname\s+of\s+your\s+(?:current|former|previous|most\s+recent)\s+manager"
+    r"|\brelationship\s+to\s+you\b",
+    re.I,
+)
 _YES_NO = re.compile(
-    r"(?:^|[:;.?!]\s*)(?:do|does|are|is|have|has|will|would|can|could|did|should|may|am)\b",
+    r"(?:^|[:;.?!]\s*)(?:do|does|are|is|were|was|have|has|will|would|can|could|did|should|may|am)\b",
     re.I,
 )
 _CURRENT_IN = re.compile(
@@ -838,6 +852,7 @@ def _conditional_answer(text, settings):
         _CONDITIONAL_YES.search(text)
         or _CONDITIONAL_NO.search(text)
         or _CONDITIONAL_SERVING.search(text)
+        or _FOLLOW_UP_DETAIL.search(text)
     )
     if not matches:
         return ""

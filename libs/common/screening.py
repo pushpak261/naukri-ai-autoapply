@@ -16,6 +16,20 @@ _EXPECTED_PAY_TERMS = (
     "compensation expectation",
 )
 
+# A follow-up that asks for a referrer, a former manager or the names of
+# relatives is conditional on an earlier fact that is not saved. Answering it
+# from the resume name would invent a referral the candidate never had.
+_FOLLOW_UP_DETAIL = re.compile(
+    r"^\s*if\s+['\"]?yes\b"
+    r"|^\s*if\s+you\s+(?:were\s+referred|have\s+been\s+referred|answered\s+['\"]?yes)"
+    r"|\b(?:name|names|details)\s+of\s+(?:the\s+)?(?:referr|individual|person\s+who\s+referred)"
+    r"|\bwho\s+(?:referred|is\s+your\s+referrer)"
+    r"|\breferrer\b"
+    r"|\bname\s+of\s+your\s+(?:current|former|previous|most\s+recent)\s+manager"
+    r"|\brelationship\s+to\s+you\b",
+    re.I,
+)
+
 
 def _address_answer(text, profile):
     label = question_key(text)
@@ -245,6 +259,8 @@ def evidence_answer(question, settings, candidate=None):
         )
     if narrative_kind(text):
         return ""  # Narrative experience questions must not become a tenure number.
+    if _FOLLOW_UP_DETAIL.search(text):
+        return "N/A"
     value = ""
     name = getattr(candidate, "name", "")
     employed = getattr(profile, "employment_status", "") == "employed"
@@ -420,7 +436,10 @@ def evidence_answer(question, settings, candidate=None):
             if value:
                 break
         value = value or ", ".join(preferred)
-    elif any(word in text for word in ("github", "linkedin")):
+    elif re.search(r"\b(?:github|linkedin)\b", text) and (
+        re.search(r"\b(?:url|link|profile|portfolio|website|handle|username)\b", text)
+        or text.strip(" :*.-") in ("github", "linkedin")
+    ):
         value = _profile_link(text, profile, candidate)
     elif "reason for" in text and any(word in text for word in ("change", "leaving")):
         value = getattr(profile, "reason_for_change", "")
