@@ -437,6 +437,11 @@ class LinkedInAgent:
         resume_profile = self._resume_profile
         from api.company_policy import CompanyPolicy
         company_policy = CompanyPolicy(self._settings, "linkedin")
+        if company_policy.whitelist:
+            log_info(
+                f"Company priority: {len(company_policy.whitelist)} preferred employers "
+                "will be visited first"
+            )
         job_queue: list[tuple[float, int, Job]] = []
 
         for idx, job in enumerate(jobs):

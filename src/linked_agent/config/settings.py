@@ -94,6 +94,10 @@ class SearchSettings(BaseModel):
     # (word-boundary matched) for the agent to consider applying. Empty = no
     # mandatory requirement (any job from the search keywords is eligible).
     required_title_keywords: list[str] = Field(default_factory=list)
+    # Employers to visit first. Matching is punctuation/case-insensitive and
+    # ignores legal suffixes ("Pvt Ltd", "Inc") and unit suffixes
+    # ("Technologies", "India"), so "JPMorgan Chase" matches "JP Morgan".
+    preferred_companies: list[str] = Field(default_factory=list)
 
     @field_validator("sort_by")
     @classmethod
