@@ -17,14 +17,58 @@ async def test_navigation_waits_for_password_field_without_network_idle():
     interactions.wait_for_navigation_complete = AsyncMock()
     with patch("src.linked_agent.browser.pages.login.asyncio.sleep", new=AsyncMock()):
         await LinkedInLoginPage(engine, interactions).navigate()
-    field.wait_for.assert_awaited_once_with(state="visible", timeout=90_000)
+    field.wait_for.assert_awaited_once_with(state="visible", timeout=30_000)
     interactions.wait_for_navigation_complete.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_authenticated_surface_is_accepted_when_the_form_never_renders():
+    engine = Mock()
+    engine.page.goto = AsyncMock()
+    engine.page.url = "https://www.linkedin.com/feed/"
+    engine.page.locator.return_value.first.wait_for = AsyncMock(
+        side_effect=TimeoutError("No login form")
+    )
+    page_object = LinkedInLoginPage(engine, Mock())
+    page_object.is_logged_in = AsyncMock(return_value=True)
+    with patch("src.linked_agent.browser.pages.login.asyncio.sleep", new=AsyncMock()):
+        await page_object.navigate()
+    page_object.is_logged_in.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_missing_form_does_not_silently_continue_to_credentials():
     engine = Mock()
     engine.page.goto = AsyncMock()
+    engine.page.url = "https://www.linkedin.com/login"
     engine.page.locator.return_value.first.wait_for = AsyncMock(side_effect=TimeoutError("No login form"))
-    with pytest.raises(TimeoutError, match="No login form"):
-        await LinkedInLoginPage(engine, Mock()).navigate()
+    page_object = LinkedInLoginPage(engine, Mock())
+    page_object.is_logged_in = AsyncMock(return_value=False)
+    with pytest.raises(TimeoutError, match="No login form"), patch(
+        "src.linked_agent.browser.pages.login.asyncio.sleep", new=AsyncMock()
+    ):
+        await page_object.navigate()
+
+
+@pytest.mark.asyncio
+async def test_logged_in_indicator_wins_over_a_visible_login_link():
+    from src.linked_agent.config.constants import LoginSelectors
+
+    avatar = Mock()
+    avatar.is_visible = AsyncMock(return_value=True)
+    login_link = Mock()
+    login_link.is_visible = AsyncMock(return_value=True)
+    page = Mock()
+
+    async def query(selector):
+        if selector == LoginSelectors.LOGGED_IN_INDICATORS[0]:
+            return avatar
+        if selector == LoginSelectors.NOT_LOGGED_IN_INDICATORS:
+            return login_link
+        return None
+
+    page.query_selector = AsyncMock(side_effect=query)
+    engine = Mock()
+    engine.page = page
+
+    assert await LinkedInLoginPage(engine, Mock()).is_logged_in() is True

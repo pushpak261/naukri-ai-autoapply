@@ -30,6 +30,15 @@ from src.naukri_agent.models.entities import Job, ResumeProfile
         ("Minimum 2 years of work experience.", 2),
         ("Location: Pune (Hybrid)Experience: 3+ yearsEmployment Type: Full-Time", 3),
         ("Experience: 0-2 years. Java and Spring Boot.", 0),
+        (
+            "Position: Full Stack Developer (Java) Experience: 5–10 Years Location: "
+            "Bangalore Employment Type: Contract Notice Period: Immediate Joiners "
+            "Preferred Open Positions: 1 Job Description: Java and Spring Boot.",
+            5,
+        ),
+        ("Experience: 3 years preferred. Location: Pune.", None),
+        ("Experience: 5 years. Preferred location: Pune.", 5),
+        ("Experience: 2 years. Preferred qualifications: Java.", 2),
         ("Preferred experience: 3 years. Requirements: Java.", None),
         ("Requirements: Java. Nice to have: 5 years of experience.", None),
         ("Requirements: Java. Preferred qualifications: 5 years of experience.", None),

@@ -3,13 +3,15 @@
 import re
 from urllib.parse import parse_qs, urlsplit
 
+from src.linked_agent.utils.helpers import is_linkedin_url
+
 
 async def inline_submission_confirmed(page, job_id):
     url = page.url
     if not isinstance(url, str) or not str(job_id).isdigit():
         return False
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname not in ("linkedin.com", "www.linkedin.com"):
+    if not is_linkedin_url(url):
         return False
     match = re.search(r"/jobs/view/(?:[^/]*-)?(\d+)/?$", parsed.path)
     selected = match[1] if match else parse_qs(parsed.query).get("currentJobId", [""])[0]

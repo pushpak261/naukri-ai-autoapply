@@ -101,7 +101,20 @@ def _has_phrase(key, phrases):
 
 
 def _motivation(key, words):
-    if _has_phrase(key, (MOTIVATION_INTENT, "motivate", "motivates", "motivated", "cover letter")):
+    if _has_phrase(
+        key,
+        (
+            MOTIVATION_INTENT,
+            "motivate",
+            "motivates",
+            "motivated",
+            "cover letter",
+            "reason for seeking",
+            "reason for change",
+            "reason for job change",
+            "reason for looking",
+        ),
+    ):
         return True
     if "why" not in words:
         return False

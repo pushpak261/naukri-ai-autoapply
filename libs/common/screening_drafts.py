@@ -33,7 +33,7 @@ def _project(candidate, job):
     projects = [p for p in getattr(candidate, "projects", []) if isinstance(p, dict)]
     if not projects:
         return []
-    job_text = f"{job.title} {job.skills} {job.description}"
+    job_text = f"{getattr(job, 'title', '')} {getattr(job, 'skills', '')} {getattr(job, 'description', '')}"
     skills = _skills(candidate)
     project = max(
         projects,
@@ -101,7 +101,12 @@ def draft_answer(question, settings, candidate, job):
     if not kind:
         return ""
     skills = _skills(candidate)
-    relevant = _relevant_skills(question, skills, f"{job.title} {job.skills} {job.description}")
+    relevant = _relevant_skills(
+        question,
+        skills,
+        f"{getattr(job, 'title', '')} {getattr(job, 'skills', '')} "
+        f"{getattr(job, 'description', '')}",
+    )
     if relevant is None:
         return ""
     experience = _experience(settings, candidate)
@@ -112,8 +117,12 @@ def draft_answer(question, settings, candidate, job):
     elif not relevant:
         return ""
     elif kind == "motivation":
-        role = str(job.title).strip() or "advertised"
-        employer = f" at {job.company}" if str(job.company).strip() else ""
+        role = str(getattr(job, "title", "") or "").strip() or "advertised"
+        employer = (
+            f" at {job.company}"
+            if job is not None and str(getattr(job, "company", "") or "").strip()
+            else ""
+        )
         parts = [
             f"I am interested in the {role} role{employer}.",
             "Its published requirements align with my skills in " + ", ".join(relevant[:6]) + ".",

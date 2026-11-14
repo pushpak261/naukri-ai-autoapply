@@ -5,9 +5,38 @@ from types import SimpleNamespace
 
 import pytest
 
-from libs.common.opportunity import assess_opportunity, evidence_priority, skills
+from libs.common.opportunity import (
+    assess_opportunity,
+    evidence_priority,
+    skills,
+    technology_mismatch,
+)
 from tests.test_dashboard_features import dashboard  # noqa: F401
 from tests.test_dashboard_users import register_client
+
+
+@pytest.mark.parametrize(
+    "title,description,skills_text,expected",
+    [
+        ("Dotnet Fullstack Developer With AI", "", "", ".NET"),
+        ("Software Engineer C#", "", "", "C#"),
+        ("Python Backend Engineer", "", "", "Python"),
+        ("Full Stack NodeJS Engineer", "", "", "Node.js"),
+        ("Software Engineer - React Native", "", "", "React Native"),
+        ("Java Full Stack Developer", "", "", ""),
+        ("Full Stack Engineer (React/Angular and Node/Java)", "", "", ""),
+        ("Software Engineer", "Strong JavaScript and Node.js experience.", "", "JavaScript"),
+        ("Software Engineer", "We use Java and Spring Boot, with some Python.", "", ""),
+        ("Software Engineer", "Build services with ASP.NET Core.", "", "ASP.NET"),
+        ("Software Engineer", "", "C#, .NET, SQL", ".NET"),
+        ("Software Engineer", "Visit example.net for details.", "", ""),
+        ("AEM Full Stack Developer", "Java and Adobe Experience Manager.", "", ""),
+    ],
+)
+def test_technology_mismatch_only_rejects_explicit_non_java_listings(
+    title, description, skills_text, expected
+):
+    assert technology_mismatch(title, description, skills_text) == expected
 
 
 def test_skill_evidence_handles_aliases_without_substring_matches():

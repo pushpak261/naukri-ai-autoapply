@@ -3,6 +3,34 @@
 import re
 
 
+# Employers word the pay-expectation field differently; all of these ask the
+# same fact and must map to the saved expected CTC.
+_EXPECTED_PAY_TERMS = (
+    "expected salary",
+    "expected ctc",
+    "desired salary",
+    "salary expectation",
+    "income expectation",
+    "expected income",
+    "expected compensation",
+    "compensation expectation",
+)
+
+# A follow-up that asks for a referrer, a former manager or the names of
+# relatives is conditional on an earlier fact that is not saved. Answering it
+# from the resume name would invent a referral the candidate never had.
+_FOLLOW_UP_DETAIL = re.compile(
+    r"^\s*if\s+['\"]?yes\b"
+    r"|^\s*if\s+you\s+(?:were\s+referred|have\s+been\s+referred|answered\s+['\"]?yes)"
+    r"|\b(?:name|names|details)\s+of\s+(?:the\s+)?(?:referr|individual|person\s+who\s+referred)"
+    r"|\bwho\s+(?:referred|is\s+your\s+referrer)"
+    r"|\breferrer\b"
+    r"|\bname\s+of\s+your\s+(?:current|former|previous|most\s+recent)\s+manager"
+    r"|\brelationship\s+to\s+you\b",
+    re.I,
+)
+
+
 def _address_answer(text, profile):
     label = question_key(text)
     label = re.sub(r"^(?:what is |which is )?(?:your )?(?:current |residential )?", "", label)
@@ -28,6 +56,39 @@ def _address_answer(text, profile):
         legacy = getattr(profile, "current_location", "")
         return legacy if "," not in legacy else ""
     return value
+
+
+def _additional_experience_months(profile, candidate, question):
+    """Months beyond whole years, as LinkedIn's two-part experience question asks."""
+    from libs.common.resume_facts import duration_years
+
+    stated = duration_years(getattr(profile, "total_experience", ""))
+    if stated is None:
+        stated = getattr(candidate, "total_experience_years", None)
+    if stated is None:
+        return ""
+    months = int(round((float(stated) - int(float(stated))) * 12)) % 12
+    options = [
+        str(option.get("text", option)) if isinstance(option, dict) else str(option)
+        for option in question.get("options") or []
+    ]
+    for option in options:
+        if re.fullmatch(rf"{months}\s*months?", option.strip(), re.I):
+            return option
+    return str(months)
+
+
+def _profile_link(text, profile, candidate):
+    """Prefer the saved profile link, then the link the resume already states."""
+    key = "github_url" if "github" in text else "linkedin_url"
+    value = str(getattr(profile, key, "") or "").strip()
+    if value:
+        return value
+    pattern = r"github\.com/[\w.-]+" if key == "github_url" else r"linkedin\.com/in/[\w.-]+"
+    match = re.search(pattern, str(getattr(candidate, "raw_text", "") or ""), re.I)
+    if not match:
+        return ""
+    return "https://" + match[0].rstrip(").,;:")
 
 
 def _basic_answer(question, settings, candidate=None):
@@ -63,7 +124,7 @@ def _basic_answer(question, settings, candidate=None):
         for word in ("current location", "current city", "where do you live", "where are you based")
     ):
         value = profile.current_location
-    elif any(word in text for word in ("expected salary", "expected ctc", "desired salary")):
+    elif any(word in text for word in _EXPECTED_PAY_TERMS):
         value = profile.expected_ctc
     elif any(word in text for word in ("current salary", "current ctc")):
         value = profile.current_ctc
@@ -198,6 +259,8 @@ def evidence_answer(question, settings, candidate=None):
         )
     if narrative_kind(text):
         return ""  # Narrative experience questions must not become a tenure number.
+    if _FOLLOW_UP_DETAIL.search(text):
+        return "N/A"
     value = ""
     name = getattr(candidate, "name", "")
     employed = getattr(profile, "employment_status", "") == "employed"
@@ -250,6 +313,12 @@ def evidence_answer(question, settings, candidate=None):
         value = getattr(profile, "last_name", "") or (
             name.split()[-1] if len(name.split()) > 1 else ""
         )
+    elif (
+        "experience" in text
+        and "month" in text
+        and re.search(r"\b(?:additional|extra|remaining)\b", text)
+    ):
+        value = _additional_experience_months(profile, candidate, question)
     elif (
         "experience" in text
         or re.search(r"\b(?:years|months)\b.*\b(?:with|using)\b", text)
@@ -325,8 +394,8 @@ def evidence_answer(question, settings, candidate=None):
             )
         if re.search(r"\b(?:are you|serving|buyout)\b", text):
             value = ""  # A duration does not establish current employment status.
-    elif "expected" in text and any(
-        word in text for word in ("salary", "ctc", "compensation", "package")
+    elif any(word in text for word in _EXPECTED_PAY_TERMS) or (
+        "expected" in text and "package" in text
     ):
         value = getattr(profile, "expected_ctc", "")
     elif any(
@@ -341,13 +410,37 @@ def evidence_answer(question, settings, candidate=None):
         )
     ):
         value = getattr(profile, "current_ctc", "")
-    elif re.fullmatch(
-        r"(?:(?:what (?:are|is)|which (?:are|is)) )?(?:your )?preferred (?:work |job )?locations?",
-        question_key(text),
+    elif re.search(r"\bpreferred (?:work |job )?location", question_key(text)):
+        preferred = [
+            str(location) for location in getattr(profile, "preferred_locations", []) if location
+        ]
+        options = [
+            str(option.get("text", option)) if isinstance(option, dict) else str(option)
+            for option in question.get("options") or []
+        ]
+        # Option lists (radio/dropdown) hold one place each; keep the order the
+        # candidate configured as their preference order.
+        value = ""
+        for location in preferred:
+            target = location.strip().casefold()
+            value = next(
+                (option for option in options if option.strip().casefold() == target), ""
+            ) or next(
+                (
+                    option
+                    for option in options
+                    if option.strip().casefold().startswith(target + ",")
+                ),
+                "",
+            )
+            if value:
+                break
+        value = value or ", ".join(preferred)
+    elif re.search(r"\b(?:github|linkedin)\b", text) and (
+        re.search(r"\b(?:url|link|profile|portfolio|website|handle|username)\b", text)
+        or text.strip(" :*.-") in ("github", "linkedin")
     ):
-        value = ", ".join(getattr(profile, "preferred_locations", []))
-    elif any(word in text for word in ("github", "linkedin")):
-        value = getattr(profile, "github_url" if "github" in text else "linkedin_url", "")
+        value = _profile_link(text, profile, candidate)
     elif "reason for" in text and any(word in text for word in ("change", "leaving")):
         value = getattr(profile, "reason_for_change", "")
     elif any(

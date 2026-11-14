@@ -19,7 +19,7 @@ import signal
 import sys
 from collections.abc import Callable
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, parse_qsl, urlencode, urlunsplit, urlsplit
 
 from playwright.async_api import Error as PlaywrightError, TimeoutError as PlaywrightTimeoutError
 
@@ -28,6 +28,8 @@ from rich.table import Table
 
 from src.linked_agent.utils.similarity import LinkedInVectorSimilarityFilter
 from src.linked_agent.browser.apply import LinkedInJobApplier
+from src.linked_agent.browser.auth_state import signed_out
+from src.linked_agent.browser.dom_scripts import LOADED_LISTING
 from src.linked_agent.browser.login import LinkedInLoginHandler
 from src.linked_agent.browser.search import LinkedInJobSearcher
 from src.linked_agent.browser.navigation import NetworkUnavailableError, navigate
@@ -43,7 +45,7 @@ from src.linked_agent.models.rules import (
     LinkedInScamSpecification,
     TitleExclusionSpecification,
 )
-from src.linked_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError
+from src.linked_agent.utils.exceptions import LLMAPIError, LLMQuotaExceededError, LoginError
 from src.linked_agent.utils.notification import send_notification
 from src.linked_agent.utils.telemetry import MetricsTracker
 from src.linked_agent.utils.email_sender import _build_html_report, send_external_jobs_email
@@ -57,7 +59,11 @@ from src.linked_agent.bot.interfaces import (
     IResumeParser,
 )
 from src.linked_agent.bot.factory import LinkedInDependencyFactory
-from src.linked_agent.utils.helpers import TimeUtility
+from src.linked_agent.utils.helpers import (
+    TimeUtility,
+    experience_filter_codes,
+    is_linkedin_host,
+)
 from src.linked_agent.utils.logger import (
     console,
     get_logger,
@@ -74,12 +80,24 @@ logger = get_logger(__name__)
 
 def _matches_job_url(url, identifier):
     parsed = urlsplit(url)
-    if parsed.scheme != "https" or parsed.hostname not in ("linkedin.com", "www.linkedin.com"):
+    if parsed.scheme != "https" or not is_linkedin_host(parsed.hostname):
         return False
     direct = re.search(r"/jobs/view/(?:[^/]*-)?(\d+)(?:/|$)", parsed.path)
     if direct:
         return direct[1] == str(identifier)
     return parsed.path.startswith("/jobs/search") and parse_qs(parsed.query).get("currentJobId") == [str(identifier)]
+
+
+def _search_results_job_url(search_url: str, identifier: str) -> str:
+    """Return a search-results URL whose currentJobId selects ``identifier``."""
+    parsed = urlsplit(search_url)
+    params = [
+        (key, value)
+        for key, value in parse_qsl(parsed.query, keep_blank_values=True)
+        if key != "currentJobId"
+    ]
+    params.append(("currentJobId", str(identifier)))
+    return urlunsplit(parsed._replace(query=urlencode(params)))
 
 
 class LinkedInAgent:
@@ -236,7 +254,7 @@ class LinkedInAgent:
                 log_error("LinkedIn login failed. Cannot proceed.")
                 return
 
-            jobs = await self._job_searcher.search_all()
+            jobs = await self._search_all_with_recovery()
             self._jobs_found = len(jobs)
 
             if not jobs:
@@ -359,6 +377,23 @@ class LinkedInAgent:
         finally:
             await self._cleanup()
 
+    async def _search_all_with_recovery(self) -> list[Job]:
+        """Search every keyword/location, recovering once from a mid-run sign-out.
+
+        LinkedIn can invalidate an automation session server-side while the
+        search is running. The search layer raises LoginError when it sees a
+        signed-out page, so re-authenticate and restart the search instead of
+        treating the public listings as a complete, applyable queue.
+        """
+        try:
+            return await self._job_searcher.search_all()
+        except LoginError:
+            logger.warning("LinkedIn session expired during search; recovering")
+            if not await self._recover_linkedin_session():
+                raise
+            logger.info("LinkedIn session recovered; restarting job search")
+            return await self._job_searcher.search_all()
+
     async def _parse_resume(self) -> None:
         """Parse the resume PDF and cache the structured profile."""
         resume_path = self._settings.resume.path
@@ -402,6 +437,11 @@ class LinkedInAgent:
         resume_profile = self._resume_profile
         from api.company_policy import CompanyPolicy
         company_policy = CompanyPolicy(self._settings, "linkedin")
+        if company_policy.whitelist:
+            log_info(
+                f"Company priority: {len(company_policy.whitelist)} preferred employers "
+                "will be visited first"
+            )
         job_queue: list[tuple[float, int, Job]] = []
 
         for idx, job in enumerate(jobs):
@@ -412,6 +452,12 @@ class LinkedInAgent:
 
             if not self._passes_required_title(job):
                 log_info(f"Skipping (title missing required keyword): {job.title} @ {job.company}")
+                self._jobs_skipped += 1
+                continue
+
+            mismatch = self._technology_mismatch(job)
+            if mismatch:
+                log_info(f"Skipping ({mismatch} listing, not Java): {job.title} @ {job.company}")
                 self._jobs_skipped += 1
                 continue
 
@@ -559,6 +605,14 @@ class LinkedInAgent:
                     continue
 
                 await self._interactions.action_delay()
+
+            # The search card often has no description or skills. Re-check the
+            # technology once the sidebar reveals the listing's real stack.
+            mismatch = self._technology_mismatch(job)
+            if mismatch:
+                log_info(f"Skipping ({mismatch} listing, not Java): {job.title} @ {job.company}")
+                self._jobs_skipped += 1
+                continue
 
             # Re-evaluate exclusions with full description
             if self._is_excluded(job):
@@ -783,21 +837,17 @@ class LinkedInAgent:
             logger.warning(f"No linkedin_job_id for {job.title} @ {job.company}")
             return False
 
-        # Strategy 1: Append currentJobId to the search URL
-        target_url = None
-        if "/jobs/search-results" in job.search_url:
-            # In the component-based results layout currentJobId may only
-            # select a card; use the actual detail page before assessing it.
-            target_url = job.url
-        elif job.search_url:
-            separator = "&" if "?" in job.search_url else "?"
-            # Remove any existing currentJobId from the search_url
-            base_url = re.sub(r'[&?]currentJobId=\d+', '', job.search_url)
-            target_url = f"{base_url}{separator}currentJobId={job_id}"
+        # Strategy 1: Append currentJobId to the search URL.
+        # The apply flow only initializes from the results layout; a bare
+        # /jobs/view/<id> page renders an Easy Apply button that does
+        # nothing when clicked, so keep the currentJobId selection.
+        if job.search_url:
+            target_url = _search_results_job_url(job.search_url, job_id)
         else:
             # Fallback: construct a minimal search URL with just currentJobId
             target_url = f"https://www.linkedin.com/jobs/search/?currentJobId={job_id}"
 
+        recovered = False
         for attempt in range(2):
             try:
                 logger.debug(f"Navigating to sidebar (attempt {attempt+1}): {target_url[:120]}")
@@ -806,14 +856,34 @@ class LinkedInAgent:
                     await page.wait_for_load_state("networkidle", timeout=10000)
                 await asyncio.sleep(2)
 
+                # A signed-out page still renders public listings, but every
+                # Apply control behind it is a sign-in prompt. Recover before
+                # interpreting the page as a job without Easy Apply.
+                if await signed_out(page):
+                    logger.warning("LinkedIn page is signed out; recovering the session")
+                    if not recovered and await self._recover_linkedin_session():
+                        recovered = True
+                        logger.info("LinkedIn session recovered; retrying job navigation")
+                        continue
+                    logger.warning("Session expired during job navigation — cannot proceed")
+                    return False
+
                 # Verify we're on a search page with the job sidebar open
                 current_url = page.url
                 if _matches_job_url(current_url, job_id):
                     await self._wait_for_listing_content(page)
                     return True
 
-                # If redirected away (e.g., to login), retry once
+                # If redirected away (e.g., to login), the cookie hand-off can
+                # still complete the sign-in; recover once before giving up.
                 if "/login" in current_url or "signup" in current_url:
+                    logger.warning(
+                        "LinkedIn redirected sidebar navigation to a sign-in surface"
+                    )
+                    if not recovered and await self._recover_linkedin_session():
+                        recovered = True
+                        logger.info("LinkedIn session recovered; retrying job navigation")
+                        continue
                     logger.warning("Session expired during sidebar navigation — cannot proceed")
                     return False
 
@@ -834,6 +904,19 @@ class LinkedInAgent:
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
                 await asyncio.sleep(2)
+                if await signed_out(page):
+                    logger.warning("LinkedIn page is signed out; recovering the session")
+                    if recovered or not await self._recover_linkedin_session():
+                        logger.warning("Session expired during job navigation — cannot proceed")
+                        return False
+                    recovered = True
+                    logger.info("LinkedIn session recovered; retrying direct job navigation")
+                    await navigate(page, job.url)
+                    with contextlib.suppress(PlaywrightTimeoutError):
+                        await page.wait_for_load_state("networkidle", timeout=10000)
+                    await asyncio.sleep(2)
+                    if await signed_out(page):
+                        return False
                 if _matches_job_url(page.url, job_id):
                     await self._wait_for_listing_content(page)
                     return True
@@ -844,14 +927,77 @@ class LinkedInAgent:
 
         return False
 
+    async def _recover_linkedin_session(self) -> bool:
+        """A mid-run sign-in redirect is usually a cookie hand-off, not a logout."""
+        handler = getattr(self, "_login_handler", None)
+        if handler is None:
+            return False
+        try:
+            if await handler.login():
+                return True
+        except Exception as exc:
+            logger.warning(f"LinkedIn session recovery failed: {exc}")
+        return False
+
     async def _wait_for_listing_content(self, page) -> None:
-        """An expected URL alone cannot distinguish a loaded listing from a browser error."""
-        await page.wait_for_function("""() => [...document.querySelectorAll(
-            '[componentkey^="JobDetails_AboutTheJob_"], .jobs-description__content, .jobs-box__html-content, .description__text, .show-more-less-html__markup'
-        )].some(el => el.getClientRects().length && el.textContent.trim().length > 20)""", timeout=10000)
+        """An expected URL alone cannot distinguish a loaded listing from a browser error.
+
+        Polling on a timer matters: Playwright's default requestAnimationFrame
+        polling never fires when the automation window is occluded or
+        backgrounded, which would reject every reachable listing behind a
+        visible window.
+        """
+        try:
+            await page.wait_for_function(LOADED_LISTING, timeout=10000, polling=200)
+            return
+        except PlaywrightTimeoutError:
+            pass
+        if await self._reload_listing(page):
+            logger.info("Listing content appeared after a reload.")
+            return
+        raise PlaywrightTimeoutError("LinkedIn job description did not render.")
+
+    async def _reload_listing(self, page) -> bool:
+        """One slow paint must not reject a job that is otherwise reachable."""
+        with contextlib.suppress(Exception):
+            await page.reload(wait_until="domcontentloaded", timeout=30000)
+        with contextlib.suppress(Exception):
+            await page.mouse.wheel(0, 1200)
+        try:
+            await page.wait_for_function(LOADED_LISTING, timeout=15000, polling=200)
+            return True
+        except Exception:
+            await self._log_listing_diagnostic(page)
+            return False
+
+    async def _log_listing_diagnostic(self, page) -> None:
+        """Record what the browser actually showed so selector drift is debuggable."""
+        try:
+            state = await page.evaluate(
+                """() => ({
+                    url: location.href,
+                    title: document.title,
+                    ready: document.readyState,
+                    challenge: !!document.querySelector('#captcha-internal, [class*="challenge"]'),
+                    signIn: !!document.querySelector('form[action*="login"]'),
+                    descriptionBlocks: [...document.querySelectorAll(
+                        '[class*="description"], [componentkey*="AboutTheJob"]'
+                    )].map(el => (el.textContent || '').trim().length).slice(0, 5),
+                    text: (document.body?.innerText || '').slice(0, 200),
+                })"""
+            )
+            logger.warning("Listing did not render: %s", state)
+        except Exception as exc:
+            logger.warning("Listing diagnostic unavailable: %s", exc)
 
     def _is_excluded(self, job: Job) -> bool:
         levels = set(self._settings.search.experience_level)
+        if not levels:
+            codes = experience_filter_codes(
+                self._settings.search.experience_min,
+                self._settings.search.experience_max,
+            )
+            levels = {code for code in codes.split(",") if code}
         if set(self._settings.search.job_type) == {"F"} and re.search(
             r"\bintern(?:ship)?\b", job.title or "", re.I,
         ):
@@ -883,6 +1029,19 @@ class LinkedInAgent:
             if re.search(pattern, title_lower):
                 return True
         return False
+
+    def _targets_java(self) -> bool:
+        """Only filter other stacks when the saved role family names Java."""
+        required = getattr(self._settings.search, "required_title_keywords", [])
+        return any(re.search(r"\bjava\b", str(keyword), re.I) for keyword in required)
+
+    def _technology_mismatch(self, job: Job) -> str:
+        """Name a non-Java stack the listing asks for, if Java is the target."""
+        if not self._targets_java():
+            return ""
+        from libs.common.opportunity import technology_mismatch
+
+        return technology_mismatch(job.title, job.description, job.skills)
 
     async def _cleanup(self) -> None:
         # Send external jobs email if needed

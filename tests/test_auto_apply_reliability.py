@@ -35,6 +35,7 @@ async def test_linkedin_required_unknown_stops_before_submit_even_when_matching_
     qa = MagicMock()
     qa.answer_questions = AsyncMock(return_value=[{'question':'Work authorization?', 'answer':''}])
     detail.submit_application = AsyncMock()
+    detail.page.evaluate = AsyncMock(return_value=False)
     applier = LinkedInJobApplier(detail, settings, qa)
     with patch('src.linked_agent.browser.apply.asyncio.sleep', new=AsyncMock()):
         result = await applier._handle_easy_apply_flow(LinkedInJob('id','Developer','Employer','https://example.invalid/job'))

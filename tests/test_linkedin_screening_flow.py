@@ -72,6 +72,40 @@ async def test_checkbox_groups_are_complete_and_idempotent(search_page):
 
 
 @pytest.mark.asyncio
+async def test_newline_answers_keep_commas_inside_option_labels(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><fieldset><legend>Which locations are you willing to work in?</legend>
+      <input id="pune" type="checkbox" style="display:none"><label for="pune">Pune, Maharashtra, India</label>
+      <input id="mumbai" type="checkbox" style="display:none"><label for="mumbai">Mumbai, Maharashtra, India</label>
+      <input id="delhi" type="checkbox" style="display:none"><label for="delhi">Delhi, India</label>
+      </fieldset></div>"""
+    )
+    page = detail(tab)
+    question = (await page.extract_screening_questions())[0]
+    assert await page.fill_answer(
+        question, "Pune, Maharashtra, India\nMumbai, Maharashtra, India"
+    )
+    assert await tab.locator("#pune").is_checked()
+    assert await tab.locator("#mumbai").is_checked()
+    assert not await tab.locator("#delhi").is_checked()
+
+
+@pytest.mark.asyncio
+async def test_lone_skill_checkbox_can_be_left_unchecked(search_page):
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><div class="fb-dash-form-element">
+      <input id="azure" type="checkbox" required>
+      <label for="azure">Experience with Azure cloud services?</label></div></div>"""
+    )
+    page = detail(tab)
+    (question,) = await page.extract_screening_questions()
+    assert await page.fill_answer(question, "No")
+    assert not await tab.locator("#azure").is_checked()
+
+
+@pytest.mark.asyncio
 async def test_hidden_modals_and_invalid_required_fields_cannot_submit(search_page):
     _, tab = search_page
     await tab.set_content(
@@ -152,6 +186,178 @@ async def test_offline_multistep_application_answers_dynamic_questions_then_subm
     assert await tab.evaluate("window.submissions") == 1
     assert await tab.locator("body").get_attribute("data-experience") == "1"
     assert "candidate@example.invalid" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_optional_blank_text_fields_do_not_block_an_easy_apply(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><label for="email">Email address</label>
+      <input id="email" type="email" required>
+      <label for="headline">Headline</label><input id="headline" type="text">
+      <label for="summary">Summary</label><textarea id="summary"></textarea>
+      <label for="cover">Cover letter</label><textarea id="cover"></textarea>
+      <button onclick="review()">Review</button></div>
+      <script>
+      window.submissions=0;
+      function review(){document.body.dataset.headline=document.querySelector('#headline').value;
+        document.querySelector('[role=dialog]').innerHTML=
+        '<button onclick="done()">Submit application</button>';}
+      function done(){window.submissions++;
+        document.querySelector('[role=dialog]').innerHTML='<p>Application sent</p>';}
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(project_root=tmp_path, ai={"use_gemini": False})
+    candidate = ResumeProfile(
+        name="Candidate",
+        email="candidate@example.invalid",
+        skills=["Java"],
+        total_experience_years=1,
+    )
+    qa = SimpleNamespace(_resume=candidate)
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.submissions") == 1
+    assert await tab.locator("body").get_attribute("data-headline") == ""
+
+
+@pytest.mark.asyncio
+async def test_radio_options_use_the_visible_text_when_the_label_is_empty(search_page):
+    _, tab = search_page
+    rows = "".join(
+        f"""<div><div><div><div><input id="loc{i}" type="radio" name="loc"
+        aria-label="Select Your Preferred Work Location"><label for="loc{i}"></label></div>
+        <div><p>{place}</p></div></div></div></div>"""
+        for i, place in enumerate(
+            ["Noida, Uttar Pradesh, India", "Mumbai, Maharashtra, India"], start=1
+        )
+    )
+    await tab.set_content(
+        f"""<div role="dialog"><div componentkey="easyApplyFieldFocus_ea_1">
+        <p>Select Your Preferred Work Location*</p>
+        <p>Choose the location where you would prefer to work.</p>
+        <fieldset role="radiogroup">{rows}</fieldset></div></div>"""
+    )
+    page = detail(tab)
+    (question,) = await page.extract_screening_questions()
+    assert question["question"] == "Select Your Preferred Work Location*"
+    assert question["options"] == ["Noida, Uttar Pradesh, India", "Mumbai, Maharashtra, India"]
+    assert await page.fill_answer(question, "Mumbai, Maharashtra, India")
+    assert await tab.locator("#loc2").is_checked()
+
+
+@pytest.mark.asyncio
+async def test_best_effort_policy_fills_unknown_required_questions(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog">
+      <label for="auth">Are you legally authorized to work in India?</label>
+      <input id="auth" type="text" required>
+      <label for="declare">You declare that you have read and agree to the privacy notice.*</label>
+      <input id="declare" type="checkbox" required>
+      <button onclick="review()">Review</button></div>
+      <script>
+      window.submissions=0;
+      function review(){document.body.dataset.auth=document.querySelector('#auth').value;
+        document.body.dataset.declare=document.querySelector('#declare').checked;
+        document.querySelector('[role=dialog]').innerHTML=
+        '<button onclick="done()">Submit application</button>';}
+      function done(){window.submissions++;
+        document.querySelector('[role=dialog]').innerHTML='<p>Application sent</p>';}
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(
+        project_root=tmp_path,
+        ai={"use_gemini": False},
+        application={"answer_all_screening_questions": True},
+    )
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(name="Candidate", skills=["Java"], total_experience_years=1)
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.submissions") == 1
+    assert await tab.locator("body").get_attribute("data-auth") == "Yes"
+    assert await tab.locator("body").get_attribute("data-declare") == "true"
+
+
+@pytest.mark.asyncio
+async def test_long_rerendering_form_is_not_mistaken_for_a_loop(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog" id="form"></div>
+      <script>
+      window.filled = 0; window.submissions = 0; window.steps = 0;
+      const total = 18;
+      function render() {
+        const form = document.getElementById('form');
+        if (window.filled >= total) {
+          form.innerHTML = '<p>Screening complete</p>' +
+            '<button onclick="review()">Review</button>';
+          return;
+        }
+        let html = '';
+        for (let i = 0; i < total; i++) {
+          const value = i < window.filled ? 'Yes' : '';
+          html += '<label for="q' + i + '">Question ' + i + '?*</label>' +
+            '<input id="q' + i + '" type="text" required value="' + value + '">';
+        }
+        form.innerHTML = html + '<button onclick="next()">Next</button>';
+      }
+      function next() { window.filled++; window.steps++; render(); }
+      function review() {
+        document.getElementById('form').innerHTML =
+          '<button onclick="submit()">Submit application</button>';
+      }
+      function submit() {
+        window.submissions++;
+        document.getElementById('form').innerHTML = '<p>Application sent</p>';
+      }
+      render();
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(
+        project_root=tmp_path,
+        ai={"use_gemini": False},
+        application={"answer_all_screening_questions": True},
+    )
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(name="Candidate", skills=["Java"], total_experience_years=1)
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.steps") == 18
+    assert await tab.evaluate("window.submissions") == 1
 
 
 @pytest.mark.asyncio
@@ -243,6 +449,30 @@ def test_entry_search_rejects_explicit_senior_titles(title, levels, excluded):
     )
 
 
+@pytest.mark.parametrize(
+    "required,title,description,expected",
+    [
+        (["Java"], "Dotnet Developer", "", ".NET"),
+        (["Java"], "Software Engineer", "Strong JavaScript experience.", "JavaScript"),
+        (["Java"], "Java Full Stack Developer", "", ""),
+        (["Java"], "Software Engineer", "Build generic services.", ""),
+        ([], "Python Developer", "", ""),
+    ],
+)
+def test_technology_mismatch_filter_respects_configured_role_family(
+    required, title, description, expected
+):
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job
+
+    agent = object.__new__(LinkedInAgent)
+    agent._settings = Settings(search={"required_title_keywords": required})
+    job = Job("1", title, "Company", "https://www.linkedin.com/jobs/view/1")
+    job.description = description
+    assert agent._technology_mismatch(job) == expected
+
+
 def test_entry_search_rejects_explicit_leadership_in_generic_title():
     from src.linked_agent.bot.agent import LinkedInAgent
     from src.linked_agent.config.settings import Settings
@@ -278,6 +508,81 @@ async def test_job_error_page_does_not_count_as_loaded_listing(search_page):
         '<div componentkey="JobDetails_AboutTheJob_123">Java and Spring Boot development role.</div>'
     )
     await agent._wait_for_listing_content(wrapped)
+
+
+@pytest.mark.asyncio
+async def test_listing_wait_polls_on_a_timer_not_animation_frames(search_page):
+    """rAF polling stalls whenever the automation window is occluded."""
+    from src.linked_agent.bot.agent import LinkedInAgent
+
+    _, tab = search_page
+    agent = object.__new__(LinkedInAgent)
+    await tab.set_content(
+        '<div componentkey="JobDetails_AboutTheJob_123">Java and Spring Boot development role.</div>'
+    )
+    seen = {}
+
+    async def record(script, **kwargs):
+        seen.update(kwargs)
+        return await tab.wait_for_function(script, timeout=5000, polling=kwargs.get("polling", "raf"))
+
+    wrapped = SimpleNamespace(
+        wait_for_function=record,
+        reload=tab.reload,
+        mouse=tab.mouse,
+        evaluate=tab.evaluate,
+    )
+    await agent._wait_for_listing_content(wrapped)
+    assert isinstance(seen.get("polling"), int), "listing wait must not rely on rAF polling"
+
+
+# The logged-in layout ships hashed class names and no component keys.
+HASHED_LAYOUT = """
+<main>
+  <h2>Use AI to assess how you fit</h2>
+  <p>Activate Premium to see AI-powered advice on this job.</p>
+  <div>
+    <h2>About the job</h2>
+    <div>
+      <p>About Persistent: we build platform-driven engineering teams.</p>
+      <p>Required: Java, Spring Boot, microservices and AWS. 2+ years of experience.</p>
+    </div>
+  </div>
+  <h2>About the company</h2>
+  <p>Persistent Systems, 10001+ employees.</p>
+</main>
+"""
+
+
+@pytest.mark.asyncio
+async def test_hashed_class_layout_is_recognized_as_a_loaded_listing(search_page):
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.browser.dom_scripts import DESCRIPTION_TEXT
+
+    _, tab = search_page
+    agent = object.__new__(LinkedInAgent)
+    await tab.set_content(HASHED_LAYOUT)
+    await agent._wait_for_listing_content(SimpleNamespace(
+        wait_for_function=tab.wait_for_function,
+        reload=tab.reload,
+        mouse=tab.mouse,
+        evaluate=tab.evaluate,
+    ))
+    description = await tab.evaluate(DESCRIPTION_TEXT)
+    assert description.startswith("About Persistent")
+    assert "Spring Boot" in description
+    assert "Premium" not in description
+
+
+@pytest.mark.asyncio
+async def test_sidebar_extraction_reads_hashed_class_description(search_page):
+    from src.linked_agent.browser.pages.search import LinkedInSearchPage
+
+    _, tab = search_page
+    await tab.set_content(HASHED_LAYOUT)
+    page = LinkedInSearchPage(SimpleNamespace(page=tab), AsyncMock())
+    details = await page.extract_sidebar_details()
+    assert "Spring Boot" in details.get("description", "")
 
 
 @pytest.mark.asyncio
@@ -347,3 +652,224 @@ async def test_modern_radio_group_uses_outer_question_heading(search_page):
     assert await tab.locator("#employed-yes").is_checked()
     assert await tab.locator("#notice-no").is_checked()
     assert not await tab.locator("#employed-no").is_checked()
+
+
+@pytest.mark.asyncio
+async def test_self_identification_options_use_the_visible_labels(search_page, tmp_path):
+    from libs.common.screening_fallback import positive_answer
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import ResumeProfile
+
+    _, tab = search_page
+    option = (
+        '<div><div><div><div><input id="{id}" aria-label="Voluntary Self-Identification of Gender'
+        '&nbsp;*" type="radio" name="radio-group-g"><label for="{id}"></label></div>'
+        '<div><p>{label}</p></div></div></div></div>'
+    )
+    await tab.set_content(
+        """<div role="dialog">
+      <div componentkey="easyApplyFieldFocus_ea_validation_p3_0_1">
+        <p>Voluntary Self-Identification of Gender&nbsp;**</p>
+        <fieldset role="radiogroup">"""
+        + option.format(id="g-male", label="Male")
+        + option.format(id="g-female", label="Female")
+        + option.format(id="g-decline", label="I don't wish to answer")
+        + """</fieldset></div></div>"""
+    )
+    page = detail(tab)
+    questions = await page.extract_screening_questions()
+    assert len(questions) == 1
+    question = questions[0]
+    assert question["question"].startswith("Voluntary Self-Identification of Gender")
+    assert question["options"] == ["Male", "Female", "I don't wish to answer"]
+    settings = Settings(project_root=tmp_path)
+    answer = positive_answer(question, settings, ResumeProfile(name="Candidate"))
+    assert answer == "I don't wish to answer"
+    assert await page.fill_answer(question, answer)
+    assert await tab.locator("#g-decline").is_checked()
+    assert not await tab.locator("#g-male").is_checked()
+
+
+@pytest.mark.asyncio
+async def test_education_dates_helper_sets_all_four_selects_and_saves(search_page):
+    from src.linked_agent.browser.screening_form import (
+        education_form,
+        fill_education_dates,
+        save_education,
+    )
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog">
+      <h2>Education</h2>
+      <input aria-label="School" value="D.Y. Patil College of Engineering">
+      <input aria-label="Degree" value="Bachelor of Mechanical Engineering">
+      <select id="fm" aria-label="From month"><option value="">Month</option>
+        <option value="6">June</option></select>
+      <select id="fy" aria-label="From year"><option value="">Year</option>
+        <option value="2019">2019</option><option value="2023">2023</option></select>
+      <input type="checkbox" aria-label="I currently attend this institution">
+      <select id="tm" aria-label="To month"><option value="">Month</option>
+        <option value="6">June</option></select>
+      <select id="ty" aria-label="To year"><option value="">Year</option>
+        <option value="2019">2019</option><option value="2023">2023</option></select>
+      <button onclick="window.saved = 1">Save</button></div>"""
+    )
+    state = await education_form(tab)
+    assert state["found"] is True and state["has_save"] is True
+    assert state["selects"] == 4
+    assert await fill_education_dates(tab, (6, 2019, 6, 2023))
+    assert [await tab.locator(selector).input_value() for selector in ("#fm", "#fy", "#tm", "#ty")] == [
+        "6",
+        "2019",
+        "6",
+        "2023",
+    ]
+    assert await save_education(tab)
+    assert await tab.evaluate("window.saved") == 1
+
+
+@pytest.mark.asyncio
+async def test_numeric_only_text_question_is_retried_with_a_number(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog">
+      <label for="aem">Have you worked on AEM architecture and implementation?</label>
+      <input id="aem" type="text" pattern="[0-9]+" required>
+      <button onclick="review()">Review</button></div>
+      <script>
+      window.submissions=0;
+      function review(){document.body.dataset.aem=document.querySelector('#aem').value;
+        document.querySelector('[role=dialog]').innerHTML=
+        '<button onclick="done()">Submit application</button>';}
+      function done(){window.submissions++;
+        document.querySelector('[role=dialog]').innerHTML='<p>Application sent</p>';}
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(
+        project_root=tmp_path,
+        ai={"use_gemini": False},
+        application={"answer_all_screening_questions": True},
+    )
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(name="Candidate", skills=["Java"], total_experience_years=1)
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.submissions") == 1
+    value = await tab.locator("body").get_attribute("data-aem")
+    assert value and value.isdigit() and int(value) >= 1
+
+
+@pytest.mark.asyncio
+async def test_safety_reminder_is_dismissed_before_the_application_form(
+    search_page, tmp_path, monkeypatch
+):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog" id="modal">
+      <p>Job search safety reminder</p>
+      <button>Review job post</button>
+      <a href="#" onclick="event.preventDefault();openForm()">Continue applying</a></div>
+      <script>
+      window.submissions=0;
+      function openForm(){document.getElementById('modal').innerHTML=
+        '<label for="email">Email address</label><input id="email" type="email" required>' +
+        '<button onclick="review()">Next</button>';}
+      function review(){document.getElementById('modal').innerHTML=
+        '<button onclick="submit()">Submit application</button>';}
+      function submit(){window.submissions++;
+        document.getElementById('modal').innerHTML='<p>Application sent</p>';}
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(project_root=tmp_path, ai={"use_gemini": False})
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(
+            name="Candidate",
+            email="candidate@example.invalid",
+            skills=["Java"],
+            total_experience_years=1,
+        )
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.submissions") == 1
+
+
+@pytest.mark.asyncio
+async def test_missing_education_dates_are_saved_before_review(search_page, tmp_path, monkeypatch):
+    from src.linked_agent.browser.apply import LinkedInJobApplier
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job, ResumeProfile
+
+    _, tab = search_page
+    await tab.set_content(
+        """<div role="dialog"><p>Education</p>
+      <button onclick="openForm()">Review</button></div>
+      <script>
+      window.saved = ''; window.submissions = 0;
+      function openForm() {
+        document.querySelector('[role=dialog]').innerHTML = `
+          <input aria-label="School" value="D.Y. Patil College of Engineering">
+          <input aria-label="Degree" value="Bachelor of Mechanical Engineering">
+          <select id="fm"><option value="">Month</option><option value="6">June</option></select>
+          <select id="fy"><option value="">Year</option><option value="2019">2019</option><option value="2023">2023</option></select>
+          <input type="checkbox" aria-label="I currently attend this institution">
+          <select id="tm"><option value="">Month</option><option value="6">June</option></select>
+          <select id="ty"><option value="">Year</option><option value="2019">2019</option><option value="2023">2023</option></select>
+          <button onclick="saveForm()">Save</button>`;
+      }
+      function saveForm() {
+        window.saved = ['#fm','#fy','#tm','#ty'].map(id => document.querySelector(id).value).join(',');
+        document.querySelector('[role=dialog]').innerHTML =
+          '<p>Education saved</p><button onclick="submitForm()">Submit application</button>';
+      }
+      function submitForm() {
+        window.submissions++;
+        document.querySelector('[role=dialog]').innerHTML = '<p>Application sent</p>';
+      }
+      </script>"""
+    )
+    page = detail(tab)
+    settings = Settings(
+        project_root=tmp_path,
+        ai={"use_gemini": False},
+        application={"answer_all_screening_questions": True},
+    )
+    qa = SimpleNamespace(
+        _resume=ResumeProfile(
+            name="Candidate",
+            education=[
+                {
+                    "degree": "B.E., Mechanical Engineering",
+                    "institution": "D.Y. Patil College of Engineering",
+                    "year": "2023",
+                }
+            ],
+        )
+    )
+    monkeypatch.setattr("src.linked_agent.browser.apply.asyncio.sleep", AsyncMock())
+    result = await LinkedInJobApplier(page, settings, qa)._handle_easy_apply_flow(
+        Job("123", "Java Developer", "Example employer", "https://www.linkedin.com/jobs/view/123")
+    )
+    assert result["status"] == "applied", result
+    assert await tab.evaluate("window.saved") == "6,2019,6,2023"
+    assert await tab.evaluate("window.submissions") == 1

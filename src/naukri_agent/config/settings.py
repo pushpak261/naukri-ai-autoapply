@@ -113,6 +113,9 @@ class ApplicationSettings(BaseModel):
     daily_cap: int = 25
     run_target: Literal[0, 100] = 0
     match_score_threshold: int = 70
+    # Apply to near-miss roles whose stated minimum is up to this many years
+    # above the resume's recorded experience. 0 keeps the strict veto.
+    experience_shortfall_years: float = 0.0
     answer_questions_with_pdf: bool = True
     delay_between_applies_min: int = 30
     delay_between_applies_max: int = 90

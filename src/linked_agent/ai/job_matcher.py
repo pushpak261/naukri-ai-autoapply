@@ -46,7 +46,8 @@ class LinkedInJobMatcher:
     async def match(self, resume_profile: ResumeProfile, job: Job) -> JobApplication:
         """Match a resume against a job and return scoring results."""
         from libs.common.agent_reasoning import eligibility_concern
-        concern = eligibility_concern(resume_profile, job)
+        shortfall = self._settings.application.experience_shortfall_years
+        concern = eligibility_concern(resume_profile, job, max_shortfall=shortfall)
         if concern:
             return JobApplication(match_score=0, should_apply=False, match_reasoning=concern)
         # Check cache
@@ -86,7 +87,7 @@ class LinkedInJobMatcher:
 
     def _local_match(self, resume_profile: ResumeProfile, job: Job) -> JobApplication:
         from libs.common.local_matching import local_match
-        score, approved, reason, matching, missing = local_match(resume_profile, job, self._settings.application.match_score_threshold)
+        score, approved, reason, matching, missing = local_match(resume_profile, job, self._settings.application.match_score_threshold, max_shortfall=self._settings.application.experience_shortfall_years)
         logger.info(f"Local score {score}/100: {reason}")
         return JobApplication(match_score=score, should_apply=approved,
                               match_reasoning=reason, matching_skills=", ".join(matching),
@@ -159,7 +160,7 @@ Return ONLY the JSON object, no other text."""
     def _cache_key(self, resume: ResumeProfile, job: Job) -> str:
         """Generate a cache key from resume hash + job ID."""
         from libs.common.agent_reasoning import decision_fingerprint
-        resume_hash = decision_fingerprint(resume, job, self._settings.ai, self._settings.application.match_score_threshold)
+        resume_hash = decision_fingerprint(resume, job, self._settings.ai, self._settings.application.match_score_threshold, shortfall=self._settings.application.experience_shortfall_years)
         return f"{resume_hash}_{job.linkedin_job_id}"
 
 

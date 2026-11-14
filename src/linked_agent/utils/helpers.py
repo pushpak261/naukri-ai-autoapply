@@ -12,6 +12,7 @@ import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, TypeVar, cast, overload
+from urllib.parse import urlparse
 
 from src.linked_agent.utils.logger import get_logger
 
@@ -122,6 +123,24 @@ class RetryUtility:
             return cast(F, wrapper)
 
         return decorator
+
+
+def experience_filter_codes(min_years: int, max_years: int) -> str:
+    """Map a candidate's years range to LinkedIn ``f_E`` experience codes.
+
+    LinkedIn codes: 1 internship, 2 entry level, 3 associate, 4 mid-senior,
+    5 director, 6 executive. Untranslatable ranges return an empty string so
+    the search keeps every level rather than silently excluding jobs.
+    """
+    if max_years <= 0:
+        return ""
+    if min_years >= 6:
+        return "5,6"
+    if max_years <= 2:
+        return "2,3"
+    if max_years <= 4:
+        return "2,3,4"
+    return ""
 
 
 class LinkedInURLUtility:
@@ -235,6 +254,17 @@ def hash_file(file_path: str | Path) -> str:
 
 def extract_linkedin_job_id(url: str) -> str:
     return LinkedInURLUtility.extract_job_id(url)
+
+
+def is_linkedin_host(host: str | None) -> bool:
+    """LinkedIn redirects jobs to country subdomains such as in.linkedin.com."""
+    host = (host or "").lower()
+    return host == "linkedin.com" or host.endswith(".linkedin.com")
+
+
+def is_linkedin_url(url: str) -> bool:
+    parsed = urlparse(url or "")
+    return parsed.scheme == "https" and is_linkedin_host(parsed.hostname)
 
 
 def build_search_url(

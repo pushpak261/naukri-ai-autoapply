@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from libs.common.local_matching import local_match
-from libs.common.resume_facts import duration_years, extract_resume_facts
+from libs.common.resume_facts import duration_years, education_dates, extract_resume_facts
 from libs.common.screening import evidence_answer
 from src.naukri_agent.config.settings import Settings
 from src.naukri_agent.models.entities import Job, ResumeProfile
@@ -17,6 +17,19 @@ from src.naukri_agent.models.entities import Job, ResumeProfile
 )
 def test_stated_experience_units(value, expected):
     assert duration_years(value) == expected
+
+
+@pytest.mark.parametrize(
+    "entry,expected",
+    [
+        ({"degree": "B.E., Mechanical Engineering", "year": "2023"}, (6, 2019, 6, 2023)),
+        ({"degree": "Post Graduate Diploma (PG-DAC)", "year": "2024"}, (6, 2023, 6, 2024)),
+        ({"degree": "M.Tech", "year": "2022"}, (6, 2020, 6, 2022)),
+        ({"degree": "B.Tech", "year": "unknown"}, None),
+    ],
+)
+def test_education_dates_use_the_graduation_year_and_programme_length(entry, expected):
+    assert education_dates(entry) == expected
 
 
 def test_local_resume_extracts_only_supported_skills_and_tenure():
@@ -88,6 +101,29 @@ def test_local_matching_understands_compound_skill_tags_and_minimum_experience()
     result = local_match(profile, job, 70)
     assert not result[1]
     assert "Required experience is 2.5" in result[2]
+
+
+def test_near_miss_experience_can_be_allowed_without_claiming_it():
+    profile = ResumeProfile(
+        current_title="Java Developer",
+        skills=["Java", "SQL", "Spring Boot"],
+        total_experience_years=1.1,
+    )
+    job = Job(
+        "1",
+        "Java Backend Developer",
+        "Example",
+        "https://example.invalid/1",
+        skills="Java, Spring Boot, SQL",
+        experience="2-3 years",
+    )
+    assert not local_match(profile, job, 70)[1]
+    score, approved, reason, *_ = local_match(profile, job, 70, max_shortfall=1)
+    assert score >= 70
+    assert approved
+    assert "experience stretch" in reason
+    job.experience = "3-5 years"
+    assert not local_match(profile, job, 70, max_shortfall=1)[1]
 
 
 def test_saved_profile_without_title_still_matches_its_evidenced_java_stack():

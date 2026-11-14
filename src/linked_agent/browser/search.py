@@ -17,6 +17,7 @@ from urllib.parse import parse_qs, urlparse
 
 from playwright.async_api import Error as PlaywrightError
 
+from src.linked_agent.browser.auth_state import signed_out
 from src.linked_agent.browser.pages.search import LinkedInSearchPage
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
 from src.linked_agent.browser.navigation import NetworkUnavailableError
@@ -24,7 +25,7 @@ from src.linked_agent.config.constants import LINKEDIN_RATE_LIMIT_DELAY
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.bot.interfaces import IBrowserEngine
 from src.linked_agent.models.entities import Job
-from src.linked_agent.utils.helpers import LinkedInURLUtility
+from src.linked_agent.utils.helpers import LinkedInURLUtility, experience_filter_codes
 from src.linked_agent.utils.logger import get_logger
 from src.linked_agent.utils.exceptions import LoginError, RateLimitError
 
@@ -164,6 +165,11 @@ class LinkedInJobSearcher:
 
         sort_by = "DD" if self._settings.search.sort_by == "date" else ""
         experience_str = ",".join(self._settings.search.experience_level)
+        if not experience_str:
+            experience_str = experience_filter_codes(
+                self._settings.search.experience_min,
+                self._settings.search.experience_max,
+            )
         job_type = ",".join(self._settings.search.job_type)
 
         empty_pages = 0
@@ -358,6 +364,8 @@ class LinkedInJobSearcher:
             )
             if "sign in" in body_text.lower() or "join now" in body_text.lower():
                 logger.warning("Session may have expired — login-related text detected")
+            if await signed_out(page):
+                raise LoginError("LinkedIn served a signed-out page; sign-in is required")
             if any(text in body_text.casefold() for text in ("complete the captcha", "verify you are human", "security verification", "unusual activity")):
                 raise LoginError("LinkedIn verification requires your attention")
 

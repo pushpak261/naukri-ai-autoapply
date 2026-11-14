@@ -86,6 +86,16 @@ class ScreeningReviewStore:
                 "(LOWER(question) LIKE 'save job%' OR LOWER(question) LIKE 'save this job%' OR LOWER(question) LIKE 'bookmark job%')"
             )
             connection.execute("UPDATE screening_schema SET version=2 WHERE id=1")
+        if connection.execute("SELECT version FROM screening_schema WHERE id=1").fetchone()[0] < 3:
+            # Answer policies changed (referral/manager follow-ups, profile-link
+            # detection, work authorization). Derived answers cached by an older
+            # policy can be wrong, so recompute them from the fixed rules. User
+            # confirmations and manually corrected answers are preserved.
+            connection.execute(
+                "DELETE FROM answer_memory WHERE confirmed_revision=0 "
+                "AND source IN ('profile','technical','ai_suggestion')"
+            )
+            connection.execute("UPDATE screening_schema SET version=3 WHERE id=1")
         try:
             with connection:
                 yield connection

@@ -33,6 +33,8 @@ const path = el => {
     return 'body > ' + parts.join(' > ');
 };
 const text = el => (el?.innerText || el?.textContent || '').trim().replace(/\s+/g, ' ');
+const validationHint = el => (el.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)
+    .map(id => text(document.getElementById(id))).filter(Boolean).join(' ');
 const labelText = el => {
     if (!el) return '';
     const copy = el.cloneNode(true);
@@ -42,8 +44,26 @@ const labelText = el => {
 const ownLabel = el => [...(el.labels || [])].map(labelText).join(' ') || (el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => labelText(document.getElementById(id))).filter(Boolean).join(' ') || labelText(el.closest('label')) || el.getAttribute('aria-label') || '';
 const groupOf = el => el.closest('[componentkey^="easyApplyFieldFocus_"]') || el.closest('fieldset, [role="radiogroup"], .fb-dash-form-element, .jobs-easy-apply-form-section__grouping') || el.parentElement;
 const optionText = (el, question) => {
-    const candidates = [ownLabel(el), el.getAttribute('aria-label'), text(el), el.value];
-    const option = candidates.find(value => value && value.trim() !== question.trim() && value !== 'on') || '';
+    const heading = question.trim().replace(/\*+$/, '').trim();
+    // LinkedIn attaches the group's own label to every radio as aria-label
+    // (sometimes with a required-marker asterisk). It is not an option label.
+    const plain = value => (value || '').replace(/[\s\u00a0*]+$/g, '').trim();
+    // LinkedIn sometimes renders the option text in a sibling paragraph and
+    // leaves the radio label empty; take the closest wrapper that holds only
+    // this control so the whole group is never read as one option.
+    const nearbyText = target => {
+        for (let node = target.parentElement, depth = 0; node && depth < 4; node = node.parentElement, depth++) {
+            const peers = [...node.querySelectorAll('input[type="radio"], input[type="checkbox"], [role="radio"], [role="checkbox"]')];
+            if (peers.length > 1) continue;
+            const value = text(node);
+            if (value) return value;
+        }
+        return '';
+    };
+    const candidates = [ownLabel(el), nearbyText(el), el.getAttribute('aria-label'), text(el), el.value];
+    const option = candidates
+        .map(value => (value || '').trim())
+        .find(value => value && plain(value) !== heading && value !== 'on') || '';
     return /^true$/i.test(option) ? 'Yes' : /^false$/i.test(option) ? 'No' : option;
 };
 const seen = new Set(), result = [];
@@ -82,6 +102,7 @@ for (const input of controls) {
     result.push({question: label, field_type: fieldType, input_type: type || 'text', input_id: input.id || '', selector: path(input),
         group_selector: path(group), options: options.map(o => o.text), option_controls: options, current_value: value,
         validation_error: customInvalid(input),
+        validation_hint: validationHint(input),
         max_length: input.maxLength > 0 ? input.maxLength : null,
         min_length: input.minLength > 0 ? input.minLength : null,
         is_required: members.some(el => el.required || el.getAttribute('aria-required') === 'true') || group.getAttribute('aria-required') === 'true' || /\*\s*$/.test(label)});
@@ -95,6 +116,24 @@ async def extract(page):
     return await page.evaluate(EXTRACT)
 
 
+async def continue_past_safety_reminder(page):
+    """Dismiss LinkedIn's 'Job search safety reminder' before the real form."""
+    return await page.evaluate(
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return false;
+if (!/job search safety reminder/i.test(modal.innerText || '')) return false;
+const link = [...modal.querySelectorAll('a, button, [role="button"]')].find(el => visible(el) &&
+    el.getAttribute('aria-disabled') !== 'true' && !el.disabled &&
+    /^continue applying$/i.test((el.innerText || el.getAttribute('aria-label') || '').trim()));
+if (!link) return false;
+link.click();
+return true;
+}"""
+    )
+
+
 async def wait_until_ready(page, timeout_ms: int = 30000):
     """A dialog heading and spinner do not mean the application body has loaded."""
     script = (
@@ -102,6 +141,7 @@ async def wait_until_ready(page, timeout_ms: int = 30000):
         + FORM_SCOPE
         + r"""
 if (!modal || modal.getAttribute('aria-busy') === 'true' || [...modal.querySelectorAll('[aria-busy="true"]')].some(visible)) return false;
+if (/job search safety reminder/i.test(modal.innerText || '')) return false;
 const fields = [...modal.querySelectorAll('input, select, textarea, [role="radio"], [role="checkbox"]')];
 if (fields.some(el => visible(el) && el.type !== 'hidden' && !['button', 'submit', 'reset'].includes(el.type))) return true;
 const actions = [...modal.querySelectorAll('button')];
@@ -110,7 +150,8 @@ return /application (?:sent|submitted)|successfully applied|thank you for applyi
 }"""
     )
     try:
-        await page.wait_for_function(script, timeout=timeout_ms)
+        # rAF polling never fires while the automation window is occluded.
+        await page.wait_for_function(script, timeout=timeout_ms, polling=200)
         return True
     except PlaywrightTimeoutError:
         return False
@@ -169,7 +210,13 @@ async def _fill_choices(page, field, answer):
         return bool(selected) and await _set_choice(page, selected, True)
     if len(options) == 1 and normalized(answer) in ("yes", "true", "no", "false"):
         return await _set_choice(page, options[0], normalized(answer) in ("yes", "true"))
-    answers = [part.strip() for part in re.split(r"[,;|\n]", str(answer)) if part.strip()]
+    raw = str(answer)
+    if "\n" in raw:
+        # Newline-separated answers are exact option labels; never split a
+        # label on commas or semicolons inside the label.
+        answers = [part.strip() for part in raw.splitlines() if part.strip()]
+    else:
+        answers = [part.strip() for part in re.split(r"[,;|]", raw) if part.strip()]
     selected = [matching_option(part, options) for part in answers]
     if not selected or any(option is None for option in selected):
         return False
@@ -211,14 +258,19 @@ async def _fill_typeahead(page, locator, answer):
 
 async def _current_field(page, question):
     fields = await extract(page)
-    matches = [
+    same = [
         f
         for f in fields
         if normalized(f["question"]) == normalized(question.get("question", ""))
         and f["field_type"] == question.get("field_type", "text")
-        and (not question.get("selector") or f["selector"] == question["selector"])
     ]
-    return matches[0] if len(matches) == 1 else None
+    if question.get("selector"):
+        exact = [f for f in same if f["selector"] == question["selector"]]
+        if len(exact) == 1:
+            return exact[0]
+    # A step transition can re-render the modal and replace every selector
+    # between extraction and filling. One unambiguous question is still safe.
+    return same[0] if len(same) == 1 else None
 
 
 def _numeric_equivalent(field, answer):
@@ -319,5 +371,77 @@ return {invalid: fields.filter(el => (el.willValidate && !el.validity.valid) || 
     nativeValid: el.validity.valid, ariaInvalid: el.getAttribute('aria-invalid'), customInvalid: customInvalid(el)
 })), markers: [...modal.querySelectorAll('[aria-invalid="true"]')].filter(visible).map(el => ({tag: el.tagName, id: el.id})),
 buttons: [...modal.querySelectorAll('button')].filter(visible).map(el => ({text: el.innerText || el.getAttribute('aria-label'), disabled: el.disabled}))};
+}"""
+    )
+
+
+async def education_form(page):
+    """Describe the inline Education editor LinkedIn opens before Review."""
+    return await page.evaluate(
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return {found: false};
+const school = [...modal.querySelectorAll('input')].find(el => visible(el) && (el.getAttribute('aria-label') || '').trim() === 'School');
+if (!school) return {found: false};
+const field = name => {
+    const el = [...modal.querySelectorAll('input')].find(item => (item.getAttribute('aria-label') || '').trim() === name);
+    return el ? (el.value || '').trim() : '';
+};
+const save = [...modal.querySelectorAll('button')].find(b => visible(b) && !b.disabled && /^save$/i.test((b.innerText || '').trim()));
+return {found: true, school: field('School'), degree: field('Degree'),
+    selects: [...modal.querySelectorAll('select')].filter(visible).length, has_save: !!save};
+}"""
+    )
+
+
+async def fill_education_dates(page, dates):
+    """Set the From/To month and year of the open Education editor."""
+    from_month, from_year, to_month, to_year = dates
+    return await page.evaluate(
+        "(args) => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return false;
+const school = [...modal.querySelectorAll('input')].find(el => visible(el) && (el.getAttribute('aria-label') || '').trim() === 'School');
+if (!school) return false;
+const selects = [...modal.querySelectorAll('select')].filter(visible);
+if (selects.length < 4) return false;
+const setValue = (el, text) => {
+    const option = [...el.options].find(o => (o.text || '').trim() === text || (o.value || '').trim() === text);
+    if (!option) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set;
+    setter.call(el, option.value);
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+    return true;
+};
+const months = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const [fromMonth, fromYear, toMonth, toYear] = selects;
+return [
+    setValue(fromMonth, months[args[0] - 1]),
+    setValue(fromYear, String(args[1])),
+    setValue(toMonth, months[args[2] - 1]),
+    setValue(toYear, String(args[3])),
+].every(Boolean);
+}""",
+        [from_month, from_year, to_month, to_year],
+    )
+
+
+async def save_education(page):
+    """Save the open Education editor so the application Review can continue."""
+    return await page.evaluate(
+        "() => {"
+        + FORM_SCOPE
+        + r"""
+if (!modal) return false;
+const school = [...modal.querySelectorAll('input')].find(el => visible(el) && (el.getAttribute('aria-label') || '').trim() === 'School');
+if (!school) return false;
+const save = [...modal.querySelectorAll('button')].find(b => visible(b) && !b.disabled &&
+    !b.closest('[aria-disabled="true"]') && /^save$/i.test((b.innerText || '').trim()));
+if (!save) return false;
+save.click();
+return true;
 }"""
     )
