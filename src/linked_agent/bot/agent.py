@@ -455,6 +455,12 @@ class LinkedInAgent:
                 self._jobs_skipped += 1
                 continue
 
+            mismatch = self._technology_mismatch(job)
+            if mismatch:
+                log_info(f"Skipping ({mismatch} listing, not Java): {job.title} @ {job.company}")
+                self._jobs_skipped += 1
+                continue
+
             if self._settings.search.enable_heuristics:
                 text_to_score = f"{job.title} {job.company} {job.skills}"
                 score = vector_filter.get_similarity_score(text_to_score)
@@ -599,6 +605,14 @@ class LinkedInAgent:
                     continue
 
                 await self._interactions.action_delay()
+
+            # The search card often has no description or skills. Re-check the
+            # technology once the sidebar reveals the listing's real stack.
+            mismatch = self._technology_mismatch(job)
+            if mismatch:
+                log_info(f"Skipping ({mismatch} listing, not Java): {job.title} @ {job.company}")
+                self._jobs_skipped += 1
+                continue
 
             # Re-evaluate exclusions with full description
             if self._is_excluded(job):
@@ -1015,6 +1029,19 @@ class LinkedInAgent:
             if re.search(pattern, title_lower):
                 return True
         return False
+
+    def _targets_java(self) -> bool:
+        """Only filter other stacks when the saved role family names Java."""
+        required = getattr(self._settings.search, "required_title_keywords", [])
+        return any(re.search(r"\bjava\b", str(keyword), re.I) for keyword in required)
+
+    def _technology_mismatch(self, job: Job) -> str:
+        """Name a non-Java stack the listing asks for, if Java is the target."""
+        if not self._targets_java():
+            return ""
+        from libs.common.opportunity import technology_mismatch
+
+        return technology_mismatch(job.title, job.description, job.skills)
 
     async def _cleanup(self) -> None:
         # Send external jobs email if needed

@@ -449,6 +449,30 @@ def test_entry_search_rejects_explicit_senior_titles(title, levels, excluded):
     )
 
 
+@pytest.mark.parametrize(
+    "required,title,description,expected",
+    [
+        (["Java"], "Dotnet Developer", "", ".NET"),
+        (["Java"], "Software Engineer", "Strong JavaScript experience.", "JavaScript"),
+        (["Java"], "Java Full Stack Developer", "", ""),
+        (["Java"], "Software Engineer", "Build generic services.", ""),
+        ([], "Python Developer", "", ""),
+    ],
+)
+def test_technology_mismatch_filter_respects_configured_role_family(
+    required, title, description, expected
+):
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.config.settings import Settings
+    from src.linked_agent.models.entities import Job
+
+    agent = object.__new__(LinkedInAgent)
+    agent._settings = Settings(search={"required_title_keywords": required})
+    job = Job("1", title, "Company", "https://www.linkedin.com/jobs/view/1")
+    job.description = description
+    assert agent._technology_mismatch(job) == expected
+
+
 def test_entry_search_rejects_explicit_leadership_in_generic_title():
     from src.linked_agent.bot.agent import LinkedInAgent
     from src.linked_agent.config.settings import Settings
