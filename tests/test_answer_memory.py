@@ -151,6 +151,21 @@ def test_existing_answer_database_migrates_without_losing_confirmations(tmp_path
     assert store.memory()["items"][0]["use_count"] == 1
 
 
+def test_stale_derived_answers_are_dropped_when_the_answer_policy_changes(tmp_path):
+    store = ScreeningReviewStore(tmp_path)
+    follow_up = {"question": "If you were referred, name the referrer"}
+    store.observe(follow_up, "Candidate Name", job(), "profile", "same-profile")
+    assert store.answer_for(follow_up, job(), "same-profile") == "Candidate Name"
+    confirmed = {"question": "Are you willing to relocate?", "options": ["Yes", "No"]}
+    identifier = store.remember(confirmed, job())
+    store.save_answers({identifier: "No"})
+    with sqlite3.connect(store.path) as db:
+        db.execute("UPDATE screening_schema SET version=2 WHERE id=1")
+    upgraded = ScreeningReviewStore(tmp_path)
+    assert not upgraded.answer_for(follow_up, job(), "same-profile")
+    assert upgraded.answer_for(confirmed, job()) == "No"
+
+
 def test_employer_memory_records_accepted_values_not_uncommitted_suggestions():
     dropdown = {"type": "dropdown", "value": "n", "options": [{"text": "No", "value": "n"}]}
     assert filled_answer(dropdown, "No") == "No"
