@@ -315,3 +315,17 @@ search:
   required_title_keywords: []
   sort_by: date
   work_type: ''
+  company_boards:
+    Mastercard: mastercard
+    JPMorgan Chase: jpmorgan-chase-co
+    Deutsche Bank: deutsche-bank
+    Capgemini: capgemini
+    Citi: citi
+    FIS: fis
+    Visa: visa
+    Barclays: barclays
+    Goldman Sachs: goldman-sachs
+    Morgan Stanley: morgan-stanley
+    American Express: american-express
+    BNY: bny-mellon
+  company_board_pages: 1

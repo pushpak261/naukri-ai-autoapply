@@ -98,6 +98,12 @@ class SearchSettings(BaseModel):
     # ignores legal suffixes ("Pvt Ltd", "Inc") and unit suffixes
     # ("Technologies", "India"), so "JPMorgan Chase" matches "JP Morgan".
     preferred_companies: list[str] = Field(default_factory=list)
+    # Preferred employers whose own LinkedIn job boards are scanned once per
+    # run, mapping display name to LinkedIn slug. Generic searches often rank
+    # large-employer roles below recruiters, so this keeps the target MNCs in
+    # the queue. Empty disables the sweep.
+    company_boards: dict[str, str] = Field(default_factory=dict)
+    company_board_pages: int = 1
 
     @field_validator("sort_by")
     @classmethod

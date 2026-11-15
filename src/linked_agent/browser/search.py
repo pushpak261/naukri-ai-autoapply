@@ -34,6 +34,26 @@ logger = get_logger(__name__)
 SESSION_HEARTBEAT_INTERVAL = 180  # seconds between session health checks
 
 
+def _board_company_matches(name, company):
+    """True when a company-board card belongs to the requested employer."""
+    from api.company_policy import _company_key, _company_matches
+
+    return _company_matches(_company_key(company), _company_key(name))
+
+
+def _location_in_scope(location, targets):
+    """Company boards are worldwide; keep only the configured search cities."""
+    if not targets:
+        return True
+    text = str(location or "").casefold().replace("bangalore", "bengaluru").strip()
+    if not text:
+        return True
+    return any(
+        str(target).casefold().replace("bangalore", "bengaluru").strip() in text
+        for target in targets
+    )
+
+
 class LinkedInJobSearcher:
     """
     Orchestrates LinkedIn job search across multiple keywords and locations.
@@ -121,6 +141,8 @@ class LinkedInJobSearcher:
 
                 await asyncio.sleep(LINKEDIN_RATE_LIMIT_DELAY / 1000)
 
+        await self._search_company_boards(all_jobs)
+
         logger.debug(
             "LinkedIn search complete — all jobs dictionary:\n"
             + "\n".join(
@@ -131,6 +153,57 @@ class LinkedInJobSearcher:
         logger.info(f"Total unique jobs found: {len(all_jobs)}")
 
         return list(all_jobs.values())
+
+    async def _search_company_boards(self, all_jobs: dict[str, Job]) -> None:
+        """Scan preferred employers' own job boards once per run.
+
+        Generic keyword searches rank large-employer roles below smaller
+        recruiters, so a one-page board sweep makes sure the configured MNCs
+        are actually seen. The normal title, eligibility and Easy Apply gates
+        still decide whether any of these jobs is applied to.
+        """
+        boards = getattr(self._settings.search, "company_boards", {}) or {}
+        if not isinstance(boards, dict) or not boards:
+            return
+        pages = max(1, int(getattr(self._settings.search, "company_board_pages", 1) or 1))
+        targets = getattr(self._settings.search, "locations", [])
+        for index, (name, slug) in enumerate(boards.items(), 1):
+            if not isinstance(name, str) or not isinstance(slug, str) or not slug.strip():
+                continue
+            logger.info(f"[Company {index}/{len(boards)}] Scanning {name} job board")
+            for page_num in range(pages):
+                url = f"https://www.linkedin.com/jobs/{slug.strip()}-jobs"
+                if page_num:
+                    url += f"?start={page_num * 25}"
+                try:
+                    await self._search_page.navigate_to_search(url)
+                    jobs = await self._search_page.parse_job_cards(url)
+                except (RateLimitError, LoginError):
+                    raise
+                except (PlaywrightError, NetworkUnavailableError) as error:
+                    logger.warning(f"Company board {name} could not be scanned: {error}")
+                    break
+
+                new_count = 0
+                for job in jobs:
+                    if not _board_company_matches(name, job.company):
+                        continue
+                    if not _location_in_scope(job.location, targets):
+                        continue
+                    identifier = job.linkedin_job_id or job.url
+                    if identifier and identifier not in all_jobs:
+                        # The apply flow needs a results-style URL. A company
+                        # board is not guaranteed to open a sidebar from
+                        # currentJobId, so use the standard search shell.
+                        job.search_url = "https://www.linkedin.com/jobs/search/"
+                        all_jobs[identifier] = job
+                        new_count += 1
+                logger.info(f"  + {new_count} new jobs from {name} board")
+                if self._rate_limited:
+                    logger.warning("Rate limited detected — pausing before next company board")
+                    await asyncio.sleep(30)
+                    self._rate_limited = False
+                await asyncio.sleep(LINKEDIN_RATE_LIMIT_DELAY / 1000)
 
     async def _search_keyword(
         self,
