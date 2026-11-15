@@ -62,6 +62,7 @@ def description_experience_minimum(description):
     )
     required = False
     minimums = _labelled_experience_minimums(str(description or ""), duration)
+    minimums.extend(_header_experience_minimums(str(description or ""), duration))
     for index, part in enumerate(parts):
         if index % 2:
             required = " ".join(part.casefold().split()) in {
@@ -81,11 +82,54 @@ def description_experience_minimum(description):
 def _labelled_experience_minimums(description, duration):
     from libs.common.resume_facts import minimum_experience_years
 
+    # "Total Experience - 5 years", "Experience 2 - 5 years" and
+    # "Exp: 5+ years" are the same tenure fact with different punctuation.
+    pattern = re.compile(
+        rf"\b(?:(?:total|overall|relevant|professional|work|industry|hands-on|minimum|required)\s+)?"
+        rf"(?:experience|exp)\.?\s*(?:required|needed|minimum)?\s*[:\-–—]?\s*({duration})",
+        re.I,
+    )
     return [
         minimum_experience_years(match[1])
-        for match in re.finditer(rf"\bexperience\s*:\s*({duration})", description, re.I)
+        for match in pattern.finditer(description)
         if _tenure_is_required(description, match, True)
     ]
+
+
+_HEADER_FIELD = re.compile(
+    r"\b(?:location|work\s+location|notice(?:\s+period)?|np|employment(?:\s+type)?|"
+    r"job\s+type|work\s+mode|mode\s+of\s+work|salary|budget|ctc|openings?|positions?|"
+    r"joining|start\s+date|qualifications?|required\s+skills|skills?)\b",
+    re.I,
+)
+# Tenure written as a header fact before the first labelled field, e.g.
+# "Java Full stack Developer 5+ Years Location :- Bangalore".
+_HEADER_CONTEXT = re.compile(
+    r"\b(?:company|firm|organization|organisation|established|founded|incorporated|"
+    r"since|ago|old|age|project|contract|duration|last|past|next|every|per|"
+    r"warranty|product|offering|serving)\b",
+    re.I,
+)
+
+
+def _header_experience_minimums(description, duration):
+    from libs.common.resume_facts import minimum_experience_years
+
+    head = description[:300]
+    minimums = []
+    for match in re.finditer(rf"(?<![\d.])({duration})", head, re.I):
+        before = head[max(0, match.start() - 45) : match.start()]
+        after = head[match.end() : match.end() + 45]
+        if _HEADER_CONTEXT.search(before) or re.search(
+            r"\b(?:ago|old|established|founded|warranty|project|contract)\b", after, re.I
+        ):
+            continue
+        field = _HEADER_FIELD.search(after)
+        if not field or field.start() > 30:
+            continue
+        if _tenure_is_required(head, match, True):
+            minimums.append(minimum_experience_years(match[1]))
+    return minimums
 
 
 # A different labelled field ends the clause. Flattened job descriptions often
