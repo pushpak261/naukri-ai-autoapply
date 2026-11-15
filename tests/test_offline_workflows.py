@@ -13,7 +13,7 @@ from src.naukri_agent.models.entities import Job, ResumeProfile
 
 @pytest.mark.parametrize(
     "value,expected",
-    [("18 months", 1.5), ("1 year and 6 months", 1.5), ("2.5", 2.5), ("unknown", None)],
+    [("18 months", 1.5), ("1 year and 6 months", 1.5), ("2.5", 2.5), ("1+ years", 1), ("unknown", None)],
 )
 def test_stated_experience_units(value, expected):
     assert duration_years(value) == expected
@@ -46,6 +46,10 @@ def test_local_resume_extracts_only_supported_skills_and_tenure():
     assert "sql" not in facts["skills"]  # PostgreSQL alone does not prove general SQL tenure.
     assert facts["education"][0]["year"] == "2023"
     assert extract_resume_facts("Candidate\nSkills: Java")["total_experience_years"] == 0
+    possessive = extract_resume_facts(
+        "Candidate\nJava Developer\n1+ years’ experience in backend development\nSkills: Java"
+    )
+    assert possessive["total_experience_years"] == 1
 
 
 @pytest.mark.asyncio

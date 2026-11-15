@@ -8,10 +8,10 @@ def duration_years(value):
     text = str(value).strip().casefold()
     if re.fullmatch(r"\d+(?:\.\d+)?", text):
         return float(text)
-    parts = re.findall(r"(\d+(?:\.\d+)?)\s*(years?|yrs?|months?|mos?)\b", text)
+    parts = re.findall(r"(\d+(?:\.\d+)?)\s*\+?\s*(years?|yrs?|months?|mos?)\b", text)
     if not parts:
         return None
-    remainder = re.sub(r"\d+(?:\.\d+)?\s*(?:years?|yrs?|months?|mos?)\b", "", text)
+    remainder = re.sub(r"\d+(?:\.\d+)?\s*\+?\s*(?:years?|yrs?|months?|mos?)\b", "", text)
     if remainder.strip(" ,&") not in ("", "and"):
         return None
     return sum(float(n) / (12 if unit.startswith("mo") else 1) for n, unit in parts)
@@ -50,7 +50,7 @@ def extract_resume_facts(text, configured_experience=""):
     years = duration_years(configured_experience)
     if years is None:
         explicit = re.search(
-            r"\b(\d+(?:\.\d+)?\s*(?:years?|yrs?)(?:\s*(?:and)?\s*\d+\s*months?)?|\d+\s*months?)\s+(?:of\s+)?(?:professional\s+|work\s+|hands-on\s+)?experience\b",
+            r"\b(\d+(?:\.\d+)?\+?\s*(?:years?|yrs?)(?:\s*(?:and)?\s*\d+\s*months?)?|\d+\s*months?)(?:['’]s?)?\s+(?:of\s+)?(?:professional\s+|work\s+|hands-on\s+)?experience\b",
             text,
             re.I,
         )

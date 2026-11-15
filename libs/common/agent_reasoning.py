@@ -25,7 +25,9 @@ def eligibility_concern(profile, job, max_shortfall=0.0):
     """
     experience = str(getattr(job, "experience", "") or "").lower()
     match = re.fullmatch(
-        r"\s*(\d+(?:\.\d+)?)\s*(?:[-–]\s*\d+(?:\.\d+)?|\+)?\s*(?:years?|yrs?)\s*", experience
+        r"\s*(\d+(?:\.\d+)?)\s*(?:[-–]\s*\d+(?:\.\d+)?|\+)?\s*(?:years?|yrs?)"
+        r"(?:['’]s?)?(?:\s+(?:of\s+)?experience)?\s*",
+        experience,
     )
     minimums = [float(match[1])] if match else []
     stated_minimum = description_experience_minimum(getattr(job, "description", ""))
@@ -50,13 +52,20 @@ def description_experience_minimum(description):
 
     description = re.sub(r"(?<=[a-z])(?=Experience\s*:)", " ", str(description or ""))
 
+    # Possessive forms such as "4+ years’ experience" are the same tenure fact
+    # as "4+ years of experience"; the apostrophe must not hide the minimum.
     duration = (
-        r"\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)"
+        r"\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*"
+        r"(?:years?|yrs?|months?|mos?)(?:['’]s?)?"
     )
     work = r"(?:of\s+)?(?:(?:professional|work|relevant|industry|hands-on)\s+)?experience\b|(?:in|guiding|leading|owning|designing|building|developing|delivering|working)\b"
     # Split required and preferred sections even in flattened scraped text.
+    # Bare "Qualifications", "WHO YOU ARE" and "What you bring" headings are
+    # standard requirements sections on LinkedIn postings.
     parts = re.split(
-        r"\b(requirements|(?:minimum|required|preferred)\s+qualifications|your expertise|must have|nice to have|preferred\s+skills|benefits|responsibilities)\s*:?",
+        r"\b(requirements|(?:minimum|required|preferred)\s+qualifications|qualifications?|"
+        r"who you are|about you|what you bring|your expertise|must have|nice to have|"
+        r"preferred\s+skills|benefits|responsibilities)\s*:?",
         str(description or ""),
         flags=re.I,
     )
@@ -69,6 +78,11 @@ def description_experience_minimum(description):
                 "requirements",
                 "minimum qualifications",
                 "required qualifications",
+                "qualifications",
+                "qualification",
+                "who you are",
+                "about you",
+                "what you bring",
                 "your expertise",
                 "must have",
             }
