@@ -28,7 +28,7 @@ from rich.table import Table
 
 from src.linked_agent.utils.similarity import LinkedInVectorSimilarityFilter
 from src.linked_agent.browser.apply import LinkedInJobApplier
-from src.linked_agent.browser.auth_state import signed_out
+from src.linked_agent.browser.auth_state import confirmed_signed_out
 from src.linked_agent.browser.dom_scripts import LOADED_LISTING
 from src.linked_agent.browser.login import LinkedInLoginHandler
 from src.linked_agent.browser.search import LinkedInJobSearcher
@@ -859,7 +859,7 @@ class LinkedInAgent:
                 # A signed-out page still renders public listings, but every
                 # Apply control behind it is a sign-in prompt. Recover before
                 # interpreting the page as a job without Easy Apply.
-                if await signed_out(page):
+                if await confirmed_signed_out(page):
                     logger.warning("LinkedIn page is signed out; recovering the session")
                     if not recovered and await self._recover_linkedin_session():
                         recovered = True
@@ -904,7 +904,7 @@ class LinkedInAgent:
                 with contextlib.suppress(PlaywrightTimeoutError):
                     await page.wait_for_load_state("networkidle", timeout=10000)
                 await asyncio.sleep(2)
-                if await signed_out(page):
+                if await confirmed_signed_out(page):
                     logger.warning("LinkedIn page is signed out; recovering the session")
                     if recovered or not await self._recover_linkedin_session():
                         logger.warning("Session expired during job navigation — cannot proceed")
@@ -915,7 +915,7 @@ class LinkedInAgent:
                     with contextlib.suppress(PlaywrightTimeoutError):
                         await page.wait_for_load_state("networkidle", timeout=10000)
                     await asyncio.sleep(2)
-                    if await signed_out(page):
+                    if await confirmed_signed_out(page):
                         return False
                 if _matches_job_url(page.url, job_id):
                     await self._wait_for_listing_content(page)

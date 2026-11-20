@@ -9,6 +9,8 @@ instead and let the caller recover the session before navigating further.
 
 from __future__ import annotations
 
+import asyncio
+
 SCRIPT = r"""() => {
     const header = document.querySelector('header.global-nav, nav.global-nav, header');
     if (!header) return 'unknown';
@@ -36,3 +38,22 @@ async def state(page) -> str:
 async def signed_out(page) -> bool:
     """True only when the global header clearly offers sign-in/join controls."""
     return await state(page) == "signed_out"
+
+
+async def confirmed_signed_out(page, *, checks: int = 4, delay: float = 0.75) -> bool:
+    """True only when the header still offers sign-in across several samples.
+
+    LinkedIn first paints the public header before React swaps in the
+    authenticated navigation, so a single sample taken right after a
+    navigation can look signed out on a perfectly healthy session. Every
+    false positive costs a full re-login (~90s) and stalls the queue, so
+    require consecutive signed-out samples and stop as soon as the header
+    shows a signed-in or ambiguous state.
+    """
+    checks = max(1, checks)
+    for index in range(checks):
+        if await state(page) != "signed_out":
+            return False
+        if index + 1 < checks:
+            await asyncio.sleep(delay)
+    return True

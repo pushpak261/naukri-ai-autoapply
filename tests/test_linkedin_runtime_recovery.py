@@ -382,6 +382,34 @@ async def test_signed_out_header_is_detected_from_the_global_navigation(search_p
 
 
 @pytest.mark.asyncio
+async def test_transient_signed_out_paint_does_not_trigger_recovery(monkeypatch):
+    from src.linked_agent.browser.auth_state import confirmed_signed_out
+
+    samples = iter(["signed_out", "signed_out", "signed_in"])
+
+    async def fake_state(_page):
+        return next(samples)
+
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.state", fake_state)
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.asyncio.sleep", AsyncMock())
+
+    assert await confirmed_signed_out(object()) is False
+
+
+@pytest.mark.asyncio
+async def test_confirmed_signed_out_requires_every_sample(monkeypatch):
+    from src.linked_agent.browser.auth_state import confirmed_signed_out
+
+    async def fake_state(_page):
+        return "signed_out"
+
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.state", fake_state)
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.asyncio.sleep", AsyncMock())
+
+    assert await confirmed_signed_out(object()) is True
+
+
+@pytest.mark.asyncio
 async def test_public_search_redirect_recovers_session_instead_of_skipping_job(monkeypatch):
     from src.linked_agent.bot.agent import LinkedInAgent
 
@@ -403,7 +431,7 @@ async def test_public_search_redirect_recovers_session_instead_of_skipping_job(m
 
     monkeypatch.setattr("src.linked_agent.bot.agent.navigate", navigate)
     monkeypatch.setattr(
-        "src.linked_agent.bot.agent.signed_out",
+        "src.linked_agent.bot.agent.confirmed_signed_out",
         AsyncMock(side_effect=[True, False]),
     )
     monkeypatch.setattr("src.linked_agent.bot.agent.asyncio.sleep", AsyncMock())
@@ -428,7 +456,7 @@ async def test_signed_out_page_is_not_applied_to_when_recovery_fails(monkeypatch
         AsyncMock(side_effect=lambda page_object, url: setattr(page_object, "url", url)),
     )
     monkeypatch.setattr(
-        "src.linked_agent.bot.agent.signed_out", AsyncMock(return_value=True)
+        "src.linked_agent.bot.agent.confirmed_signed_out", AsyncMock(return_value=True)
     )
     monkeypatch.setattr("src.linked_agent.bot.agent.asyncio.sleep", AsyncMock())
 
