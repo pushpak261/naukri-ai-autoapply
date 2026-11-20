@@ -54,9 +54,7 @@ _NEGATIVE_POLARITY = (
 )
 
 _LINK_FIELD = re.compile(r"\b(?:url|link|profile|portfolio|website|handle)\b", re.I)
-_MONEY = re.compile(
-    r"\b(?:ctc|salary|compensation|package|stipend|pay|income|inr|lpa)\b", re.I
-)
+_MONEY = re.compile(r"\b(?:ctc|salary|compensation|package|stipend|pay|income|inr|lpa)\b", re.I)
 _RATE = re.compile(r"\brate\b", re.I)
 _RATE_CONTEXT = re.compile(
     r"\b(?:expected|current|monthly|hourly|daily|annual|yearly|per|inr|lpa|ctc|salary)\b",
@@ -81,8 +79,7 @@ _PEOPLE = re.compile(
     re.I,
 )
 _EXPERIENCE_YEARS = re.compile(
-    r"\b(?:years?|months?)\b[^?.]*\bexperience\b"
-    r"|\bexperience\b[^?.]*\b(?:years?|months?)\b",
+    r"\b(?:years?|months?)\b[^?.]*\bexperience\b" r"|\bexperience\b[^?.]*\b(?:years?|months?)\b",
     re.I,
 )
 _RATING_POSITIVE = re.compile(
@@ -121,6 +118,8 @@ _CONSENT = re.compile(
 
 def _is_notice_period(text):
     return bool(_NOTICE_PERIOD.search(text)) and not _PRIVACY_NOTICE.search(text)
+
+
 _OFFER_IN_HAND = re.compile(
     r"\boffers?\s+in\s+hand\b|\bcompeting\s+offers?\b|\bother\s+offers?\b", re.I
 )
@@ -187,9 +186,7 @@ _OPTIONAL_PROMPT = re.compile(
 _SKILL_PHRASES = (
     re.compile(r"\bexperience\s+(?:do you have\s+)?with\s+(.+?)(?:\?|$)", re.I),
     re.compile(r"\b(?:working|work)\s+with\s+(.+?)(?:\?|$)", re.I),
-    re.compile(
-        r"\bhands[- ]on\s+(.+?)\s+(?:development\s+|engineering\s+)?experience\b", re.I
-    ),
+    re.compile(r"\bhands[- ]on\s+(.+?)\s+(?:development\s+|engineering\s+)?experience\b", re.I),
     re.compile(
         r"\b(?:years?|months?)\s+of\s+(.+?)\s+(?:development\s+|engineering\s+)?experience\b",
         re.I,
@@ -280,7 +277,9 @@ _DATE_ANSWER = re.compile(
 
 
 def _highest_degree(candidate):
-    entries = [entry for entry in getattr(candidate, "education", []) or [] if isinstance(entry, dict)]
+    entries = [
+        entry for entry in getattr(candidate, "education", []) or [] if isinstance(entry, dict)
+    ]
 
     def year(entry):
         match = re.search(r"(?:19|20)\d{2}", str(entry.get("year") or entry.get("end_year") or ""))
@@ -295,7 +294,9 @@ def _highest_degree(candidate):
 
 def _current_company(candidate):
     entries = [
-        entry for entry in getattr(candidate, "work_experience", []) or [] if isinstance(entry, dict)
+        entry
+        for entry in getattr(candidate, "work_experience", []) or []
+        if isinstance(entry, dict)
     ]
     current = next(
         (entry for entry in entries if "present" in str(entry.get("duration", "")).casefold()),
@@ -384,9 +385,7 @@ def _unsupported_skill_claim(text, candidate):
     """True for an explicit 'experience with X' claim the resume cannot support."""
     phrase = _skill_phrase(text)
     return bool(
-        phrase
-        and _concrete_skill_phrase(phrase)
-        and not _supported_skill_phrase(phrase, candidate)
+        phrase and _concrete_skill_phrase(phrase) and not _supported_skill_phrase(phrase, candidate)
     )
 
 
@@ -444,9 +443,7 @@ def _multi_checkbox_answer(question, options, settings, candidate):
         )
 
     picked = [
-        option
-        for option in options
-        if any(_target_in_option(target, option) for target in targets)
+        option for option in options if any(_target_in_option(target, option) for target in targets)
     ]
     if picked:
         return "\n".join(dict.fromkeys(picked))
@@ -632,9 +629,7 @@ def _notice_option(options, settings):
         return picked
     if days == 0:
         lowest = [
-            (min(numbers), option)
-            for option in options
-            if (numbers := _option_numbers(option))
+            (min(numbers), option) for option in options if (numbers := _option_numbers(option))
         ]
         if lowest:
             return min(lowest, key=lambda item: item[0])[1]
@@ -669,18 +664,10 @@ def _experience_option(options, text, settings, candidate):
     if "additional" in text:
         # Months/years beyond the saved total are zero.
         wanted = 0
-    spans = [
-        (span, option)
-        for option in options
-        if (span := _experience_span(option)) is not None
-    ]
+    spans = [(span, option) for option in options if (span := _experience_span(option)) is not None]
     if not spans:
         return ""
-    exact = [
-        option
-        for (low, high, scalar), option in spans
-        if scalar and low == wanted
-    ]
+    exact = [option for (low, high, scalar), option in spans if scalar and low == wanted]
     if exact:
         return exact[0]
     containing = [
@@ -690,11 +677,7 @@ def _experience_option(options, text, settings, candidate):
     ]
     if containing:
         return min(containing, key=lambda item: (item[0], item[1]))[2]
-    below = [
-        (low, option)
-        for (low, _high, _scalar), option in spans
-        if low <= wanted
-    ]
+    below = [(low, option) for (low, _high, _scalar), option in spans if low <= wanted]
     if below:
         return max(below, key=lambda item: item[0])[1]
     return min(spans, key=lambda item: item[0][0])[1]
@@ -1030,7 +1013,9 @@ def _work_authorization_answer(text, settings):
         flags=re.I,
     )
     place = _place_key(place)
-    if not place or re.search(r"\b(?:country|role|position|office|city|location)\b", match[1], re.I):
+    if not place or re.search(
+        r"\b(?:country|role|position|office|city|location)\b", match[1], re.I
+    ):
         return "Yes"
     country = _place_key(getattr(settings.profile, "current_country", "") or "India")
     if country and (place in country or country in place):
@@ -1316,8 +1301,10 @@ def numeric_answer(question, settings, candidate=None):
         return _rating_value(text)
     if _PEOPLE.search(text) and not _EXPERIENCE_YEARS.search(text):
         return "2"
-    if _conditional_answer(text, settings) and question.get("field_type") != "number" and (
-        question.get("input_type") != "number"
+    if (
+        _conditional_answer(text, settings)
+        and question.get("field_type") != "number"
+        and (question.get("input_type") != "number")
     ):
         # Conditional follow-ups are answered "N/A" on text fields; never turn
         # that into a numeric zero.
