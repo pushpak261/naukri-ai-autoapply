@@ -275,10 +275,24 @@ def clear_agent_blocked() -> None:
         AGENT_BLOCKED.set(0)
 
 
+def _runtime_limit_seconds(default: float = 7200.0) -> float:
+    """Wall-clock limit for a normal agent run.
+
+    A LinkedIn run sweeps company boards before applying, so one hour is not
+    enough to finish the queue. Two hours fits inside the three-hour schedule
+    while still stopping genuinely hung processes. Set
+    ``AGENT_MAX_RUNTIME_SECONDS`` to override.
+    """
+    try:
+        return max(600.0, float(os.environ.get("AGENT_MAX_RUNTIME_SECONDS", default)))
+    except (TypeError, ValueError):
+        return default
+
+
 async def supervise(
     repo: Any,
     *,
-    max_runtime_seconds: float = 3600.0,
+    max_runtime_seconds: float | None = None,
     interval_seconds: float = 15.0,
 ) -> None:
     """Background supervisor: kills overrun agents and recovers stuck run logs.
@@ -288,6 +302,7 @@ async def supervise(
     flips the stuck ``RunLog`` to ``error``. If a process exceeds the max
     runtime, it is terminated (also marked error).
     """
+    limit = _runtime_limit_seconds() if max_runtime_seconds is None else max_runtime_seconds
     while True:
         await asyncio.sleep(interval_seconds)
         try:
@@ -304,7 +319,7 @@ async def supervise(
                     return
                 dead = proc.poll() is not None
                 from libs.common.run_target import MAX_RUNTIME_SECONDS, requested_target
-                runtime_limit = MAX_RUNTIME_SECONDS if requested_target(proc) else max_runtime_seconds
+                runtime_limit = MAX_RUNTIME_SECONDS if requested_target(proc) else limit
                 overrun = (
                     started_at is not None
                     and (now_ts - started_at).total_seconds() > runtime_limit

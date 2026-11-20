@@ -328,4 +328,32 @@ search:
     Morgan Stanley: morgan-stanley
     American Express: american-express
     BNY: bny-mellon
+    IBM: ibm
+    Oracle: oracle
+    SAP: sap
+    HSBC: hsbc
+    Standard Chartered: standard-chartered
+    Wells Fargo: wells-fargo
+    UBS: ubs
+    Nomura: nomura
+    Tata Consultancy Services: tcs
+    Infosys: infosys
+    Wipro: wipro
+    HCLTech: hcltech
+    Tech Mahindra: tech-mahindra
+    LTIMindtree: ltimindtree
+    Cognizant: cognizant
+    Accenture: accenture
+    Mphasis: mphasis
+    Persistent Systems: persistent-systems
+    Coforge: coforge
+    Zensar: zensar
+    UST: ust
+    GlobalLogic: globallogic
+    Luxoft: luxoft
+    Publicis Sapient: publicis-sapient
+    EPAM Systems: epam
+    Birlasoft: birlasoft
+    Thoughtworks: thoughtworks
+    Nagarro: nagarro
   company_board_pages: 1
