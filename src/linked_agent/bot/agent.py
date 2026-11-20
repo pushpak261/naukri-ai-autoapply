@@ -100,6 +100,18 @@ def _search_results_job_url(search_url: str, identifier: str) -> str:
     return urlunsplit(parsed._replace(query=urlencode(params)))
 
 
+def _easy_apply_queue_boost(job: Job) -> float:
+    """Rank submittable jobs above external ones.
+
+    ``skip_external_apply`` makes an external listing a guaranteed skip, yet
+    company preference used to place those ahead of Easy Apply listings, so
+    the run spent its window navigating to jobs it could never submit. Keep
+    company preference within each group, but always inspect Easy Apply jobs
+    first.
+    """
+    return 2.0 if job.easy_apply else 0.0
+
+
 class LinkedInAgent:
     """
     The main orchestration engine for LinkedIn job automation.
@@ -495,6 +507,7 @@ class LinkedInAgent:
             job._eligibility_score = score
             job._opportunity_priority = evidence_priority(job, self._resume_profile)
             score += job._opportunity_priority
+            score += _easy_apply_queue_boost(job)
             score += company_policy.priority(job.company) + 10 * getattr(job, "_queue_priority", 0)
             heapq.heappush(job_queue, (-score, idx, job))
 

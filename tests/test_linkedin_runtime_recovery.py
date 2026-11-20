@@ -381,6 +381,21 @@ async def test_signed_out_header_is_detected_from_the_global_navigation(search_p
     assert await state(tab) == "signed_in"
 
 
+def test_easy_apply_jobs_rank_above_external_listings():
+    from src.linked_agent.bot.agent import _easy_apply_queue_boost
+    from src.linked_agent.models.entities import Job
+
+    easy = Job(
+        "1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1",
+        easy_apply=True,
+    )
+    external = Job(
+        "2", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/2",
+        easy_apply=False,
+    )
+    assert _easy_apply_queue_boost(easy) > _easy_apply_queue_boost(external)
+
+
 @pytest.mark.asyncio
 async def test_transient_signed_out_paint_does_not_trigger_recovery(monkeypatch):
     from src.linked_agent.browser.auth_state import confirmed_signed_out
