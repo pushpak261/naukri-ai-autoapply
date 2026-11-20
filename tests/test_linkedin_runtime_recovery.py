@@ -397,6 +397,23 @@ async def test_transient_signed_out_paint_does_not_trigger_recovery(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_confirmed_signed_out_ignores_guest_paint_with_session_cookie(monkeypatch):
+    from src.linked_agent.browser.auth_state import confirmed_signed_out
+
+    async def fake_state(_page):
+        return "signed_out"
+
+    async def fake_cookie(_page):
+        return True
+
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.state", fake_state)
+    monkeypatch.setattr(
+        "src.linked_agent.browser.auth_state.session_cookie_present", fake_cookie
+    )
+    assert await confirmed_signed_out(object()) is False
+
+
+@pytest.mark.asyncio
 async def test_confirmed_signed_out_requires_every_sample(monkeypatch):
     from src.linked_agent.browser.auth_state import confirmed_signed_out
 

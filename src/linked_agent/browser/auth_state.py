@@ -40,16 +40,34 @@ async def signed_out(page) -> bool:
     return await state(page) == "signed_out"
 
 
+async def session_cookie_present(page) -> bool:
+    """True when the browser still holds a LinkedIn session cookie.
+
+    ``li_at`` is HttpOnly, so it cannot be read from ``document.cookie``; ask
+    Playwright's cookie store instead. Its presence is the authoritative
+    signal that a guest-looking paint is only the pre-hydration shell.
+    """
+    try:
+        cookies = await page.context.cookies(["https://www.linkedin.com"])
+        return any(
+            cookie.get("name") == "li_at" and cookie.get("value") for cookie in cookies
+        )
+    except Exception:
+        return False
+
+
 async def confirmed_signed_out(page, *, checks: int = 4, delay: float = 0.75) -> bool:
-    """True only when the header still offers sign-in across several samples.
+    """True only when the header offers sign-in and the session cookie is gone.
 
     LinkedIn first paints the public header before React swaps in the
     authenticated navigation, so a single sample taken right after a
     navigation can look signed out on a perfectly healthy session. Every
     false positive costs a full re-login (~90s) and stalls the queue, so
-    require consecutive signed-out samples and stop as soon as the header
-    shows a signed-in or ambiguous state.
+    require consecutive signed-out samples and no session cookie. Stop as
+    soon as the header shows a signed-in or ambiguous state.
     """
+    if await session_cookie_present(page):
+        return False
     checks = max(1, checks)
     for index in range(checks):
         if await state(page) != "signed_out":

@@ -12,6 +12,7 @@ import asyncio
 from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 
+from src.linked_agent.browser.auth_state import session_cookie_present
 from src.linked_agent.browser.pages.base import BasePage
 from src.linked_agent.config.constants import (
     LINKEDIN_JOBS_URL,
@@ -89,6 +90,19 @@ class LinkedInLoginPage(BasePage):
     async def is_logged_in(self) -> bool:
         """Quick check if the user appears logged in."""
         page = self._engine.page
+
+        # LinkedIn can paint the guest shell before the saved cookie session
+        # hydrates, which used to trigger a full re-login every few jobs.
+        # A live li_at cookie is authoritative; skip cookie checks on auth
+        # surfaces so a fresh credential login is still verified by its form.
+        current_url = str(getattr(page, "url", "") or "").lower()
+        auth_surface = any(
+            part in current_url
+            for part in ("/login", "/signup", "/checkpoint", "/authwall")
+        )
+        if not auth_surface and await session_cookie_present(page):
+            logger.debug("LinkedIn login confirmed via li_at session cookie")
+            return True
 
         # Positive indicators win: signed-in pages can still link to /login.
         for selector in LoginSelectors.LOGGED_IN_INDICATORS:
