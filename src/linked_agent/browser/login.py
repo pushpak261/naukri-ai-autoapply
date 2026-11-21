@@ -149,16 +149,21 @@ class LinkedInLoginHandler:
 
     async def _check_existing_session(self) -> bool:
         """Navigate to LinkedIn and check if saved session is valid."""
-        try:
-            await self._login_page.navigate_to_base()
-            is_logged_in = await self._login_page.is_logged_in()
-            if is_logged_in:
-                return True
-            logger.info("LinkedIn saved session expired or not found")
-            return False
-        except (PlaywrightTimeoutError, PlaywrightError) as e:
-            logger.debug(f"LinkedIn session check failed: {e}")
-            return False
+        for attempt in range(2):
+            try:
+                await self._login_page.navigate_to_base()
+                if await self._login_page.is_logged_in():
+                    return True
+                if attempt == 0:
+                    # LinkedIn sometimes serves a guest shell before the cookie
+                    # session is applied; give the redirect a moment.
+                    await asyncio.sleep(3)
+            except (PlaywrightTimeoutError, PlaywrightError) as e:
+                logger.debug(f"LinkedIn session check failed: {e}")
+                if attempt == 0:
+                    await asyncio.sleep(2)
+        logger.info("LinkedIn saved session expired or not found")
+        return False
 
     async def _perform_login(self) -> bool:
         """Perform a fresh LinkedIn login."""
@@ -171,6 +176,14 @@ class LinkedInLoginHandler:
             await self._login_page.navigate()
             await asyncio.sleep(2)
             await self._login_page.close_popups()
+
+            # /login can complete the sign-in itself from saved cookies, in
+            # every mode. Check before asking the operator for credentials.
+            if await self._login_page.is_logged_in():
+                log_success("LinkedIn restored the saved session automatically.")
+                self._engine.mark_session_authenticated()
+                await self._engine.save_session()
+                return True
 
             if os.environ.get("LOCAL_AGENT_MODE") == "1":
                 return await self._wait_for_manual_login()

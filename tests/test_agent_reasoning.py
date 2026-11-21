@@ -17,6 +17,19 @@ def test_explicit_eligibility(requirement, blocked):
     assert bool(eligibility_concern(candidate, job)) is blocked
 
 
+def test_bounded_experience_stretch_only_allows_near_misses():
+    candidate = ResumeProfile(total_experience_years=1)
+    two_years = Job(
+        'two', 'Developer', 'Employer', 'https://example.invalid/two', experience='2+ yrs'
+    )
+    three_years = Job(
+        'three', 'Developer', 'Employer', 'https://example.invalid/three', experience='3-5 years'
+    )
+    assert eligibility_concern(candidate, two_years, max_shortfall=1) == ''
+    assert 'at least 3' in eligibility_concern(candidate, three_years, max_shortfall=1)
+    assert 'at least 2' in eligibility_concern(candidate, two_years)
+
+
 def test_semantic_cache_ignores_scrape_timestamp_but_tracks_requirements(tmp_path):
     profile = ResumeProfile(name='Test candidate', total_experience_years=1)
     job = Job('job-id', 'Developer', 'Employer', 'https://example.invalid/job', experience='0-2 Yrs')
@@ -27,6 +40,7 @@ def test_semantic_cache_ignores_scrape_timestamp_but_tracks_requirements(tmp_pat
     refreshed.description = 'Changed mandatory requirements'
     assert decision_fingerprint(profile, refreshed, ai, 70) != original
     assert decision_fingerprint(profile, job, ai, 80) != original
+    assert decision_fingerprint(profile, job, ai, 70, shortfall=1) != original
 
 
 @pytest.mark.asyncio

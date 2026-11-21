@@ -165,6 +165,195 @@ search:
   locations:
   - Pune
   max_pages: 5
+  preferred_companies:
+  - Accenture
+  - Adobe
+  - Amazon
+  - American Express
+  - Barclays
+  - BNY Mellon
+  - BlackRock
+  - Bosch
+  - Capgemini
+  - Cigna
+  - Cisco
+  - Citi
+  - Cognizant
+  - Coforge
+  - CRED
+  - Deloitte
+  - Deutsche Bank
+  - DXC Technology
+  - EPAM
+  - Ericsson
+  - EXL
+  - Fidelity Investments
+  - FIS
+  - Fiserv
+  - Flipkart
+  - Fractal
+  - Freshworks
+  - Genpact
+  - Globant
+  - Goldman Sachs
+  - Google
+  - HCLTech
+  - Hexaware
+  - Honeywell
+  - HSBC
+  - IBM
+  - Infosys
+  - Intel
+  - Intuit
+  - JPMorgan Chase
+  - Jio
+  - Kyndryl
+  - Lenskart
+  - LTIMindtree
+  - Luxoft
+  - Macquarie
+  - Mastercard
+  - Meta
+  - Microsoft
+  - Mphasis
+  - Morgan Stanley
+  - Nasdaq
+  - Nielsen
+  - Nokia
+  - Nomura
+  - NVIDIA
+  - Oracle
+  - PayPal
+  - Persistent Systems
+  - Philips
+  - PhonePe
+  - Porter
+  - PwC
+  - Publicis Sapient
+  - Qualcomm
+  - Razorpay
+  - Salesforce
+  - Samsung
+  - SAP
+  - SAP Fioneer
+  - ServiceNow
+  - Shell
+  - Siemens
+  - Societe Generale
+  - S&P Global
+  - Standard Chartered
+  - State Street
+  - Stripe
+  - Swiggy
+  - Synopsys
+  - Tata Consultancy Services
+  - Tech Mahindra
+  - Thoughtworks
+  - Uber
+  - UBS
+  - Unilever
+  - UnitedHealth Group
+  - Visa
+  - Walmart
+  - Wayfair
+  - Wipro
+  - Zensar
+  - Zoho
+  - Zomato
+  - Zscaler
+  - Zerodha
+  - Groww
+  - Paytm
+  - Pine Labs
+  - Meesho
+  - Myntra
+  - Nykaa
+  - MakeMyTrip
+  - Delhivery
+  - Shiprocket
+  - Postman
+  - BrowserStack
+  - Whatfix
+  - MoEngage
+  - CleverTap
+  - Darwinbox
+  - Innovaccer
+  - Practo
+  - Games24x7
+  - Dream11
+  - Zetwerk
+  - OfBusiness
+  - Udaan
+  - Lendingkart
+  - KreditBee
+  - MobiKwik
+  - slice
+  - Jupiter
+  - Fi Money
+  - Open Financial
+  - Chargebee
+  - Kissflow
+  - LeadSquared
+  - Exotel
+  - Gupshup
+  - Route Mobile
+  - Tanla
+  - Tiger Analytics
+  - Mu Sigma
+  - LatentView
+  - Tredence
+  - Sigmoid
+  - Quantiphi
+  - Axtria
+  - ZS Associates
+  - EY
+  - KPMG
+  - McKinsey
+  - Boston Consulting Group
+  - BCG
+  - Bain & Company
   required_title_keywords: []
   sort_by: date
   work_type: ''
+  company_boards:
+    Mastercard: mastercard
+    JPMorgan Chase: jpmorgan-chase-co
+    Deutsche Bank: deutsche-bank
+    Capgemini: capgemini
+    Citi: citi
+    FIS: fis
+    Visa: visa
+    Barclays: barclays
+    Goldman Sachs: goldman-sachs
+    Morgan Stanley: morgan-stanley
+    American Express: american-express
+    BNY: bny-mellon
+    IBM: ibm
+    Oracle: oracle
+    SAP: sap
+    HSBC: hsbc
+    Standard Chartered: standard-chartered
+    Wells Fargo: wells-fargo
+    UBS: ubs
+    Nomura: nomura
+    Tata Consultancy Services: tcs
+    Infosys: infosys
+    Wipro: wipro
+    HCLTech: hcltech
+    Tech Mahindra: tech-mahindra
+    LTIMindtree: ltimindtree
+    Cognizant: cognizant
+    Accenture: accenture
+    Mphasis: mphasis
+    Persistent Systems: persistent-systems
+    Coforge: coforge
+    Zensar: zensar
+    UST: ust
+    GlobalLogic: globallogic
+    Luxoft: luxoft
+    Publicis Sapient: publicis-sapient
+    EPAM Systems: epam
+    Birlasoft: birlasoft
+    Thoughtworks: thoughtworks
+    Nagarro: nagarro
+  company_board_pages: 1

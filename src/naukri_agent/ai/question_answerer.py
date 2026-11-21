@@ -371,7 +371,7 @@ class QuestionAnswerer(IQuestionAnswerer):
         from libs.common.screening_memory import memory_store
         store = memory_store(self._settings)
         revision = store.revision() if store else 0
-        evidence = decision_fingerprint(self._profile, job, self._settings.ai, self._settings.application.match_score_threshold)
+        evidence = decision_fingerprint(self._profile, job, self._settings.ai, self._settings.application.match_score_threshold, shortfall=self._settings.application.experience_shortfall_years)
         context = hashlib.sha256((evidence + json.dumps(self._direct_answers, sort_keys=True, default=str) + f'|memory:{revision}').encode()).hexdigest()[:32]
         if context != self._cache_context:
             self._cache = QACache(self._settings.project_root / 'data' / f'qa_job_evidence_v3_{context}.json')

@@ -33,6 +33,25 @@ def test_profile_answers_persist_and_refresh_instead_of_resurrecting_old_salary(
     assert not store.answer_for(question, job(), old_context)
 
 
+@pytest.mark.parametrize(
+    "wording",
+    [
+        "Income Expectations",
+        "What are your salary expectations?",
+        "Expected compensation",
+        "Desired salary",
+    ],
+)
+def test_pay_expectation_wordings_use_the_saved_expected_ctc(tmp_path, wording):
+    settings = Settings(project_root=tmp_path, profile={"expected_ctc": "6 LPA"})
+
+    answer, _ = local_answer(
+        {"question": wording, "type": "text"}, settings, ResumeProfile(), job()
+    )
+
+    assert answer.startswith("6")
+
+
 def test_ai_suggestions_need_confirmation_and_corrections_survive_restart(tmp_path):
     store = ScreeningReviewStore(tmp_path)
     question = {"question": "Are you willing to travel?", "options": ["Yes", "No"]}
@@ -130,6 +149,21 @@ def test_existing_answer_database_migrates_without_losing_confirmations(tmp_path
         )
     assert store.answer_for({"question": "Custom fact"}, job()) == "Saved fact"
     assert store.memory()["items"][0]["use_count"] == 1
+
+
+def test_stale_derived_answers_are_dropped_when_the_answer_policy_changes(tmp_path):
+    store = ScreeningReviewStore(tmp_path)
+    follow_up = {"question": "If you were referred, name the referrer"}
+    store.observe(follow_up, "Candidate Name", job(), "profile", "same-profile")
+    assert store.answer_for(follow_up, job(), "same-profile") == "Candidate Name"
+    confirmed = {"question": "Are you willing to relocate?", "options": ["Yes", "No"]}
+    identifier = store.remember(confirmed, job())
+    store.save_answers({identifier: "No"})
+    with sqlite3.connect(store.path) as db:
+        db.execute("UPDATE screening_schema SET version=2 WHERE id=1")
+    upgraded = ScreeningReviewStore(tmp_path)
+    assert not upgraded.answer_for(follow_up, job(), "same-profile")
+    assert upgraded.answer_for(confirmed, job()) == "No"
 
 
 def test_employer_memory_records_accepted_values_not_uncommitted_suggestions():

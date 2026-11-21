@@ -14,7 +14,7 @@ SCRIPT = r"""({kind, click}) => {
         if (/apply on\b/i.test(label)) return true;
         if (!href || href.startsWith('#')) return false;
         const url = new URL(href, location.href);
-        return !['linkedin.com', 'www.linkedin.com'].includes(url.hostname) || url.pathname.startsWith('/safety/go');
+        return !(url.hostname === 'linkedin.com' || url.hostname.endsWith('.linkedin.com')) || url.pathname.startsWith('/safety/go');
     };
     const selected = candidates.find(el => kind === 'any' || (kind === 'external' ? external(el) : !external(el)));
     if (!selected) return false;

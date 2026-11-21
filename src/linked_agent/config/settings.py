@@ -80,6 +80,8 @@ class SearchSettings(BaseModel):
 
     keywords: list[str] = Field(default_factory=lambda: ["Software Engineer"])
     locations: list[str] = Field(default_factory=lambda: ["United States"])
+    experience_min: int = 0
+    experience_max: int = 0
     experience_level: list[str] = Field(default_factory=list)
     job_type: list[str] = Field(default_factory=list)
     work_type: str = ""  # on_site, remote, hybrid
@@ -92,6 +94,16 @@ class SearchSettings(BaseModel):
     # (word-boundary matched) for the agent to consider applying. Empty = no
     # mandatory requirement (any job from the search keywords is eligible).
     required_title_keywords: list[str] = Field(default_factory=list)
+    # Employers to visit first. Matching is punctuation/case-insensitive and
+    # ignores legal suffixes ("Pvt Ltd", "Inc") and unit suffixes
+    # ("Technologies", "India"), so "JPMorgan Chase" matches "JP Morgan".
+    preferred_companies: list[str] = Field(default_factory=list)
+    # Preferred employers whose own LinkedIn job boards are scanned once per
+    # run, mapping display name to LinkedIn slug. Generic searches often rank
+    # large-employer roles below recruiters, so this keeps the target MNCs in
+    # the queue. Empty disables the sweep.
+    company_boards: dict[str, str] = Field(default_factory=dict)
+    company_board_pages: int = 1
 
     @field_validator("sort_by")
     @classmethod
@@ -123,6 +135,9 @@ class ApplicationSettings(BaseModel):
 
     daily_cap: int = 50
     match_score_threshold: int = 70
+    # Apply to near-miss roles whose stated minimum is up to this many years
+    # above the resume's recorded experience. 0 keeps the strict veto.
+    experience_shortfall_years: float = 0.0
     answer_questions_with_pdf: bool = True
     delay_between_applies_min: int = 60
     delay_between_applies_max: int = 180
@@ -135,6 +150,9 @@ class ApplicationSettings(BaseModel):
     dry_run: bool = False
     # LinkedIn-specific: always apply to Easy Apply jobs
     easy_apply_only: bool = False
+    # Fill every screening field with a best-effort answer instead of pausing
+    # the application for a confirmed answer.
+    answer_all_screening_questions: bool = False
     # Unfollow companies after applying (reduces noise)
     unfollow_after_apply: bool = True
     # Notification settings
@@ -168,6 +186,8 @@ class ProfileSettings(BaseModel):
     current_country: str = ""
     preferred_locations: list[str] = Field(default_factory=list)
     total_experience: str = ""
+    linkedin_url: str = ""
+    github_url: str = ""
     employment_status: str = ""
     serving_notice: bool | None = None
     last_working_date: str = ""

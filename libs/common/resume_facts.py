@@ -8,10 +8,10 @@ def duration_years(value):
     text = str(value).strip().casefold()
     if re.fullmatch(r"\d+(?:\.\d+)?", text):
         return float(text)
-    parts = re.findall(r"(\d+(?:\.\d+)?)\s*(years?|yrs?|months?|mos?)\b", text)
+    parts = re.findall(r"(\d+(?:\.\d+)?)\s*\+?\s*(years?|yrs?|months?|mos?)\b", text)
     if not parts:
         return None
-    remainder = re.sub(r"\d+(?:\.\d+)?\s*(?:years?|yrs?|months?|mos?)\b", "", text)
+    remainder = re.sub(r"\d+(?:\.\d+)?\s*\+?\s*(?:years?|yrs?|months?|mos?)\b", "", text)
     if remainder.strip(" ,&") not in ("", "and"):
         return None
     return sum(float(n) / (12 if unit.startswith("mo") else 1) for n, unit in parts)
@@ -50,7 +50,7 @@ def extract_resume_facts(text, configured_experience=""):
     years = duration_years(configured_experience)
     if years is None:
         explicit = re.search(
-            r"\b(\d+(?:\.\d+)?\s*(?:years?|yrs?)(?:\s*(?:and)?\s*\d+\s*months?)?|\d+\s*months?)\s+(?:of\s+)?(?:professional\s+|work\s+|hands-on\s+)?experience\b",
+            r"\b(\d+(?:\.\d+)?\+?\s*(?:years?|yrs?)(?:\s*(?:and)?\s*\d+\s*months?)?|\d+\s*months?)(?:['’]s?)?\s+(?:of\s+)?(?:professional\s+|work\s+|hands-on\s+)?experience\b",
             text,
             re.I,
         )
@@ -88,3 +88,28 @@ def extract_resume_facts(text, configured_experience=""):
         "education": education,
         "raw_text": text,
     }
+
+
+_DEGREE_SPANS = (
+    (r"\b(?:ph\.?\s?d|doctorate)\b", 4),
+    (r"\b(?:bachelor|b\.?\s?e\b|b\.?\s?tech|b\.?\s?sc|bca|b\.?\s?com)\b", 4),
+    (r"\b(?:pg[- ]?dac|pg\s*diploma)\b", 1),
+    (r"\b(?:master|m\.?\s?e\b|m\.?\s?tech|mba|mca|m\.?\s?sc|post\s*graduate)\b", 2),
+    (r"\b(?:diploma|polytechnic)\b", 3),
+)
+
+
+def education_dates(entry):
+    """Return (from_month, from_year, to_month, to_year) for a resume education entry.
+
+    The resume usually records only the graduation year, so the start year is
+    derived from the standard length of the stated programme. Months default to
+    June, which is the common graduation month for Indian programmes.
+    """
+    match = re.search(r"(?:19|20)\d{2}", str(entry.get("year", "")))
+    if not match:
+        return None
+    to_year = int(match[0])
+    degree = f"{entry.get('degree', '')} {entry.get('field', '')} {entry.get('major', '')}"
+    span = next((years for pattern, years in _DEGREE_SPANS if re.search(pattern, degree, re.I)), 3)
+    return 6, to_year - span, 6, to_year

@@ -67,6 +67,26 @@ def test_confirmed_facts_and_units_without_guessing_dates(tmp_path, question, ki
     assert evidence_answer(q, settings(tmp_path), ResumeProfile()) == expected
 
 
+def test_tools_questions_do_not_return_a_profile_link(tmp_path):
+    candidate = ResumeProfile(raw_text="github.com/candidate")
+    question = {
+        "question": "Which version control tools have you used (GitHub, GitLab)?",
+        "type": "text",
+    }
+    assert evidence_answer(question, settings(tmp_path), candidate) == ""
+    profile_link = {"question": "GitHub profile URL", "type": "text"}
+    assert (
+        evidence_answer(profile_link, settings(tmp_path), candidate)
+        == "https://github.com/candidate"
+    )
+
+
+def test_referrer_followups_are_not_answered_with_the_resume_name(tmp_path):
+    candidate = ResumeProfile(name="Candidate Name")
+    question = {"question": "Name of the employee who referred you", "type": "text"}
+    assert evidence_answer(question, settings(tmp_path), candidate) == "N/A"
+
+
 def test_resume_and_technical_answers_never_invent_personal_history(tmp_path):
     candidate = ResumeProfile(
         skills=["Java", "SQL"],

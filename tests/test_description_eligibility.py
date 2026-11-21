@@ -30,6 +30,32 @@ from src.naukri_agent.models.entities import Job, ResumeProfile
         ("Minimum 2 years of work experience.", 2),
         ("Location: Pune (Hybrid)Experience: 3+ yearsEmployment Type: Full-Time", 3),
         ("Experience: 0-2 years. Java and Spring Boot.", 0),
+        (
+            "Position: Full Stack Developer (Java) Experience: 5–10 Years Location: "
+            "Bangalore Employment Type: Contract Notice Period: Immediate Joiners "
+            "Preferred Open Positions: 1 Job Description: Java and Spring Boot.",
+            5,
+        ),
+        ("Experience: 3 years preferred. Location: Pune.", None),
+        ("Experience: 5 years. Preferred location: Pune.", 5),
+        ("Experience: 2 years. Preferred qualifications: Java.", 2),
+        ("Total Experience - 5 Years and above Location - Bangalore.", 5),
+        ("Java Full stack Developer 5+ Years Location :-Bangalore Required Skills", 5),
+        ("Experience 2 – 5 years Education Graduate Location Thane.", 2),
+        ("Exp: 5+ years. Location: Pune.", 5),
+        (
+            "WHO YOU ARE We are looking for people with 4+ years’ experience in Java Backend development.",
+            4,
+        ),
+        (
+            "Qualifications Bachelor’s degree in Computer Science 3+ years’ experience in software development required.",
+            3,
+        ),
+        ("Requirements: 4+ years' experience with Java and Spring Boot.", 4),
+        ("Nice to have: 4+ years’ experience with Java.", None),
+        ("Preferred qualifications: 5+ years’ experience in backend development.", None),
+        ("Our company was founded 5 years ago. Location: Pune.", None),
+        ("Requirements: Support a project lasting 5 years. Location: Remote.", None),
         ("Preferred experience: 3 years. Requirements: Java.", None),
         ("Requirements: Java. Nice to have: 5 years of experience.", None),
         ("Requirements: Java. Preferred qualifications: 5 years of experience.", None),

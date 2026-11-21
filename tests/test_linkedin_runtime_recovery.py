@@ -129,6 +129,38 @@ async def test_sidebar_does_not_swallow_a_persistent_network_outage(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_login_redirect_mid_run_recovers_the_session_once(monkeypatch):
+    from src.linked_agent.bot.agent import LinkedInAgent
+
+    page = SimpleNamespace(
+        url="",
+        wait_for_load_state=AsyncMock(),
+    )
+    navigated = []
+
+    agent = object.__new__(LinkedInAgent)
+    agent._engine = SimpleNamespace(page=page)
+    agent._login_handler = SimpleNamespace(login=AsyncMock(return_value=True))
+    agent._wait_for_listing_content = AsyncMock(return_value=True)
+
+    async def navigate(page_object, url):
+        navigated.append(url)
+        page_object.url = (
+            "https://www.linkedin.com/login"
+            if len(navigated) == 1
+            else "https://www.linkedin.com/jobs/search/?currentJobId=1"
+        )
+
+    monkeypatch.setattr("src.linked_agent.bot.agent.navigate", navigate)
+    monkeypatch.setattr("src.linked_agent.bot.agent.asyncio.sleep", AsyncMock())
+
+    job = Job("1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1")
+    assert await agent._navigate_to_job_sidebar(job) is True
+    agent._login_handler.login.assert_awaited_once()
+    assert len(navigated) == 2
+
+
+@pytest.mark.asyncio
 async def test_disabled_email_notifications_keep_local_report_without_sending(
     tmp_path, monkeypatch
 ):
@@ -330,3 +362,202 @@ async def test_submit_with_inline_receipt_counts_once_after_modal_closes(
     )
     assert result["status"] == "applied", result
     assert await tab.locator("body").get_attribute("data-submits") == "1"
+
+
+@pytest.mark.asyncio
+async def test_signed_out_header_is_detected_from_the_global_navigation(search_page):
+    from src.linked_agent.browser.auth_state import state
+
+    _, tab = search_page
+    await tab.set_content(
+        """<header class="global-nav"><a href="/login">Sign in</a>
+      <a href="/signup">Join now</a></header>"""
+    )
+    assert await state(tab) == "signed_out"
+    await tab.set_content(
+        """<header class="global-nav"><nav><a>Home</a><a>My Network</a><a>Jobs</a>
+      <button>Me</button></nav></header>"""
+    )
+    assert await state(tab) == "signed_in"
+
+
+def test_easy_apply_jobs_rank_above_external_listings():
+    from src.linked_agent.bot.agent import _easy_apply_queue_boost
+    from src.linked_agent.models.entities import Job
+
+    easy = Job(
+        "1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1",
+        easy_apply=True,
+    )
+    external = Job(
+        "2", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/2",
+        easy_apply=False,
+    )
+    assert _easy_apply_queue_boost(easy) > _easy_apply_queue_boost(external)
+
+
+@pytest.mark.asyncio
+async def test_transient_signed_out_paint_does_not_trigger_recovery(monkeypatch):
+    from src.linked_agent.browser.auth_state import confirmed_signed_out
+
+    samples = iter(["signed_out", "signed_out", "signed_in"])
+
+    async def fake_state(_page):
+        return next(samples)
+
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.state", fake_state)
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.asyncio.sleep", AsyncMock())
+
+    assert await confirmed_signed_out(object()) is False
+
+
+@pytest.mark.asyncio
+async def test_confirmed_signed_out_ignores_guest_paint_with_session_cookie(monkeypatch):
+    from src.linked_agent.browser.auth_state import confirmed_signed_out
+
+    async def fake_state(_page):
+        return "signed_out"
+
+    async def fake_cookie(_page):
+        return True
+
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.state", fake_state)
+    monkeypatch.setattr(
+        "src.linked_agent.browser.auth_state.session_cookie_present", fake_cookie
+    )
+    assert await confirmed_signed_out(object()) is False
+
+
+@pytest.mark.asyncio
+async def test_confirmed_signed_out_requires_every_sample(monkeypatch):
+    from src.linked_agent.browser.auth_state import confirmed_signed_out
+
+    async def fake_state(_page):
+        return "signed_out"
+
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.state", fake_state)
+    monkeypatch.setattr("src.linked_agent.browser.auth_state.asyncio.sleep", AsyncMock())
+
+    assert await confirmed_signed_out(object()) is True
+
+
+@pytest.mark.asyncio
+async def test_public_search_redirect_recovers_session_instead_of_skipping_job(monkeypatch):
+    from src.linked_agent.bot.agent import LinkedInAgent
+
+    page = SimpleNamespace(url="", wait_for_load_state=AsyncMock())
+    navigated = []
+
+    agent = object.__new__(LinkedInAgent)
+    agent._engine = SimpleNamespace(page=page)
+    agent._login_handler = SimpleNamespace(login=AsyncMock(return_value=True))
+    agent._wait_for_listing_content = AsyncMock(return_value=True)
+
+    async def navigate(page_object, url):
+        navigated.append(url)
+        page_object.url = (
+            "https://www.linkedin.com/jobs/search/?keywords=Backend+Developer"
+            if len(navigated) == 1
+            else "https://www.linkedin.com/jobs/search/?currentJobId=1"
+        )
+
+    monkeypatch.setattr("src.linked_agent.bot.agent.navigate", navigate)
+    monkeypatch.setattr(
+        "src.linked_agent.bot.agent.confirmed_signed_out",
+        AsyncMock(side_effect=[True, False]),
+    )
+    monkeypatch.setattr("src.linked_agent.bot.agent.asyncio.sleep", AsyncMock())
+
+    job = Job("1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1")
+    assert await agent._navigate_to_job_sidebar(job) is True
+    agent._login_handler.login.assert_awaited_once()
+    assert len(navigated) == 2
+
+
+@pytest.mark.asyncio
+async def test_signed_out_page_is_not_applied_to_when_recovery_fails(monkeypatch):
+    from src.linked_agent.bot.agent import LinkedInAgent
+
+    page = SimpleNamespace(url="", wait_for_load_state=AsyncMock())
+    agent = object.__new__(LinkedInAgent)
+    agent._engine = SimpleNamespace(page=page)
+    agent._login_handler = SimpleNamespace(login=AsyncMock(return_value=False))
+
+    monkeypatch.setattr(
+        "src.linked_agent.bot.agent.navigate",
+        AsyncMock(side_effect=lambda page_object, url: setattr(page_object, "url", url)),
+    )
+    monkeypatch.setattr(
+        "src.linked_agent.bot.agent.confirmed_signed_out", AsyncMock(return_value=True)
+    )
+    monkeypatch.setattr("src.linked_agent.bot.agent.asyncio.sleep", AsyncMock())
+
+    job = Job("1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1")
+    assert await agent._navigate_to_job_sidebar(job) is False
+    agent._login_handler.login.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_signed_out_search_page_raises_login_error(search_page):
+    from src.linked_agent.utils.exceptions import LoginError
+
+    search, page = search_page
+    await page.set_content(
+        """<header class="global-nav"><a href="/login">Sign in</a>
+      <a href="/signup">Join now</a></header>"""
+    )
+    with pytest.raises(LoginError):
+        await search.parse_job_cards()
+
+
+@pytest.mark.asyncio
+async def test_session_health_check_rejects_signed_out_header(tmp_path, search_page):
+    from src.linked_agent.browser.search import LinkedInJobSearcher
+    from src.linked_agent.utils.exceptions import LoginError
+
+    _, page = search_page
+    await page.set_content(
+        """<header class="global-nav"><a href="/login">Sign in</a>
+      <a href="/signup">Join now</a></header>"""
+    )
+    worker = LinkedInJobSearcher(
+        AsyncMock(),
+        AsyncMock(),
+        SimpleNamespace(page=page),
+        Settings(project_root=tmp_path),
+    )
+    with pytest.raises(LoginError):
+        await worker._check_session_health()
+
+
+@pytest.mark.asyncio
+async def test_search_restarts_once_after_mid_run_sign_out():
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.utils.exceptions import LoginError
+
+    job = Job("1", "Java Developer", "Example", "https://www.linkedin.com/jobs/view/1")
+    agent = object.__new__(LinkedInAgent)
+    agent._job_searcher = SimpleNamespace(
+        search_all=AsyncMock(side_effect=[LoginError("signed out"), [job]])
+    )
+    agent._recover_linkedin_session = AsyncMock(return_value=True)
+
+    assert await agent._search_all_with_recovery() == [job]
+    assert agent._job_searcher.search_all.await_count == 2
+    agent._recover_linkedin_session.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_search_sign_out_propagates_when_recovery_fails():
+    from src.linked_agent.bot.agent import LinkedInAgent
+    from src.linked_agent.utils.exceptions import LoginError
+
+    agent = object.__new__(LinkedInAgent)
+    agent._job_searcher = SimpleNamespace(
+        search_all=AsyncMock(side_effect=LoginError("signed out"))
+    )
+    agent._recover_linkedin_session = AsyncMock(return_value=False)
+
+    with pytest.raises(LoginError):
+        await agent._search_all_with_recovery()
+    assert agent._job_searcher.search_all.await_count == 1

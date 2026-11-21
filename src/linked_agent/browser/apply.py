@@ -7,22 +7,54 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import re
 from urllib.parse import urlsplit
 
 
+from libs.common.screening_fallback import needs_numeric
 from src.linked_agent.browser.pages.detail import LinkedInJobDetailPage
 from src.linked_agent.config.constants import ApplicationStatus
 from src.linked_agent.config.settings import Settings
 from src.linked_agent.bot.interfaces import IQuestionAnswerer
 from src.linked_agent.models.entities import Job
+from src.linked_agent.utils.helpers import is_linkedin_host
 from src.linked_agent.utils.logger import get_logger
 
 logger = get_logger(__name__)
-LINKEDIN_HOSTS = ("www.linkedin.com", "linkedin.com")
 
 
 def _question_identity(fields):
-    return [(f.get('question'), f.get('field_type'), f.get('selector')) for f in fields]
+    # LinkedIn re-renders the whole block after each answer, regenerating ids
+    # and structural selectors. Selector churn is not a new form; question text
+    # and control type are. Ignoring selectors lets one pass fill every empty
+    # field instead of consuming a step per field and hitting max_steps.
+    return [(f.get('question'), f.get('field_type')) for f in fields]
+
+
+def _same_field(fields, question):
+    matches = [
+        field
+        for field in fields
+        if field.get('selector') == question.get('selector')
+        and field.get('field_type') == question.get('field_type')
+    ]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _is_numeric_text(value):
+    return bool(re.fullmatch(r"[-+]?\d+(?:\.\d+)?", str(value).strip()))
+
+
+# LinkedIn appends these optional profile-prose fields to some Easy Apply
+# forms. They are not eligibility questions, so a blank value is valid.
+_NARRATIVE_FIELD_NAMES = {"headline", "summary", "cover letter"}
+
+
+def _optional_narrative_field(question) -> bool:
+    label = re.sub(r"[\s*:]+$", "", str(question.get("question") or "")).strip().casefold()
+    if label not in _NARRATIVE_FIELD_NAMES:
+        return False
+    return not question.get("is_required", False)
 
 
 class LinkedInJobApplier:
@@ -160,12 +192,12 @@ class LinkedInJobApplier:
                             return await self._apply_external(page, new_page_url, job)
 
                         current_url = page.url
-                        if urlsplit(current_url).hostname not in LINKEDIN_HOSTS:
+                        if not is_linkedin_host(urlsplit(current_url).hostname):
                             return await self._apply_external(page, current_url, job)
 
                         # Only close pages that are external (not LinkedIn), not all other pages
                         for p in page.context.pages:
-                            if p != page and urlsplit(p.url or "").hostname not in LINKEDIN_HOSTS:
+                            if p != page and not is_linkedin_host(urlsplit(p.url or "").hostname):
                                 try:
                                     ext_url = p.url
                                     await p.close()
@@ -197,7 +229,7 @@ class LinkedInJobApplier:
                             page.context.remove_listener("page", on_popup)
                         listener_active = False
                     for external_page in opened_external_pages:
-                        if urlsplit(external_page.url).hostname not in LINKEDIN_HOSTS:
+                        if not is_linkedin_host(urlsplit(external_page.url).hostname):
                             with contextlib.suppress(Exception):
                                 await external_page.close()
 
@@ -221,6 +253,72 @@ class LinkedInJobApplier:
             return await self._external_applier.apply(page, url, job)
         return {"status": ApplicationStatus.SKIPPED_EXTERNAL, "external_url": url,
                 "error_message": "External employer applications are disabled."}
+
+    def _positive_answer(self, question: dict, job: Job) -> str:
+        """Best-effort answer used only when the evidence-based answerers are silent."""
+        from libs.common.screening_fallback import positive_answer
+
+        candidate = getattr(self._question_answerer, '_resume', None)
+        return positive_answer(question, self._settings, candidate, job)
+
+    def _numeric_answer(self, question: dict, job: Job) -> str:
+        """Positive number for a text field that rejects a prose answer."""
+        from libs.common.screening_fallback import numeric_answer
+
+        candidate = getattr(self._question_answerer, '_resume', None)
+        return numeric_answer(question, self._settings, candidate)
+
+    def _education_dates_for(self, school: str, degree: str):
+        from libs.common.resume_facts import education_dates
+
+        candidate = getattr(self._question_answerer, "_resume", None)
+        entries = list(getattr(candidate, "education", []) or [])
+
+        def words(value):
+            return {word for word in re.sub(r"[^a-z0-9]+", " ", str(value or "").casefold()).split() if len(word) > 3}
+
+        school_words, degree_words = words(school), words(degree)
+        scored = []
+        for entry in entries:
+            entry_words = set(re.sub(r"[^a-z0-9]+", " ", f"{entry.get('institution', '')} {entry.get('degree', '')}".casefold()).split())
+            score = len(school_words & entry_words) + len(degree_words & entry_words)
+            if score:
+                scored.append((score, entry))
+        if not scored:
+            return None
+        return education_dates(max(scored, key=lambda item: item[0])[1])
+
+    async def _complete_education_form(self) -> bool:
+        """Save missing Education dates from the resume so Review can advance."""
+        if not self._settings.application.answer_all_screening_questions:
+            return False
+        from src.linked_agent.browser.screening_form import (
+            education_form,
+            fill_education_dates,
+            save_education,
+        )
+
+        page = self._detail_page.page
+        state = await education_form(page)
+        if not state.get("found") or not state.get("has_save"):
+            return False
+        school = state.get("school", "")
+        dates = self._education_dates_for(school, state.get("degree", ""))
+        if not dates:
+            logger.warning("Education dates are required but no resume entry matches: %s", school[:60])
+            return False
+        if not await fill_education_dates(page, dates):
+            logger.warning("Could not fill education dates for: %s", school[:60])
+            return False
+        if not await save_education(page):
+            logger.warning("Could not save education entry for: %s", school[:60])
+            return False
+        logger.info(
+            "Saved education dates for %s (%02d/%s-%02d/%s)",
+            school[:60], dates[0], dates[1], dates[2], dates[3],
+        )
+        await asyncio.sleep(2)
+        return True
 
     async def _answer_screening_questions_locally(self, questions: list[dict], job: Job) -> list[dict]:
         from libs.common.screening_memory import local_answer, memory_store
@@ -261,7 +359,7 @@ class LinkedInJobApplier:
         - Work authorization
         - Review
         """
-        max_steps = 15
+        max_steps = 30
         self._active_job_id = job.linkedin_job_id
         step = 0
         modal_found = False
@@ -288,6 +386,15 @@ class LinkedInJobApplier:
                 if not modal_found:
                     logger.warning("Easy Apply modal not found")
                     break
+                # Some jobs open a "Job search safety reminder" dialog first;
+                # its "Continue applying" link loads the actual application.
+                from src.linked_agent.browser.screening_form import continue_past_safety_reminder
+
+                if await continue_past_safety_reminder(page):
+                    logger.info("Dismissed LinkedIn safety reminder; loading the application form")
+                    with contextlib.suppress(Exception):
+                        await page.wait_for_load_state("domcontentloaded", timeout=15000)
+                    await asyncio.sleep(2)
 
             # Check for 0-step success (click Easy Apply → success screen immediately)
             if await self._detail_page.has_submit_success():
@@ -331,8 +438,16 @@ class LinkedInJobApplier:
                 if has_submit:
                     return await self._submit_once_and_confirm()
 
-            # Build step signature for loop detection
-            step_sig = "|".join(f"{q.get('question','')[:30]}:{q.get('field_type','')}" for q in questions)
+            # Build step signature for loop detection. Some LinkedIn forms
+            # re-render the whole question block after each answer, so two
+            # consecutive steps keep the same questions while the filled
+            # values progress. Include the filled/empty state in the
+            # signature; otherwise a long form looks like a loop.
+            step_sig = "|".join(
+                f"{q.get('question','')[:30]}:{q.get('field_type','')}:"
+                f"{'filled' if str(q.get('current_value') or '').strip() else 'empty'}"
+                for q in questions
+            )
             if step_sig:
                 last_step_signatures.append(step_sig)
                 # Check if any signature appears 2+ times in last 4 steps (catches loops early)
@@ -387,13 +502,56 @@ class LinkedInJobApplier:
                 for q, a in zip(non_file_questions, answers, strict=True):
                     answer_text = a.get("answer", "")
                     if not answer_text:
-                        return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
+                        if _optional_narrative_field(q):
+                            # LinkedIn adds Headline/Summary/Cover letter to some
+                            # Easy Apply forms. They are profile prose, not
+                            # screening questions, and blank is a valid answer.
+                            logger.info(f"Step {step} leaving optional narrative field blank: {q.get('question', '')[:40]}")
+                            continue
+                        if self._settings.application.answer_all_screening_questions:
+                            answer_text = self._positive_answer(q, job)
+                            if answer_text:
+                                logger.info(
+                                    f"Step {step} best-effort answer for '{q.get('question', '')[:40]}'"
+                                )
+                        if not answer_text:
+                            return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": f"Save a confirmed answer in Preferences before retrying: {q.get('question', 'Unlabelled required question')}"}
                     if answer_text:
+                        if (
+                            q.get("field_type") == "text"
+                            and not _is_numeric_text(answer_text)
+                            and needs_numeric(q)
+                        ):
+                            numeric = self._numeric_answer(q, job)
+                            if numeric:
+                                logger.info(
+                                    f"Step {step} numeric question answered as a number: '{q.get('question','')[:40]}'"
+                                )
+                                answer_text = numeric
                         filled = await self._detail_page.fill_answer(q, answer_text)
                         refreshed = await self._detail_page.extract_screening_questions()
                         if _question_identity(refreshed) != _question_identity(questions):
                             form_changed = True
                             break
+                        retried = _same_field(refreshed, q)
+                        rejected = not filled or bool(
+                            retried and retried.get("validation_error")
+                        )
+                        if rejected and q.get("field_type") == "text":
+                            # LinkedIn renders some numeric questions as text
+                            # boxes and only rejects prose after the first fill.
+                            # Retry once with a positive number instead of
+                            # abandoning an otherwise answerable application.
+                            numeric = self._numeric_answer(q, job)
+                            if numeric and numeric != str(answer_text):
+                                logger.info(
+                                    f"Step {step} text answer rejected; retrying numeric answer for '{q.get('question','')[:40]}'"
+                                )
+                                filled = await self._detail_page.fill_answer(q, numeric)
+                                refreshed = await self._detail_page.extract_screening_questions()
+                                if _question_identity(refreshed) != _question_identity(questions):
+                                    form_changed = True
+                                    break
                         if not filled:
                             return {"status": ApplicationStatus.SKIPPED_SCREENING, "error_message": "Could not fill a screening field. Review the application form."}
                         logger.info(f"Step {step} fill '{q.get('question','')[:30]}': {filled}")
@@ -449,6 +607,17 @@ class LinkedInJobApplier:
                     return self._unfinished_form_result("Review is unavailable or the form has validation errors.")
                 # Wait for review page to fully load
                 await asyncio.sleep(3)
+
+                # LinkedIn can open an inline Education editor when dates are
+                # missing. Saving them from the resume is what lets Review
+                # advance; without it every such job is abandoned.
+                for _ in range(2):
+                    if not await self._complete_education_form():
+                        break
+                    logger.info("Education dates were missing — retrying Review")
+                    if not await self._detail_page.click_review():
+                        break
+                    await asyncio.sleep(3)
 
                 # Dump modal state after Review for debugging
                 review_state = {}

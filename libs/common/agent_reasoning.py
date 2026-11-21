@@ -16,11 +16,18 @@ main fit, missing requirements and uncertainty; do not provide hidden reasoning.
 """
 
 
-def eligibility_concern(profile, job):
-    """Veto explicit minimums, including requirements contradicting card metadata."""
+def eligibility_concern(profile, job, max_shortfall=0.0):
+    """Veto explicit minimums, including requirements contradicting card metadata.
+
+    ``max_shortfall`` lets a near-miss role through (for example 2 years asked,
+    1 year held) without ever claiming the missing tenure. The default keeps
+    the strict veto.
+    """
     experience = str(getattr(job, "experience", "") or "").lower()
     match = re.fullmatch(
-        r"\s*(\d+(?:\.\d+)?)\s*(?:[-–]\s*\d+(?:\.\d+)?|\+)?\s*(?:years?|yrs?)\s*", experience
+        r"\s*(\d+(?:\.\d+)?)\s*(?:[-–]\s*\d+(?:\.\d+)?|\+)?\s*(?:years?|yrs?)"
+        r"(?:['’]s?)?(?:\s+(?:of\s+)?experience)?\s*",
+        experience,
     )
     minimums = [float(match[1])] if match else []
     stated_minimum = description_experience_minimum(getattr(job, "description", ""))
@@ -31,9 +38,10 @@ def eligibility_concern(profile, job):
     try:
         years = float(profile.total_experience_years)
         minimum = max(minimums)
+        shortfall = max(0.0, float(max_shortfall or 0.0))
     except (ValueError, TypeError, AttributeError):
         return ""
-    if math.isfinite(years) and years >= 0 and minimum > years:
+    if math.isfinite(years) and years >= 0 and minimum > years + shortfall:
         return f"Eligibility check: listing explicitly requires at least {minimum:g} years; the saved resume records {years:g}. Review this mismatch before applying."
     return ""
 
@@ -44,24 +52,37 @@ def description_experience_minimum(description):
 
     description = re.sub(r"(?<=[a-z])(?=Experience\s*:)", " ", str(description or ""))
 
+    # Possessive forms such as "4+ years’ experience" are the same tenure fact
+    # as "4+ years of experience"; the apostrophe must not hide the minimum.
     duration = (
-        r"\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*(?:years?|yrs?|months?|mos?)"
+        r"\d+(?:\.\d+)?\s*(?:(?:[-–]|to)\s*\d+(?:\.\d+)?\s*)?\+?\s*"
+        r"(?:years?|yrs?|months?|mos?)(?:['’]s?)?"
     )
     work = r"(?:of\s+)?(?:(?:professional|work|relevant|industry|hands-on)\s+)?experience\b|(?:in|guiding|leading|owning|designing|building|developing|delivering|working)\b"
     # Split required and preferred sections even in flattened scraped text.
+    # Bare "Qualifications", "WHO YOU ARE" and "What you bring" headings are
+    # standard requirements sections on LinkedIn postings.
     parts = re.split(
-        r"\b(requirements|(?:minimum|required|preferred)\s+qualifications|your expertise|must have|nice to have|preferred\s+skills|benefits|responsibilities)\s*:?",
+        r"\b(requirements|(?:minimum|required|preferred)\s+qualifications|qualifications?|"
+        r"who you are|about you|what you bring|your expertise|must have|nice to have|"
+        r"preferred\s+skills|benefits|responsibilities)\s*:?",
         str(description or ""),
         flags=re.I,
     )
     required = False
     minimums = _labelled_experience_minimums(str(description or ""), duration)
+    minimums.extend(_header_experience_minimums(str(description or ""), duration))
     for index, part in enumerate(parts):
         if index % 2:
             required = " ".join(part.casefold().split()) in {
                 "requirements",
                 "minimum qualifications",
                 "required qualifications",
+                "qualifications",
+                "qualification",
+                "who you are",
+                "about you",
+                "what you bring",
                 "your expertise",
                 "must have",
             }
@@ -75,16 +96,74 @@ def description_experience_minimum(description):
 def _labelled_experience_minimums(description, duration):
     from libs.common.resume_facts import minimum_experience_years
 
+    # "Total Experience - 5 years", "Experience 2 - 5 years" and
+    # "Exp: 5+ years" are the same tenure fact with different punctuation.
+    pattern = re.compile(
+        rf"\b(?:(?:total|overall|relevant|professional|work|industry|hands-on|minimum|required)\s+)?"
+        rf"(?:experience|exp)\.?\s*(?:required|needed|minimum)?\s*[:\-–—]?\s*({duration})",
+        re.I,
+    )
     return [
         minimum_experience_years(match[1])
-        for match in re.finditer(rf"\bexperience\s*:\s*({duration})", description, re.I)
+        for match in pattern.finditer(description)
         if _tenure_is_required(description, match, True)
     ]
+
+
+_HEADER_FIELD = re.compile(
+    r"\b(?:location|work\s+location|notice(?:\s+period)?|np|employment(?:\s+type)?|"
+    r"job\s+type|work\s+mode|mode\s+of\s+work|salary|budget|ctc|openings?|positions?|"
+    r"joining|start\s+date|qualifications?|required\s+skills|skills?)\b",
+    re.I,
+)
+# Tenure written as a header fact before the first labelled field, e.g.
+# "Java Full stack Developer 5+ Years Location :- Bangalore".
+_HEADER_CONTEXT = re.compile(
+    r"\b(?:company|firm|organization|organisation|established|founded|incorporated|"
+    r"since|ago|old|age|project|contract|duration|last|past|next|every|per|"
+    r"warranty|product|offering|serving)\b",
+    re.I,
+)
+
+
+def _header_experience_minimums(description, duration):
+    from libs.common.resume_facts import minimum_experience_years
+
+    head = description[:300]
+    minimums = []
+    for match in re.finditer(rf"(?<![\d.])({duration})", head, re.I):
+        before = head[max(0, match.start() - 45) : match.start()]
+        after = head[match.end() : match.end() + 45]
+        if _HEADER_CONTEXT.search(before) or re.search(
+            r"\b(?:ago|old|established|founded|warranty|project|contract)\b", after, re.I
+        ):
+            continue
+        field = _HEADER_FIELD.search(after)
+        if not field or field.start() > 30:
+            continue
+        if _tenure_is_required(head, match, True):
+            minimums.append(minimum_experience_years(match[1]))
+    return minimums
+
+
+# A different labelled field ends the clause. Flattened job descriptions often
+# read "Experience: 5-10 Years Location: Bangalore ... Preferred Open
+# Positions: 1", where "Preferred" is headcount, not a preference on tenure.
+_NEXT_FIELD = re.compile(
+    r"(?:\b(?:preferred|required|minimum)\s+)?"
+    r"\b(?:location|work\s+location|employment\s+type|notice\s+period|job\s+description|"
+    r"open\s+positions?|department|company|role|position|salary|ctc|qualifications?|"
+    r"requirements?|responsibilities|benefits)\s*:",
+    re.I,
+)
 
 
 def _tenure_is_required(part, match, required_section):
     before = part[max(0, match.start() - 70) : match.start()]
     after = part[match.end() : match.end() + 90]
+    boundary = _NEXT_FIELD.search(after)
+    if boundary:
+        after = after[: boundary.start()]
     if re.search(r"\b(?:lasting|lasts|duration(?:\s+of)?)\s*$", before, re.I):
         return False
     # A preference in a required section still isn't a mandatory minimum.
@@ -96,7 +175,7 @@ def _tenure_is_required(part, match, required_section):
     return bool(required_section or explicit)
 
 
-def decision_fingerprint(profile, job, ai, threshold):
+def decision_fingerprint(profile, job, ai, threshold, shortfall=0.0):
     """Rescraping an unchanged listing must not consume another AI request."""
     job_data = dataclasses.asdict(job)
     for key in ("id", "scraped_at", "created_at", "updated_at", "card_index", "search_url"):
@@ -109,6 +188,7 @@ def decision_fingerprint(profile, job, ai, threshold):
         "enabled": ai.use_gemini,
         "matching": ai.enable_matching,
         "threshold": threshold,
+        "shortfall": max(0.0, float(shortfall or 0.0)),
     }
     return hashlib.sha256(json.dumps(context, sort_keys=True, default=str).encode()).hexdigest()[
         :32
