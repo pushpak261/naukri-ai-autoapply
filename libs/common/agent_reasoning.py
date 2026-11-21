@@ -30,6 +30,9 @@ def eligibility_concern(profile, job, max_shortfall=0.0):
         experience,
     )
     minimums = [float(match[1])] if match else []
+    title_minimum = title_experience_minimum(getattr(job, "title", ""))
+    if title_minimum is not None:
+        minimums.append(title_minimum)
     stated_minimum = description_experience_minimum(getattr(job, "description", ""))
     if stated_minimum is not None:
         minimums.append(stated_minimum)
@@ -44,6 +47,21 @@ def eligibility_concern(profile, job, max_shortfall=0.0):
     if math.isfinite(years) and years >= 0 and minimum > years + shortfall:
         return f"Eligibility check: listing explicitly requires at least {minimum:g} years; the saved resume records {years:g}. Review this mismatch before applying."
     return ""
+
+
+def title_experience_minimum(title):
+    """Read tenure stated in the title itself ("Java Developer | 6+ Years").
+
+    Seniority is sometimes only in the title while the body is a short
+    recruiter blurb with no tenure sentence. Ignore titles without an explicit
+    year unit so "Engineer III" or "Developer 2" never become tenure facts.
+    """
+    from libs.common.resume_facts import minimum_experience_years
+
+    text = str(title or "")
+    if not re.search(r"\b(?:years?|yrs?)\b", text, re.I):
+        return None
+    return minimum_experience_years(text)
 
 
 def description_experience_minimum(description):
@@ -139,7 +157,14 @@ def _header_experience_minimums(description, duration):
         ):
             continue
         field = _HEADER_FIELD.search(after)
-        if not field or field.start() > 30:
+        pipe_header = (
+            head[max(0, match.start() - 3) : match.start()]
+            .rstrip()
+            .endswith(("|", "•", "-", "–", "—"))
+            and match.start() <= 160
+        )
+        location_pin = after.lstrip().startswith("📍")
+        if (not field or field.start() > 30) and not pipe_header and not location_pin:
             continue
         if _tenure_is_required(head, match, True):
             minimums.append(minimum_experience_years(match[1]))
@@ -161,6 +186,11 @@ _NEXT_FIELD = re.compile(
 def _tenure_is_required(part, match, required_section):
     before = part[max(0, match.start() - 70) : match.start()]
     after = part[match.end() : match.end() + 90]
+    # A parenthetical note about the experience ("(Relevant experience
+    # preferred)") does not downgrade a labelled "Experience: 5–10 Years"
+    # field. Keep a bare status parenthetical such as "(preferred)", which
+    # does denote an optional requirement.
+    after = re.sub(r"\((?!\s*(?:preferred|optional|desirable)\s*\))[^)]*\)", " ", after, flags=re.I)
     boundary = _NEXT_FIELD.search(after)
     if boundary:
         after = after[: boundary.start()]
