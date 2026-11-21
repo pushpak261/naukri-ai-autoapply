@@ -4,7 +4,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from libs.common.agent_reasoning import description_experience_minimum, eligibility_concern
+from libs.common.agent_reasoning import (
+    description_experience_minimum,
+    eligibility_concern,
+    title_experience_minimum,
+)
 from src.naukri_agent.models.entities import Job, ResumeProfile
 
 
@@ -65,10 +69,68 @@ from src.naukri_agent.models.entities import Job, ResumeProfile
         ("Requirements: Support a project lasting 5 years in production.", None),
         ("Responsibilities: Build applications over the next 5 years.", None),
         ("Requirements: Java. Benefits: 5 years of industry experience at our company.", None),
+        (
+            "Experience: 5–10 Years (Relevant experience preferred) Location: Bangalore.",
+            5,
+        ),
+        ("Experience: 5–10 years (preferred). Location: Pune.", None),
+        (
+            "We’re Hiring: Java + Kotlin Backend Developer | 3–6 Years 📍 Bengaluru | "
+            "Open to candidates across India. Requirements added by the job poster "
+            "• 1+ years of work experience with Kotlin",
+            3,
+        ),
     ],
 )
 def test_required_description_tenure(description, minimum):
     assert description_experience_minimum(description) == minimum
+
+
+@pytest.mark.parametrize(
+    "title,minimum",
+    [
+        ("Java Developer – Apache Spark | 6+ Years | Immediate Joiners", 6),
+        ("Java + Kotlin Backend Developer | 3–6 Years", 3),
+        ("Full Stack Developer - 1-2 years", 1),
+        ("Senior Engineer (10+ yrs)", 10),
+        ("Software Engineer III", None),
+        ("Java Developer", None),
+    ],
+)
+def test_title_tenure(title, minimum):
+    assert title_experience_minimum(title) == minimum
+
+
+def test_senior_tenure_in_title_vetoes_junior_candidate():
+    job = Job(
+        "example",
+        "Java Developer – Apache Spark | 6+ Years | Immediate Joiners",
+        "UST",
+        "https://example.invalid",
+        description="Java, Spark and AWS development.",
+    )
+    assert "at least 6" in eligibility_concern(ResumeProfile(total_experience_years=1), job)
+
+
+def test_senior_tenure_in_title_blocks_local_approval():
+    from libs.common.local_matching import local_match
+
+    job = Job(
+        "example",
+        "Java Developer – Apache Spark | 6+ Years | Immediate Joiners",
+        "UST",
+        "https://example.invalid",
+        description="Java, Spark and AWS development.",
+        skills="Java, Spark, AWS",
+    )
+    profile = ResumeProfile(
+        skills=["Java", "Spring Boot", "AWS"],
+        technical_skills=["Java", "Spring Boot", "AWS"],
+        total_experience_years=1,
+    )
+    _, approved, reason, *_ = local_match(profile, job, 70, max_shortfall=1)
+    assert not approved
+    assert "Required experience is 6" in reason
 
 
 def test_description_minimum_is_not_hidden_by_zero_year_card():
